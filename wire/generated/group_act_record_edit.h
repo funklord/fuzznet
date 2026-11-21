@@ -32,7 +32,7 @@ typedef struct {
 	uint8_t version;
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint16_t port;
 	uint8_t hop_count;
 	uint8_t hops;
@@ -78,12 +78,12 @@ static inline situ_err_t fzn_group_act_record_fzn_contact_device_edit_decode(con
 	uint32_t at = 0u;
 	out->version = fzn_group_act_record_fzn_contact_device_version_get(view);
 	out->address_len = fzn_group_act_record_fzn_contact_device_address_len_get(view);
-	out->address_len = fzn_group_act_record_fzn_contact_device_address_len(view);
+	out->address_span = fzn_group_act_record_fzn_contact_device_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_group_act_record_fzn_contact_device_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->port = fzn_group_act_record_fzn_contact_device_port_get(view);
 	out->hop_count = fzn_group_act_record_fzn_contact_device_hop_count_get(view);
 	out->hops = fzn_group_act_record_fzn_contact_device_hops_get(view);
@@ -231,7 +231,7 @@ typedef struct {
 	uint8_t kind;
 	uint16_t record_len;
 	const uint8_t *record;	/* into your backing */
-	uint32_t record_len;
+	uint32_t record_span;
 	uint8_t hop_count;
 	uint8_t hops;
 } fzn_group_act_record_fzn_contact_estate_item_edit_t;
@@ -276,12 +276,12 @@ static inline situ_err_t fzn_group_act_record_fzn_contact_estate_item_edit_decod
 	uint32_t at = 0u;
 	out->kind = fzn_group_act_record_fzn_contact_estate_item_kind_get(view);
 	out->record_len = fzn_group_act_record_fzn_contact_estate_item_record_len_get(view);
-	out->record_len = fzn_group_act_record_fzn_contact_estate_item_record_len(view);
+	out->record_span = fzn_group_act_record_fzn_contact_estate_item_record_len(view);
 	out->record     = backing + at;
-	for (uint32_t i = 0u; i < out->record_len; i++) {
+	for (uint32_t i = 0u; i < out->record_span; i++) {
 		backing[at + i] = fzn_group_act_record_fzn_contact_estate_item_record_ptr(view)[i];
 	}
-	at += out->record_len;
+	at += out->record_span;
 	out->hop_count = fzn_group_act_record_fzn_contact_estate_item_hop_count_get(view);
 	out->hops = fzn_group_act_record_fzn_contact_estate_item_hops_get(view);
 	(void)at;
@@ -306,10 +306,10 @@ typedef struct {
 	uint64_t at;
 	uint16_t payload_len;
 	const uint8_t *payload;	/* into your backing */
-	uint32_t payload_len;
+	uint32_t payload_span;
 	uint16_t signer_len;
 	const uint8_t *signer;	/* into your backing */
-	uint32_t signer_len;
+	uint32_t signer_span;
 } fzn_group_act_record_fzn_group_act_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -359,19 +359,19 @@ static inline situ_err_t fzn_group_act_record_fzn_group_act_edit_decode(const si
 	out->value = fzn_group_act_record_fzn_group_act_value_get(view);
 	out->at = fzn_group_act_record_fzn_group_act_at_get(view);
 	out->payload_len = fzn_group_act_record_fzn_group_act_payload_len_get(view);
-	out->payload_len = fzn_group_act_record_fzn_group_act_payload_len(view);
+	out->payload_span = fzn_group_act_record_fzn_group_act_payload_len(view);
 	out->payload     = backing + at;
-	for (uint32_t i = 0u; i < out->payload_len; i++) {
+	for (uint32_t i = 0u; i < out->payload_span; i++) {
 		backing[at + i] = fzn_group_act_record_fzn_group_act_payload_ptr(view)[i];
 	}
-	at += out->payload_len;
+	at += out->payload_span;
 	out->signer_len = fzn_group_act_record_fzn_group_act_signer_len_get(view);
-	out->signer_len = fzn_group_act_record_fzn_group_act_signer_len(view);
+	out->signer_span = fzn_group_act_record_fzn_group_act_signer_len(view);
 	out->signer     = backing + at;
-	for (uint32_t i = 0u; i < out->signer_len; i++) {
+	for (uint32_t i = 0u; i < out->signer_span; i++) {
 		backing[at + i] = fzn_group_act_record_fzn_group_act_signer_ptr(view)[i];
 	}
-	at += out->signer_len;
+	at += out->signer_span;
 	(void)at;
 	return SITU_OK;
 }

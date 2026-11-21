@@ -33,7 +33,7 @@ typedef struct {
 	uint8_t type;
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint16_t port;
 } fzn_address_message_edit_t;
 
@@ -78,12 +78,12 @@ static inline situ_err_t fzn_address_message_edit_decode(const situ_msg_t *msg,
 	out->family = fzn_address_message_family_get(view);
 	out->type = fzn_address_message_type_get(view);
 	out->address_len = fzn_address_message_address_len_get(view);
-	out->address_len = fzn_address_message_address_len(view);
+	out->address_span = fzn_address_message_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_address_message_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->port = fzn_address_message_port_get(view);
 	(void)at;
 	return SITU_OK;

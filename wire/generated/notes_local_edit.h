@@ -40,13 +40,13 @@ typedef struct {
 	uint32_t colour;
 	uint8_t title_len;
 	const uint8_t *title;	/* into your backing */
-	uint32_t title_len;
+	uint32_t title_span;
 	uint16_t labels_len;
 	const uint8_t *labels;	/* into your backing */
-	uint32_t labels_len;
+	uint32_t labels_span;
 	uint8_t ref_len;
 	const uint8_t *ref;	/* into your backing */
-	uint32_t ref_len;
+	uint32_t ref_span;
 } fzn_notes_local_note_fields_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -99,26 +99,26 @@ static inline situ_err_t fzn_notes_local_note_fields_edit_decode(const situ_msg_
 	out->contested = fzn_notes_local_note_fields_contested_get(view);
 	out->colour = fzn_notes_local_note_fields_colour_get(view);
 	out->title_len = fzn_notes_local_note_fields_title_len_get(view);
-	out->title_len = fzn_notes_local_note_fields_title_len(view);
+	out->title_span = fzn_notes_local_note_fields_title_len(view);
 	out->title     = backing + at;
-	for (uint32_t i = 0u; i < out->title_len; i++) {
+	for (uint32_t i = 0u; i < out->title_span; i++) {
 		backing[at + i] = fzn_notes_local_note_fields_title_ptr(view)[i];
 	}
-	at += out->title_len;
+	at += out->title_span;
 	out->labels_len = fzn_notes_local_note_fields_labels_len_get(view);
-	out->labels_len = fzn_notes_local_note_fields_labels_len(view);
+	out->labels_span = fzn_notes_local_note_fields_labels_len(view);
 	out->labels     = backing + at;
-	for (uint32_t i = 0u; i < out->labels_len; i++) {
+	for (uint32_t i = 0u; i < out->labels_span; i++) {
 		backing[at + i] = fzn_notes_local_note_fields_labels_ptr(view)[i];
 	}
-	at += out->labels_len;
+	at += out->labels_span;
 	out->ref_len = fzn_notes_local_note_fields_ref_len_get(view);
-	out->ref_len = fzn_notes_local_note_fields_ref_len(view);
+	out->ref_span = fzn_notes_local_note_fields_ref_len(view);
 	out->ref     = backing + at;
-	for (uint32_t i = 0u; i < out->ref_len; i++) {
+	for (uint32_t i = 0u; i < out->ref_span; i++) {
 		backing[at + i] = fzn_notes_local_note_fields_ref_ptr(view)[i];
 	}
-	at += out->ref_len;
+	at += out->ref_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -135,7 +135,7 @@ typedef struct {
 	uint16_t content_type;
 	uint8_t title_len;
 	const uint8_t *title;	/* into your backing */
-	uint32_t title_len;
+	uint32_t title_span;
 } fzn_notes_local_add_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -178,12 +178,12 @@ static inline situ_err_t fzn_notes_local_add_edit_decode(const situ_msg_t *msg,
 	uint32_t at = 0u;
 	out->content_type = fzn_notes_local_add_content_type_get(view);
 	out->title_len = fzn_notes_local_add_title_len_get(view);
-	out->title_len = fzn_notes_local_add_title_len(view);
+	out->title_span = fzn_notes_local_add_title_len(view);
 	out->title     = backing + at;
-	for (uint32_t i = 0u; i < out->title_len; i++) {
+	for (uint32_t i = 0u; i < out->title_span; i++) {
 		backing[at + i] = fzn_notes_local_add_title_ptr(view)[i];
 	}
-	at += out->title_len;
+	at += out->title_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -200,7 +200,7 @@ typedef struct {
 	uint8_t field;
 	uint16_t value_len;
 	const uint8_t *value;	/* into your backing */
-	uint32_t value_len;
+	uint32_t value_span;
 } fzn_notes_local_change_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -243,12 +243,12 @@ static inline situ_err_t fzn_notes_local_change_edit_decode(const situ_msg_t *ms
 	uint32_t at = 0u;
 	out->field = fzn_notes_local_change_field_get(view);
 	out->value_len = fzn_notes_local_change_value_len_get(view);
-	out->value_len = fzn_notes_local_change_value_len(view);
+	out->value_span = fzn_notes_local_change_value_len(view);
 	out->value     = backing + at;
-	for (uint32_t i = 0u; i < out->value_len; i++) {
+	for (uint32_t i = 0u; i < out->value_span; i++) {
 		backing[at + i] = fzn_notes_local_change_value_ptr(view)[i];
 	}
-	at += out->value_len;
+	at += out->value_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -266,7 +266,7 @@ typedef struct {
 	uint16_t index;
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
-	uint32_t text_len;
+	uint32_t text_span;
 } fzn_notes_local_item_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -310,12 +310,12 @@ static inline situ_err_t fzn_notes_local_item_edit_decode(const situ_msg_t *msg,
 	out->what = fzn_notes_local_item_what_get(view);
 	out->index = fzn_notes_local_item_index_get(view);
 	out->text_len = fzn_notes_local_item_text_len_get(view);
-	out->text_len = fzn_notes_local_item_text_len(view);
+	out->text_span = fzn_notes_local_item_text_len(view);
 	out->text     = backing + at;
-	for (uint32_t i = 0u; i < out->text_len; i++) {
+	for (uint32_t i = 0u; i < out->text_span; i++) {
 		backing[at + i] = fzn_notes_local_item_text_ptr(view)[i];
 	}
-	at += out->text_len;
+	at += out->text_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -333,7 +333,7 @@ typedef struct {
 	uint32_t offset;
 	uint16_t piece_len;
 	const uint8_t *piece;	/* into your backing */
-	uint32_t piece_len;
+	uint32_t piece_span;
 } fzn_notes_local_text_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -377,12 +377,12 @@ static inline situ_err_t fzn_notes_local_text_edit_decode(const situ_msg_t *msg,
 	out->total = fzn_notes_local_text_total_get(view);
 	out->offset = fzn_notes_local_text_offset_get(view);
 	out->piece_len = fzn_notes_local_text_piece_len_get(view);
-	out->piece_len = fzn_notes_local_text_piece_len(view);
+	out->piece_span = fzn_notes_local_text_piece_len(view);
 	out->piece     = backing + at;
-	for (uint32_t i = 0u; i < out->piece_len; i++) {
+	for (uint32_t i = 0u; i < out->piece_span; i++) {
 		backing[at + i] = fzn_notes_local_text_piece_ptr(view)[i];
 	}
-	at += out->piece_len;
+	at += out->piece_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -400,7 +400,7 @@ typedef struct {
 	uint8_t catch_up;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_notes_local_share_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -444,12 +444,12 @@ static inline situ_err_t fzn_notes_local_share_edit_decode(const situ_msg_t *msg
 	out->add = fzn_notes_local_share_add_get(view);
 	out->catch_up = fzn_notes_local_share_catch_up_get(view);
 	out->name_len = fzn_notes_local_share_name_len_get(view);
-	out->name_len = fzn_notes_local_share_name_len(view);
+	out->name_span = fzn_notes_local_share_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_notes_local_share_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -465,7 +465,7 @@ static inline situ_err_t fzn_notes_local_share_edit_decode(const situ_msg_t *msg
 typedef struct {
 	uint8_t title_len;
 	const uint8_t *title;	/* into your backing */
-	uint32_t title_len;
+	uint32_t title_span;
 } fzn_notes_local_attach_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -507,12 +507,12 @@ static inline situ_err_t fzn_notes_local_attach_edit_decode(const situ_msg_t *ms
 
 	uint32_t at = 0u;
 	out->title_len = fzn_notes_local_attach_title_len_get(view);
-	out->title_len = fzn_notes_local_attach_title_len(view);
+	out->title_span = fzn_notes_local_attach_title_len(view);
 	out->title     = backing + at;
-	for (uint32_t i = 0u; i < out->title_len; i++) {
+	for (uint32_t i = 0u; i < out->title_span; i++) {
 		backing[at + i] = fzn_notes_local_attach_title_ptr(view)[i];
 	}
-	at += out->title_len;
+	at += out->title_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -529,7 +529,7 @@ typedef struct {
 	uint32_t offset;
 	uint16_t piece_len;
 	const uint8_t *piece;	/* into your backing */
-	uint32_t piece_len;
+	uint32_t piece_span;
 } fzn_notes_local_note_text_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -572,12 +572,12 @@ static inline situ_err_t fzn_notes_local_note_text_edit_decode(const situ_msg_t 
 	uint32_t at = 0u;
 	out->offset = fzn_notes_local_note_text_offset_get(view);
 	out->piece_len = fzn_notes_local_note_text_piece_len_get(view);
-	out->piece_len = fzn_notes_local_note_text_piece_len(view);
+	out->piece_span = fzn_notes_local_note_text_piece_len(view);
 	out->piece     = backing + at;
-	for (uint32_t i = 0u; i < out->piece_len; i++) {
+	for (uint32_t i = 0u; i < out->piece_span; i++) {
 		backing[at + i] = fzn_notes_local_note_text_piece_ptr(view)[i];
 	}
-	at += out->piece_len;
+	at += out->piece_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -595,7 +595,7 @@ typedef struct {
 	uint8_t catch_up;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_notes_local_share_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -639,12 +639,12 @@ static inline situ_err_t fzn_notes_local_share_row_edit_decode(const situ_msg_t 
 	out->to = fzn_notes_local_share_row_to_get(view);
 	out->catch_up = fzn_notes_local_share_row_catch_up_get(view);
 	out->name_len = fzn_notes_local_share_row_name_len_get(view);
-	out->name_len = fzn_notes_local_share_row_name_len(view);
+	out->name_span = fzn_notes_local_share_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_notes_local_share_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -664,10 +664,10 @@ typedef struct {
 	uint8_t contested;
 	uint8_t title_len;
 	const uint8_t *title;	/* into your backing */
-	uint32_t title_len;
+	uint32_t title_span;
 	uint16_t labels_len;
 	const uint8_t *labels;	/* into your backing */
-	uint32_t labels_len;
+	uint32_t labels_span;
 } fzn_notes_local_note_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -714,19 +714,19 @@ static inline situ_err_t fzn_notes_local_note_row_edit_decode(const situ_msg_t *
 	out->reachable = fzn_notes_local_note_row_reachable_get(view);
 	out->contested = fzn_notes_local_note_row_contested_get(view);
 	out->title_len = fzn_notes_local_note_row_title_len_get(view);
-	out->title_len = fzn_notes_local_note_row_title_len(view);
+	out->title_span = fzn_notes_local_note_row_title_len(view);
 	out->title     = backing + at;
-	for (uint32_t i = 0u; i < out->title_len; i++) {
+	for (uint32_t i = 0u; i < out->title_span; i++) {
 		backing[at + i] = fzn_notes_local_note_row_title_ptr(view)[i];
 	}
-	at += out->title_len;
+	at += out->title_span;
 	out->labels_len = fzn_notes_local_note_row_labels_len_get(view);
-	out->labels_len = fzn_notes_local_note_row_labels_len(view);
+	out->labels_span = fzn_notes_local_note_row_labels_len(view);
 	out->labels     = backing + at;
-	for (uint32_t i = 0u; i < out->labels_len; i++) {
+	for (uint32_t i = 0u; i < out->labels_span; i++) {
 		backing[at + i] = fzn_notes_local_note_row_labels_ptr(view)[i];
 	}
-	at += out->labels_len;
+	at += out->labels_span;
 	(void)at;
 	return SITU_OK;
 }

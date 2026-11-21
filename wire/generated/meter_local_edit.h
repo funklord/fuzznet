@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
 	uint8_t family_len;
 	const uint8_t *family;	/* into your backing */
-	uint32_t family_len;
+	uint32_t family_span;
 	uint64_t up;
 	uint64_t down;
 } fzn_meter_local_family_row_edit_t;
@@ -75,12 +75,12 @@ static inline situ_err_t fzn_meter_local_family_row_edit_decode(const situ_msg_t
 
 	uint32_t at = 0u;
 	out->family_len = fzn_meter_local_family_row_family_len_get(view);
-	out->family_len = fzn_meter_local_family_row_family_len(view);
+	out->family_span = fzn_meter_local_family_row_family_len(view);
 	out->family     = backing + at;
-	for (uint32_t i = 0u; i < out->family_len; i++) {
+	for (uint32_t i = 0u; i < out->family_span; i++) {
 		backing[at + i] = fzn_meter_local_family_row_family_ptr(view)[i];
 	}
-	at += out->family_len;
+	at += out->family_span;
 	out->up = fzn_meter_local_family_row_up_get(view);
 	out->down = fzn_meter_local_family_row_down_get(view);
 	(void)at;
@@ -98,10 +98,10 @@ static inline situ_err_t fzn_meter_local_family_row_edit_decode(const situ_msg_t
 typedef struct {
 	uint8_t family_len;
 	const uint8_t *family;	/* into your backing */
-	uint32_t family_len;
+	uint32_t family_span;
 	uint8_t peer_len;
 	const uint8_t *peer;	/* into your backing */
-	uint32_t peer_len;
+	uint32_t peer_span;
 	uint8_t has_key;
 	uint64_t up;
 	uint64_t down;
@@ -151,19 +151,19 @@ static inline situ_err_t fzn_meter_local_transfer_row_edit_decode(const situ_msg
 
 	uint32_t at = 0u;
 	out->family_len = fzn_meter_local_transfer_row_family_len_get(view);
-	out->family_len = fzn_meter_local_transfer_row_family_len(view);
+	out->family_span = fzn_meter_local_transfer_row_family_len(view);
 	out->family     = backing + at;
-	for (uint32_t i = 0u; i < out->family_len; i++) {
+	for (uint32_t i = 0u; i < out->family_span; i++) {
 		backing[at + i] = fzn_meter_local_transfer_row_family_ptr(view)[i];
 	}
-	at += out->family_len;
+	at += out->family_span;
 	out->peer_len = fzn_meter_local_transfer_row_peer_len_get(view);
-	out->peer_len = fzn_meter_local_transfer_row_peer_len(view);
+	out->peer_span = fzn_meter_local_transfer_row_peer_len(view);
 	out->peer     = backing + at;
-	for (uint32_t i = 0u; i < out->peer_len; i++) {
+	for (uint32_t i = 0u; i < out->peer_span; i++) {
 		backing[at + i] = fzn_meter_local_transfer_row_peer_ptr(view)[i];
 	}
-	at += out->peer_len;
+	at += out->peer_span;
 	out->has_key = fzn_meter_local_transfer_row_has_key_get(view);
 	out->up = fzn_meter_local_transfer_row_up_get(view);
 	out->down = fzn_meter_local_transfer_row_down_get(view);

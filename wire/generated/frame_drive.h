@@ -204,6 +204,33 @@ static inline situ_err_t situ_drive_reply_to_track_by_id(situ_drive_reply_to_t *
 	return situ_drive_reply_to_track_by_id_with(drive, bytes, len, id, now_ms, NULL);
 }
 
+/* `_track_from` by the request's key rather than its view: for
+ * an exchange this side awaits holding none of the request's
+ * bytes -- sealed and sent by somebody else, or forwarded --
+ * the key from `situ_conv_reply_to_key`. `bytes` is what a resend sends,
+ * or NULL with `len` 0 and a policy of no retries where this
+ * side resends nothing (fuzznet, inbox 20261121T0600Z). */
+static inline situ_err_t situ_drive_reply_to_track_key_from(situ_drive_reply_to_t *drive,
+                                               uint64_t key,
+                                               uint32_t peer,
+                                               const uint8_t *bytes,
+                                               uint32_t len, uint32_t id,
+                                               uint32_t now_ms,
+                                               const situ_drive_reply_to_policy_t *policy)
+{
+	const situ_err_t err = situ_conv_reply_to_record_key_from(&drive->pending, key, peer, id);
+	if (err != SITU_OK) {
+		return err;
+	}
+	const situ_err_t held = situ_drive_reply_to_track_by_id_with(drive, bytes, len, id,
+	                                                 now_ms, policy);
+	if (held != SITU_OK) {
+		/* Refused, so not pending either (26.1054). */
+		situ_conv_reply_to_forget(&drive->pending, id);
+	}
+	return held;
+}
+
 /* Remember `request` until it is answered, without sending it:
  * for a caller that sent it already, sealed under its own id, or one
  * that only awaits it because another host sent it (26.1055).
@@ -320,7 +347,8 @@ static inline situ_err_t situ_drive_reply_to_end(situ_drive_reply_to_t *drive, u
  * opened. The bytes are yours; nothing here holds a view past the
  * call.
  *
- * `_on_message_from`: only an exchange tracked with this `peer`. */
+ * `_on_message_from`: only an exchange tracked with this `peer`.
+ */
 static inline situ_err_t situ_drive_reply_to_on_message_from(situ_drive_reply_to_t *drive,
                                                 situ_view_t reply,
                                                 uint32_t peer,

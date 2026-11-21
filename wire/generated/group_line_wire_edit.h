@@ -34,7 +34,7 @@ typedef struct {
 	uint64_t stime;
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
-	uint32_t text_len;
+	uint32_t text_span;
 } fzn_group_line_wire_fzn_group_line_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -79,12 +79,12 @@ static inline situ_err_t fzn_group_line_wire_fzn_group_line_edit_decode(const si
 	out->epoch = fzn_group_line_wire_fzn_group_line_epoch_get(view);
 	out->stime = fzn_group_line_wire_fzn_group_line_stime_get(view);
 	out->text_len = fzn_group_line_wire_fzn_group_line_text_len_get(view);
-	out->text_len = fzn_group_line_wire_fzn_group_line_text_len(view);
+	out->text_span = fzn_group_line_wire_fzn_group_line_text_len(view);
 	out->text     = backing + at;
-	for (uint32_t i = 0u; i < out->text_len; i++) {
+	for (uint32_t i = 0u; i < out->text_span; i++) {
 		backing[at + i] = fzn_group_line_wire_fzn_group_line_text_ptr(view)[i];
 	}
-	at += out->text_len;
+	at += out->text_span;
 	(void)at;
 	return SITU_OK;
 }

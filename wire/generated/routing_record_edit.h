@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint16_t port;
 	uint8_t transport;
 	uint8_t metric;
@@ -76,12 +76,12 @@ static inline situ_err_t fzn_routing_record_fzn_routing_entry_edit_decode(const 
 
 	uint32_t at = 0u;
 	out->address_len = fzn_routing_record_fzn_routing_entry_address_len_get(view);
-	out->address_len = fzn_routing_record_fzn_routing_entry_address_len(view);
+	out->address_span = fzn_routing_record_fzn_routing_entry_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_routing_record_fzn_routing_entry_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->port = fzn_routing_record_fzn_routing_entry_port_get(view);
 	out->transport = fzn_routing_record_fzn_routing_entry_transport_get(view);
 	out->metric = fzn_routing_record_fzn_routing_entry_metric_get(view);

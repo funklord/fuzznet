@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
 	uint16_t chain_len;
 	const uint8_t *chain;	/* into your backing */
-	uint32_t chain_len;
+	uint32_t chain_span;
 } fzn_members_local_granted_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -73,12 +73,12 @@ static inline situ_err_t fzn_members_local_granted_row_edit_decode(const situ_ms
 
 	uint32_t at = 0u;
 	out->chain_len = fzn_members_local_granted_row_chain_len_get(view);
-	out->chain_len = fzn_members_local_granted_row_chain_len(view);
+	out->chain_span = fzn_members_local_granted_row_chain_len(view);
 	out->chain     = backing + at;
-	for (uint32_t i = 0u; i < out->chain_len; i++) {
+	for (uint32_t i = 0u; i < out->chain_span; i++) {
 		backing[at + i] = fzn_members_local_granted_row_chain_ptr(view)[i];
 	}
-	at += out->chain_len;
+	at += out->chain_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -95,7 +95,7 @@ typedef struct {
 	uint8_t kind;
 	uint16_t word_len;
 	const uint8_t *word;	/* into your backing */
-	uint32_t word_len;
+	uint32_t word_span;
 } fzn_members_local_act_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -138,12 +138,12 @@ static inline situ_err_t fzn_members_local_act_edit_decode(const situ_msg_t *msg
 	uint32_t at = 0u;
 	out->kind = fzn_members_local_act_kind_get(view);
 	out->word_len = fzn_members_local_act_word_len_get(view);
-	out->word_len = fzn_members_local_act_word_len(view);
+	out->word_span = fzn_members_local_act_word_len(view);
 	out->word     = backing + at;
-	for (uint32_t i = 0u; i < out->word_len; i++) {
+	for (uint32_t i = 0u; i < out->word_span; i++) {
 		backing[at + i] = fzn_members_local_act_word_ptr(view)[i];
 	}
-	at += out->word_len;
+	at += out->word_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -162,10 +162,10 @@ typedef struct {
 	uint64_t heard_s;
 	uint16_t where_len;
 	const uint8_t *where;	/* into your backing */
-	uint32_t where_len;
+	uint32_t where_span;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_members_local_sibling_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -211,19 +211,19 @@ static inline situ_err_t fzn_members_local_sibling_row_edit_decode(const situ_ms
 	out->heard = fzn_members_local_sibling_row_heard_get(view);
 	out->heard_s = fzn_members_local_sibling_row_heard_s_get(view);
 	out->where_len = fzn_members_local_sibling_row_where_len_get(view);
-	out->where_len = fzn_members_local_sibling_row_where_len(view);
+	out->where_span = fzn_members_local_sibling_row_where_len(view);
 	out->where     = backing + at;
-	for (uint32_t i = 0u; i < out->where_len; i++) {
+	for (uint32_t i = 0u; i < out->where_span; i++) {
 		backing[at + i] = fzn_members_local_sibling_row_where_ptr(view)[i];
 	}
-	at += out->where_len;
+	at += out->where_span;
 	out->name_len = fzn_members_local_sibling_row_name_len_get(view);
-	out->name_len = fzn_members_local_sibling_row_name_len(view);
+	out->name_span = fzn_members_local_sibling_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_members_local_sibling_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -239,7 +239,7 @@ static inline situ_err_t fzn_members_local_sibling_row_edit_decode(const situ_ms
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t holds;
 	uint8_t hops;
 	uint64_t expires;
@@ -284,12 +284,12 @@ static inline situ_err_t fzn_members_local_capability_row_edit_decode(const situ
 
 	uint32_t at = 0u;
 	out->name_len = fzn_members_local_capability_row_name_len_get(view);
-	out->name_len = fzn_members_local_capability_row_name_len(view);
+	out->name_span = fzn_members_local_capability_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_members_local_capability_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->holds = fzn_members_local_capability_row_holds_get(view);
 	out->hops = fzn_members_local_capability_row_hops_get(view);
 	out->expires = fzn_members_local_capability_row_expires_get(view);
@@ -308,7 +308,7 @@ static inline situ_err_t fzn_members_local_capability_row_edit_decode(const situ
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint64_t expires;
 	uint8_t stands;
 } fzn_members_local_grant_row_edit_t;
@@ -352,12 +352,12 @@ static inline situ_err_t fzn_members_local_grant_row_edit_decode(const situ_msg_
 
 	uint32_t at = 0u;
 	out->name_len = fzn_members_local_grant_row_name_len_get(view);
-	out->name_len = fzn_members_local_grant_row_name_len(view);
+	out->name_span = fzn_members_local_grant_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_members_local_grant_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->expires = fzn_members_local_grant_row_expires_get(view);
 	out->stands = fzn_members_local_grant_row_stands_get(view);
 	(void)at;
@@ -375,7 +375,7 @@ static inline situ_err_t fzn_members_local_grant_row_edit_decode(const situ_msg_
 typedef struct {
 	uint8_t code_len;
 	const uint8_t *code;	/* into your backing */
-	uint32_t code_len;
+	uint32_t code_span;
 } fzn_members_local_invite_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -417,12 +417,12 @@ static inline situ_err_t fzn_members_local_invite_row_edit_decode(const situ_msg
 
 	uint32_t at = 0u;
 	out->code_len = fzn_members_local_invite_row_code_len_get(view);
-	out->code_len = fzn_members_local_invite_row_code_len(view);
+	out->code_span = fzn_members_local_invite_row_code_len(view);
 	out->code     = backing + at;
-	for (uint32_t i = 0u; i < out->code_len; i++) {
+	for (uint32_t i = 0u; i < out->code_span; i++) {
 		backing[at + i] = fzn_members_local_invite_row_code_ptr(view)[i];
 	}
-	at += out->code_len;
+	at += out->code_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -438,7 +438,7 @@ static inline situ_err_t fzn_members_local_invite_row_edit_decode(const situ_msg
 typedef struct {
 	uint8_t state_len;
 	const uint8_t *state;	/* into your backing */
-	uint32_t state_len;
+	uint32_t state_span;
 } fzn_members_local_rekey_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -480,12 +480,12 @@ static inline situ_err_t fzn_members_local_rekey_row_edit_decode(const situ_msg_
 
 	uint32_t at = 0u;
 	out->state_len = fzn_members_local_rekey_row_state_len_get(view);
-	out->state_len = fzn_members_local_rekey_row_state_len(view);
+	out->state_span = fzn_members_local_rekey_row_state_len(view);
 	out->state     = backing + at;
-	for (uint32_t i = 0u; i < out->state_len; i++) {
+	for (uint32_t i = 0u; i < out->state_span; i++) {
 		backing[at + i] = fzn_members_local_rekey_row_state_ptr(view)[i];
 	}
-	at += out->state_len;
+	at += out->state_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -501,13 +501,13 @@ static inline situ_err_t fzn_members_local_rekey_row_edit_decode(const situ_msg_
 typedef struct {
 	uint16_t token_len;
 	const uint8_t *token;	/* into your backing */
-	uint32_t token_len;
+	uint32_t token_span;
 	uint8_t deadline_len;
 	const uint8_t *deadline;	/* into your backing */
-	uint32_t deadline_len;
+	uint32_t deadline_span;
 	uint16_t key_len;
 	const uint8_t *key;	/* into your backing */
-	uint32_t key_len;
+	uint32_t key_span;
 } fzn_members_local_staged_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -551,26 +551,26 @@ static inline situ_err_t fzn_members_local_staged_row_edit_decode(const situ_msg
 
 	uint32_t at = 0u;
 	out->token_len = fzn_members_local_staged_row_token_len_get(view);
-	out->token_len = fzn_members_local_staged_row_token_len(view);
+	out->token_span = fzn_members_local_staged_row_token_len(view);
 	out->token     = backing + at;
-	for (uint32_t i = 0u; i < out->token_len; i++) {
+	for (uint32_t i = 0u; i < out->token_span; i++) {
 		backing[at + i] = fzn_members_local_staged_row_token_ptr(view)[i];
 	}
-	at += out->token_len;
+	at += out->token_span;
 	out->deadline_len = fzn_members_local_staged_row_deadline_len_get(view);
-	out->deadline_len = fzn_members_local_staged_row_deadline_len(view);
+	out->deadline_span = fzn_members_local_staged_row_deadline_len(view);
 	out->deadline     = backing + at;
-	for (uint32_t i = 0u; i < out->deadline_len; i++) {
+	for (uint32_t i = 0u; i < out->deadline_span; i++) {
 		backing[at + i] = fzn_members_local_staged_row_deadline_ptr(view)[i];
 	}
-	at += out->deadline_len;
+	at += out->deadline_span;
 	out->key_len = fzn_members_local_staged_row_key_len_get(view);
-	out->key_len = fzn_members_local_staged_row_key_len(view);
+	out->key_span = fzn_members_local_staged_row_key_len(view);
 	out->key     = backing + at;
-	for (uint32_t i = 0u; i < out->key_len; i++) {
+	for (uint32_t i = 0u; i < out->key_span; i++) {
 		backing[at + i] = fzn_members_local_staged_row_key_ptr(view)[i];
 	}
-	at += out->key_len;
+	at += out->key_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -587,7 +587,7 @@ typedef struct {
 	uint8_t in_force;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_members_local_preset_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -630,12 +630,12 @@ static inline situ_err_t fzn_members_local_preset_row_edit_decode(const situ_msg
 	uint32_t at = 0u;
 	out->in_force = fzn_members_local_preset_row_in_force_get(view);
 	out->name_len = fzn_members_local_preset_row_name_len_get(view);
-	out->name_len = fzn_members_local_preset_row_name_len(view);
+	out->name_span = fzn_members_local_preset_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_members_local_preset_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -651,7 +651,7 @@ static inline situ_err_t fzn_members_local_preset_row_edit_decode(const situ_msg
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t member;
 	uint64_t held;
 	uint64_t delivered;
@@ -697,12 +697,12 @@ static inline situ_err_t fzn_members_local_self_row_edit_decode(const situ_msg_t
 
 	uint32_t at = 0u;
 	out->name_len = fzn_members_local_self_row_name_len_get(view);
-	out->name_len = fzn_members_local_self_row_name_len(view);
+	out->name_span = fzn_members_local_self_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_members_local_self_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->member = fzn_members_local_self_row_member_get(view);
 	out->held = fzn_members_local_self_row_held_get(view);
 	out->delivered = fzn_members_local_self_row_delivered_get(view);

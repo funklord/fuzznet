@@ -94,7 +94,7 @@ static inline situ_err_t fzn_search_local_store_edit_decode(const situ_msg_t *ms
 typedef struct {
 	uint8_t words_len;
 	const uint8_t *words;	/* into your backing */
-	uint32_t words_len;
+	uint32_t words_span;
 	uint8_t store_count;
 	uint64_t since_ms;
 	uint64_t until_ms;
@@ -104,13 +104,13 @@ typedef struct {
 	uint64_t after_time_ms;
 	uint8_t after_store_len;
 	const uint8_t *after_store;	/* into your backing */
-	uint32_t after_store_len;
+	uint32_t after_store_span;
 	uint8_t after_key_len;
 	const uint8_t *after_key;	/* into your backing */
-	uint32_t after_key_len;
+	uint32_t after_key_span;
 	uint16_t filter_len;
 	const uint8_t *filter;	/* into your backing */
-	uint32_t filter_len;
+	uint32_t filter_span;
 } fzn_search_local_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -155,12 +155,12 @@ static inline situ_err_t fzn_search_local_ask_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->words_len = fzn_search_local_ask_words_len_get(view);
-	out->words_len = fzn_search_local_ask_words_len(view);
+	out->words_span = fzn_search_local_ask_words_len(view);
 	out->words     = backing + at;
-	for (uint32_t i = 0u; i < out->words_len; i++) {
+	for (uint32_t i = 0u; i < out->words_span; i++) {
 		backing[at + i] = fzn_search_local_ask_words_ptr(view)[i];
 	}
-	at += out->words_len;
+	at += out->words_span;
 	out->store_count = fzn_search_local_ask_store_count_get(view);
 	out->since_ms = fzn_search_local_ask_since_ms_get(view);
 	out->until_ms = fzn_search_local_ask_until_ms_get(view);
@@ -169,26 +169,26 @@ static inline situ_err_t fzn_search_local_ask_edit_decode(const situ_msg_t *msg,
 	out->after_score = fzn_search_local_ask_after_score_get(view);
 	out->after_time_ms = fzn_search_local_ask_after_time_ms_get(view);
 	out->after_store_len = fzn_search_local_ask_after_store_len_get(view);
-	out->after_store_len = fzn_search_local_ask_after_store_len(view);
+	out->after_store_span = fzn_search_local_ask_after_store_len(view);
 	out->after_store     = backing + at;
-	for (uint32_t i = 0u; i < out->after_store_len; i++) {
+	for (uint32_t i = 0u; i < out->after_store_span; i++) {
 		backing[at + i] = fzn_search_local_ask_after_store_ptr(view)[i];
 	}
-	at += out->after_store_len;
+	at += out->after_store_span;
 	out->after_key_len = fzn_search_local_ask_after_key_len_get(view);
-	out->after_key_len = fzn_search_local_ask_after_key_len(view);
+	out->after_key_span = fzn_search_local_ask_after_key_len(view);
 	out->after_key     = backing + at;
-	for (uint32_t i = 0u; i < out->after_key_len; i++) {
+	for (uint32_t i = 0u; i < out->after_key_span; i++) {
 		backing[at + i] = fzn_search_local_ask_after_key_ptr(view)[i];
 	}
-	at += out->after_key_len;
+	at += out->after_key_span;
 	out->filter_len = fzn_search_local_ask_filter_len_get(view);
-	out->filter_len = fzn_search_local_ask_filter_len(view);
+	out->filter_span = fzn_search_local_ask_filter_len(view);
 	out->filter     = backing + at;
-	for (uint32_t i = 0u; i < out->filter_len; i++) {
+	for (uint32_t i = 0u; i < out->filter_span; i++) {
 		backing[at + i] = fzn_search_local_ask_filter_ptr(view)[i];
 	}
-	at += out->filter_len;
+	at += out->filter_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -267,12 +267,12 @@ static inline situ_err_t fzn_search_local_local_ask_edit_decode(const situ_msg_t
 typedef struct {
 	uint8_t key_len;
 	const uint8_t *key;	/* into your backing */
-	uint32_t key_len;
+	uint32_t key_span;
 	uint32_t score;
 	uint64_t time_ms;
 	uint8_t snippet_len;
 	const uint8_t *snippet;	/* into your backing */
-	uint32_t snippet_len;
+	uint32_t snippet_span;
 } fzn_search_local_hit_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -315,21 +315,21 @@ static inline situ_err_t fzn_search_local_hit_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->key_len = fzn_search_local_hit_key_len_get(view);
-	out->key_len = fzn_search_local_hit_key_len(view);
+	out->key_span = fzn_search_local_hit_key_len(view);
 	out->key     = backing + at;
-	for (uint32_t i = 0u; i < out->key_len; i++) {
+	for (uint32_t i = 0u; i < out->key_span; i++) {
 		backing[at + i] = fzn_search_local_hit_key_ptr(view)[i];
 	}
-	at += out->key_len;
+	at += out->key_span;
 	out->score = fzn_search_local_hit_score_get(view);
 	out->time_ms = fzn_search_local_hit_time_ms_get(view);
 	out->snippet_len = fzn_search_local_hit_snippet_len_get(view);
-	out->snippet_len = fzn_search_local_hit_snippet_len(view);
+	out->snippet_span = fzn_search_local_hit_snippet_len(view);
 	out->snippet     = backing + at;
-	for (uint32_t i = 0u; i < out->snippet_len; i++) {
+	for (uint32_t i = 0u; i < out->snippet_span; i++) {
 		backing[at + i] = fzn_search_local_hit_snippet_ptr(view)[i];
 	}
-	at += out->snippet_len;
+	at += out->snippet_span;
 	(void)at;
 	return SITU_OK;
 }

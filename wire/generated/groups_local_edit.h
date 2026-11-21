@@ -34,7 +34,7 @@ typedef struct {
 	uint64_t lines;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_groups_local_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -79,12 +79,12 @@ static inline situ_err_t fzn_groups_local_row_edit_decode(const situ_msg_t *msg,
 	out->admin = fzn_groups_local_row_admin_get(view);
 	out->lines = fzn_groups_local_row_lines_get(view);
 	out->name_len = fzn_groups_local_row_name_len_get(view);
-	out->name_len = fzn_groups_local_row_name_len(view);
+	out->name_span = fzn_groups_local_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_groups_local_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -101,10 +101,10 @@ typedef struct {
 	uint8_t what;
 	uint8_t group_len;
 	const uint8_t *group;	/* into your backing */
-	uint32_t group_len;
+	uint32_t group_span;
 	uint8_t who_len;
 	const uint8_t *who;	/* into your backing */
-	uint32_t who_len;
+	uint32_t who_span;
 } fzn_groups_local_change_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -148,19 +148,19 @@ static inline situ_err_t fzn_groups_local_change_edit_decode(const situ_msg_t *m
 	uint32_t at = 0u;
 	out->what = fzn_groups_local_change_what_get(view);
 	out->group_len = fzn_groups_local_change_group_len_get(view);
-	out->group_len = fzn_groups_local_change_group_len(view);
+	out->group_span = fzn_groups_local_change_group_len(view);
 	out->group     = backing + at;
-	for (uint32_t i = 0u; i < out->group_len; i++) {
+	for (uint32_t i = 0u; i < out->group_span; i++) {
 		backing[at + i] = fzn_groups_local_change_group_ptr(view)[i];
 	}
-	at += out->group_len;
+	at += out->group_span;
 	out->who_len = fzn_groups_local_change_who_len_get(view);
-	out->who_len = fzn_groups_local_change_who_len(view);
+	out->who_span = fzn_groups_local_change_who_len(view);
 	out->who     = backing + at;
-	for (uint32_t i = 0u; i < out->who_len; i++) {
+	for (uint32_t i = 0u; i < out->who_span; i++) {
 		backing[at + i] = fzn_groups_local_change_who_ptr(view)[i];
 	}
-	at += out->who_len;
+	at += out->who_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -176,7 +176,7 @@ static inline situ_err_t fzn_groups_local_change_edit_decode(const situ_msg_t *m
 typedef struct {
 	uint8_t group_len;
 	const uint8_t *group;	/* into your backing */
-	uint32_t group_len;
+	uint32_t group_span;
 } fzn_groups_local_backfill_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -218,12 +218,12 @@ static inline situ_err_t fzn_groups_local_backfill_ask_edit_decode(const situ_ms
 
 	uint32_t at = 0u;
 	out->group_len = fzn_groups_local_backfill_ask_group_len_get(view);
-	out->group_len = fzn_groups_local_backfill_ask_group_len(view);
+	out->group_span = fzn_groups_local_backfill_ask_group_len(view);
 	out->group     = backing + at;
-	for (uint32_t i = 0u; i < out->group_len; i++) {
+	for (uint32_t i = 0u; i < out->group_span; i++) {
 		backing[at + i] = fzn_groups_local_backfill_ask_group_ptr(view)[i];
 	}
-	at += out->group_len;
+	at += out->group_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -240,7 +240,7 @@ typedef struct {
 	uint8_t admin;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_groups_local_member_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -283,12 +283,12 @@ static inline situ_err_t fzn_groups_local_member_row_edit_decode(const situ_msg_
 	uint32_t at = 0u;
 	out->admin = fzn_groups_local_member_row_admin_get(view);
 	out->name_len = fzn_groups_local_member_row_name_len_get(view);
-	out->name_len = fzn_groups_local_member_row_name_len(view);
+	out->name_span = fzn_groups_local_member_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_groups_local_member_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }

@@ -33,7 +33,7 @@ typedef struct {
 	uint8_t tag;
 	uint16_t card_len;
 	const uint8_t *card;	/* into your backing */
-	uint32_t card_len;
+	uint32_t card_span;
 	uint64_t expires_at;
 } fzn_contact_request_record_fzn_contact_request_edit_t;
 
@@ -78,12 +78,12 @@ static inline situ_err_t fzn_contact_request_record_fzn_contact_request_edit_dec
 	out->version = fzn_contact_request_record_fzn_contact_request_version_get(view);
 	out->tag = fzn_contact_request_record_fzn_contact_request_tag_get(view);
 	out->card_len = fzn_contact_request_record_fzn_contact_request_card_len_get(view);
-	out->card_len = fzn_contact_request_record_fzn_contact_request_card_len(view);
+	out->card_span = fzn_contact_request_record_fzn_contact_request_card_len(view);
 	out->card     = backing + at;
-	for (uint32_t i = 0u; i < out->card_len; i++) {
+	for (uint32_t i = 0u; i < out->card_span; i++) {
 		backing[at + i] = fzn_contact_request_record_fzn_contact_request_card_ptr(view)[i];
 	}
-	at += out->card_len;
+	at += out->card_span;
 	out->expires_at = fzn_contact_request_record_fzn_contact_request_expires_at_get(view);
 	(void)at;
 	return SITU_OK;

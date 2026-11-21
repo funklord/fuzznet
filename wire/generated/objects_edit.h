@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_objects_named_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -73,12 +73,12 @@ static inline situ_err_t fzn_objects_named_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->name_len = fzn_objects_named_name_len_get(view);
-	out->name_len = fzn_objects_named_name_len(view);
+	out->name_span = fzn_objects_named_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_objects_named_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -94,10 +94,10 @@ static inline situ_err_t fzn_objects_named_edit_decode(const situ_msg_t *msg,
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t allowed_len;
 	const uint8_t *allowed;	/* into your backing */
-	uint32_t allowed_len;
+	uint32_t allowed_span;
 } fzn_objects_add_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -140,19 +140,19 @@ static inline situ_err_t fzn_objects_add_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->name_len = fzn_objects_add_name_len_get(view);
-	out->name_len = fzn_objects_add_name_len(view);
+	out->name_span = fzn_objects_add_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_objects_add_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->allowed_len = fzn_objects_add_allowed_len_get(view);
-	out->allowed_len = fzn_objects_add_allowed_len(view);
+	out->allowed_span = fzn_objects_add_allowed_len(view);
 	out->allowed     = backing + at;
-	for (uint32_t i = 0u; i < out->allowed_len; i++) {
+	for (uint32_t i = 0u; i < out->allowed_span; i++) {
 		backing[at + i] = fzn_objects_add_allowed_ptr(view)[i];
 	}
-	at += out->allowed_len;
+	at += out->allowed_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -168,10 +168,10 @@ static inline situ_err_t fzn_objects_add_edit_decode(const situ_msg_t *msg,
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t value_len;
 	const uint8_t *value;	/* into your backing */
-	uint32_t value_len;
+	uint32_t value_span;
 } fzn_objects_set_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -214,19 +214,19 @@ static inline situ_err_t fzn_objects_set_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->name_len = fzn_objects_set_name_len_get(view);
-	out->name_len = fzn_objects_set_name_len(view);
+	out->name_span = fzn_objects_set_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_objects_set_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->value_len = fzn_objects_set_value_len_get(view);
-	out->value_len = fzn_objects_set_value_len(view);
+	out->value_span = fzn_objects_set_value_len(view);
 	out->value     = backing + at;
-	for (uint32_t i = 0u; i < out->value_len; i++) {
+	for (uint32_t i = 0u; i < out->value_span; i++) {
 		backing[at + i] = fzn_objects_set_value_ptr(view)[i];
 	}
-	at += out->value_len;
+	at += out->value_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -242,14 +242,14 @@ static inline situ_err_t fzn_objects_set_edit_decode(const situ_msg_t *msg,
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t value_len;
 	const uint8_t *value;	/* into your backing */
-	uint32_t value_len;
+	uint32_t value_span;
 	uint64_t at_ms;
 	uint8_t allowed_len;
 	const uint8_t *allowed;	/* into your backing */
-	uint32_t allowed_len;
+	uint32_t allowed_span;
 } fzn_objects_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -293,27 +293,27 @@ static inline situ_err_t fzn_objects_row_edit_decode(const situ_msg_t *msg,
 
 	uint32_t at = 0u;
 	out->name_len = fzn_objects_row_name_len_get(view);
-	out->name_len = fzn_objects_row_name_len(view);
+	out->name_span = fzn_objects_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_objects_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->value_len = fzn_objects_row_value_len_get(view);
-	out->value_len = fzn_objects_row_value_len(view);
+	out->value_span = fzn_objects_row_value_len(view);
 	out->value     = backing + at;
-	for (uint32_t i = 0u; i < out->value_len; i++) {
+	for (uint32_t i = 0u; i < out->value_span; i++) {
 		backing[at + i] = fzn_objects_row_value_ptr(view)[i];
 	}
-	at += out->value_len;
+	at += out->value_span;
 	out->at_ms = fzn_objects_row_at_ms_get(view);
 	out->allowed_len = fzn_objects_row_allowed_len_get(view);
-	out->allowed_len = fzn_objects_row_allowed_len(view);
+	out->allowed_span = fzn_objects_row_allowed_len(view);
 	out->allowed     = backing + at;
-	for (uint32_t i = 0u; i < out->allowed_len; i++) {
+	for (uint32_t i = 0u; i < out->allowed_span; i++) {
 		backing[at + i] = fzn_objects_row_allowed_ptr(view)[i];
 	}
-	at += out->allowed_len;
+	at += out->allowed_span;
 	(void)at;
 	return SITU_OK;
 }

@@ -44,7 +44,7 @@ typedef struct {
 	uint8_t coarse;
 	uint8_t whose_len;
 	const uint8_t *whose;	/* into your backing */
-	uint32_t whose_len;
+	uint32_t whose_span;
 } fzn_streams_local_location_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -99,12 +99,12 @@ static inline situ_err_t fzn_streams_local_location_row_edit_decode(const situ_m
 	out->has_bearing = fzn_streams_local_location_row_has_bearing_get(view);
 	out->coarse = fzn_streams_local_location_row_coarse_get(view);
 	out->whose_len = fzn_streams_local_location_row_whose_len_get(view);
-	out->whose_len = fzn_streams_local_location_row_whose_len(view);
+	out->whose_span = fzn_streams_local_location_row_whose_len(view);
 	out->whose     = backing + at;
-	for (uint32_t i = 0u; i < out->whose_len; i++) {
+	for (uint32_t i = 0u; i < out->whose_span; i++) {
 		backing[at + i] = fzn_streams_local_location_row_whose_ptr(view)[i];
 	}
-	at += out->whose_len;
+	at += out->whose_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -129,7 +129,7 @@ typedef struct {
 	uint64_t supplied;
 	uint8_t gpsd_len;
 	const uint8_t *gpsd;	/* into your backing */
-	uint32_t gpsd_len;
+	uint32_t gpsd_span;
 } fzn_streams_local_status_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -180,12 +180,12 @@ static inline situ_err_t fzn_streams_local_status_row_edit_decode(const situ_msg
 	out->source = fzn_streams_local_status_row_source_get(view);
 	out->supplied = fzn_streams_local_status_row_supplied_get(view);
 	out->gpsd_len = fzn_streams_local_status_row_gpsd_len_get(view);
-	out->gpsd_len = fzn_streams_local_status_row_gpsd_len(view);
+	out->gpsd_span = fzn_streams_local_status_row_gpsd_len(view);
 	out->gpsd     = backing + at;
-	for (uint32_t i = 0u; i < out->gpsd_len; i++) {
+	for (uint32_t i = 0u; i < out->gpsd_span; i++) {
 		backing[at + i] = fzn_streams_local_status_row_gpsd_ptr(view)[i];
 	}
-	at += out->gpsd_len;
+	at += out->gpsd_span;
 	(void)at;
 	return SITU_OK;
 }

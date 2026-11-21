@@ -149,10 +149,9 @@ static inline situ_err_t fzn_setting_record_fzn_setting_unranked_build(
 /** Build a fzn_setting into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
- *  This one writes the `ranked` arm. Which arm is
- *  said by which builder you call, so the discriminant is
- *  this function's to write and cannot disagree with the
- *  body.
+ *  This one writes the `ranked` arm. The frame's
+ *  length selects the arm, so nothing is written for it: the
+ *  arm's own length is what a reader takes it from.
  *
  * `*situ_wrote` is set only on success. A size field is computed
  * from the run it measures rather than supplied, so a message
@@ -331,10 +330,9 @@ static inline situ_err_t fzn_setting_record_fzn_setting_build_ranked(
 /** Build a fzn_setting into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
- *  This one writes the `unranked` arm. Which arm is
- *  said by which builder you call, so the discriminant is
- *  this function's to write and cannot disagree with the
- *  body.
+ *  This one writes the `unranked` arm. The frame's
+ *  length selects the arm, so nothing is written for it: the
+ *  arm's own length is what a reader takes it from.
  *
  * `*situ_wrote` is set only on success. A size field is computed
  * from the run it measures rather than supplied, so a message

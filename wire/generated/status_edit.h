@@ -33,7 +33,7 @@ typedef struct {
 	uint8_t code;
 	uint8_t why_len;
 	const uint8_t *why;	/* into your backing */
-	uint32_t why_len;
+	uint32_t why_span;
 } fzn_status_message_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -77,12 +77,12 @@ static inline situ_err_t fzn_status_message_edit_decode(const situ_msg_t *msg,
 	out->cmd = fzn_status_message_cmd_get(view);
 	out->code = fzn_status_message_code_get(view);
 	out->why_len = fzn_status_message_why_len_get(view);
-	out->why_len = fzn_status_message_why_len(view);
+	out->why_span = fzn_status_message_why_len(view);
 	out->why     = backing + at;
-	for (uint32_t i = 0u; i < out->why_len; i++) {
+	for (uint32_t i = 0u; i < out->why_span; i++) {
 		backing[at + i] = fzn_status_message_why_ptr(view)[i];
 	}
-	at += out->why_len;
+	at += out->why_span;
 	(void)at;
 	return SITU_OK;
 }

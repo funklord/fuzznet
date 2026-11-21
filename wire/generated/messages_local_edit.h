@@ -34,10 +34,10 @@ typedef struct {
 	uint8_t kind;
 	uint8_t sender_len;
 	const uint8_t *sender;	/* into your backing */
-	uint32_t sender_len;
+	uint32_t sender_span;
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
-	uint32_t text_len;
+	uint32_t text_span;
 	uint8_t call_outcome;
 	uint8_t call_kinds;
 	uint32_t call_seconds;
@@ -86,19 +86,19 @@ static inline situ_err_t fzn_messages_local_newest_row_edit_decode(const situ_ms
 	out->outgoing = fzn_messages_local_newest_row_outgoing_get(view);
 	out->kind = fzn_messages_local_newest_row_kind_get(view);
 	out->sender_len = fzn_messages_local_newest_row_sender_len_get(view);
-	out->sender_len = fzn_messages_local_newest_row_sender_len(view);
+	out->sender_span = fzn_messages_local_newest_row_sender_len(view);
 	out->sender     = backing + at;
-	for (uint32_t i = 0u; i < out->sender_len; i++) {
+	for (uint32_t i = 0u; i < out->sender_span; i++) {
 		backing[at + i] = fzn_messages_local_newest_row_sender_ptr(view)[i];
 	}
-	at += out->sender_len;
+	at += out->sender_span;
 	out->text_len = fzn_messages_local_newest_row_text_len_get(view);
-	out->text_len = fzn_messages_local_newest_row_text_len(view);
+	out->text_span = fzn_messages_local_newest_row_text_len(view);
 	out->text     = backing + at;
-	for (uint32_t i = 0u; i < out->text_len; i++) {
+	for (uint32_t i = 0u; i < out->text_span; i++) {
 		backing[at + i] = fzn_messages_local_newest_row_text_ptr(view)[i];
 	}
-	at += out->text_len;
+	at += out->text_span;
 	out->call_outcome = fzn_messages_local_newest_row_call_outcome_get(view);
 	out->call_kinds = fzn_messages_local_newest_row_call_kinds_get(view);
 	out->call_seconds = fzn_messages_local_newest_row_call_seconds_get(view);
@@ -123,13 +123,13 @@ typedef struct {
 	uint64_t written_ms;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t sender_len;
 	const uint8_t *sender;	/* into your backing */
-	uint32_t sender_len;
+	uint32_t sender_span;
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
-	uint32_t text_len;
+	uint32_t text_span;
 	uint16_t read_by;
 } fzn_messages_local_line_row_edit_t;
 
@@ -180,26 +180,26 @@ static inline situ_err_t fzn_messages_local_line_row_edit_decode(const situ_msg_
 	out->stime_ms = fzn_messages_local_line_row_stime_ms_get(view);
 	out->written_ms = fzn_messages_local_line_row_written_ms_get(view);
 	out->name_len = fzn_messages_local_line_row_name_len_get(view);
-	out->name_len = fzn_messages_local_line_row_name_len(view);
+	out->name_span = fzn_messages_local_line_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_messages_local_line_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->sender_len = fzn_messages_local_line_row_sender_len_get(view);
-	out->sender_len = fzn_messages_local_line_row_sender_len(view);
+	out->sender_span = fzn_messages_local_line_row_sender_len(view);
 	out->sender     = backing + at;
-	for (uint32_t i = 0u; i < out->sender_len; i++) {
+	for (uint32_t i = 0u; i < out->sender_span; i++) {
 		backing[at + i] = fzn_messages_local_line_row_sender_ptr(view)[i];
 	}
-	at += out->sender_len;
+	at += out->sender_span;
 	out->text_len = fzn_messages_local_line_row_text_len_get(view);
-	out->text_len = fzn_messages_local_line_row_text_len(view);
+	out->text_span = fzn_messages_local_line_row_text_len(view);
 	out->text     = backing + at;
-	for (uint32_t i = 0u; i < out->text_len; i++) {
+	for (uint32_t i = 0u; i < out->text_span; i++) {
 		backing[at + i] = fzn_messages_local_line_row_text_ptr(view)[i];
 	}
-	at += out->text_len;
+	at += out->text_span;
 	out->read_by = fzn_messages_local_line_row_read_by_get(view);
 	(void)at;
 	return SITU_OK;
@@ -217,7 +217,7 @@ typedef struct {
 	uint8_t attach;
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
-	uint32_t text_len;
+	uint32_t text_span;
 } fzn_messages_local_send_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -260,12 +260,12 @@ static inline situ_err_t fzn_messages_local_send_edit_decode(const situ_msg_t *m
 	uint32_t at = 0u;
 	out->attach = fzn_messages_local_send_attach_get(view);
 	out->text_len = fzn_messages_local_send_text_len_get(view);
-	out->text_len = fzn_messages_local_send_text_len(view);
+	out->text_span = fzn_messages_local_send_text_len(view);
 	out->text     = backing + at;
-	for (uint32_t i = 0u; i < out->text_len; i++) {
+	for (uint32_t i = 0u; i < out->text_span; i++) {
 		backing[at + i] = fzn_messages_local_send_text_ptr(view)[i];
 	}
-	at += out->text_len;
+	at += out->text_span;
 	(void)at;
 	return SITU_OK;
 }

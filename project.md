@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1346
+The newest work is at the end of this file. **Read secs 1287 to 1347
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95315,3 +95315,36 @@ taken out rather than committed unproven. **Next**: apply what a round
 brought before the next round builds its targets, or index a grant on
 arrival; then `live_lamp` is the test.
 
+## 1347. situ's answers to the tracking, the setting's builder, the wire check and the 3x, 2026-11-21
+
+situ answered fuzznet's 20261121T0600Z, 0700Z and 0800Z at 3d9dd3d9
+(fuzznet inbox 20261121T0351Z); fuzznet answered situ's three review
+points on 26.1123, reassembly, which had waited (situ inbox
+20261121T1000Z: no total is carried, the stride set by any piece not the
+last, a last piece first parked; fuzznet's erasure coding is above the
+datagram layer, so the table needs no parity hook; `missing` should list,
+as capped ranges, the caller building its own want).
+
+- **Tracking by the key alone**, the asks table's need (sec 1341): C now
+  has per relation `<conv>_key(head_msg)`, `_record_key_from` and the
+  driver's `_track_key_from(drive, key, peer, bytes, len, id, now,
+  policy)`, `bytes` NULL for an exchange never resent. **This unblocks
+  adopting 26.1122 in `node/asks.c`**, open.
+- **The setting's builder exists**: one per arm,
+  `fzn_setting_record_fzn_setting_build_ranked` and `_build_unranked`;
+  what sec 1342 found was the arm struct's own builder. **Moving
+  `state/setting.c`'s encoder onto them is open.**
+- **The wire check** now reports moving trailing members into a
+  length-selected arm that reproduces them as backward-compatible.
+- **The 3x of sec 1344** is two calls across units -- `situ_view_at` in
+  `situ.c`, `_check` in the unit's `.c` -- and the 32-byte view passed by
+  value: built with `-flto`, the same generated code opens a record in
+  3.4 ns against 9.0 by hand. **For fuzznet's build, open**: `-flto` would
+  turn the cost into a gain, but a static library of LTO objects asks every
+  consumer's linker to take them (netcfgd, fzpd and the GUIs vendor this
+  tree), so it is a build decision across trees, not one to make here.
+- `_edit.h`'s owned forms spell a run's length `X_span` where a member is
+  `X_len` (it declared `card_len` twice and did not compile); nothing here
+  includes an `_edit.h`. The generated tree is regenerated at 3d9dd3d9:
+  25 headers, the `_edit.h` rename, the arm builders' comments and the
+  frame driver's key calls, nothing else.

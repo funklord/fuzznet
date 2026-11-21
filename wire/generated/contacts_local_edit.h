@@ -32,7 +32,7 @@ typedef struct {
 	uint8_t standing;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_contacts_local_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -75,12 +75,12 @@ static inline situ_err_t fzn_contacts_local_row_edit_decode(const situ_msg_t *ms
 	uint32_t at = 0u;
 	out->standing = fzn_contacts_local_row_standing_get(view);
 	out->name_len = fzn_contacts_local_row_name_len_get(view);
-	out->name_len = fzn_contacts_local_row_name_len(view);
+	out->name_span = fzn_contacts_local_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_contacts_local_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -96,7 +96,7 @@ static inline situ_err_t fzn_contacts_local_row_edit_decode(const situ_msg_t *ms
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_contacts_local_add_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -138,12 +138,12 @@ static inline situ_err_t fzn_contacts_local_add_edit_decode(const situ_msg_t *ms
 
 	uint32_t at = 0u;
 	out->name_len = fzn_contacts_local_add_name_len_get(view);
-	out->name_len = fzn_contacts_local_add_name_len(view);
+	out->name_span = fzn_contacts_local_add_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_contacts_local_add_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -160,10 +160,10 @@ typedef struct {
 	uint64_t received_ms;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint8_t where_len;
 	const uint8_t *where;	/* into your backing */
-	uint32_t where_len;
+	uint32_t where_span;
 } fzn_contacts_local_request_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -207,19 +207,19 @@ static inline situ_err_t fzn_contacts_local_request_row_edit_decode(const situ_m
 	uint32_t at = 0u;
 	out->received_ms = fzn_contacts_local_request_row_received_ms_get(view);
 	out->name_len = fzn_contacts_local_request_row_name_len_get(view);
-	out->name_len = fzn_contacts_local_request_row_name_len(view);
+	out->name_span = fzn_contacts_local_request_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_contacts_local_request_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->where_len = fzn_contacts_local_request_row_where_len_get(view);
-	out->where_len = fzn_contacts_local_request_row_where_len(view);
+	out->where_span = fzn_contacts_local_request_row_where_len(view);
 	out->where     = backing + at;
-	for (uint32_t i = 0u; i < out->where_len; i++) {
+	for (uint32_t i = 0u; i < out->where_span; i++) {
 		backing[at + i] = fzn_contacts_local_request_row_where_ptr(view)[i];
 	}
-	at += out->where_len;
+	at += out->where_span;
 	(void)at;
 	return SITU_OK;
 }

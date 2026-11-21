@@ -32,7 +32,7 @@ typedef struct {
 	uint8_t version;
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint16_t port;
 	uint8_t hop_count;
 	uint8_t hops;
@@ -78,12 +78,12 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_device_edit_decode(
 	uint32_t at = 0u;
 	out->version = fzn_contact_card_record_fzn_contact_device_version_get(view);
 	out->address_len = fzn_contact_card_record_fzn_contact_device_address_len_get(view);
-	out->address_len = fzn_contact_card_record_fzn_contact_device_address_len(view);
+	out->address_span = fzn_contact_card_record_fzn_contact_device_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_contact_card_record_fzn_contact_device_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->port = fzn_contact_card_record_fzn_contact_device_port_get(view);
 	out->hop_count = fzn_contact_card_record_fzn_contact_device_hop_count_get(view);
 	out->hops = fzn_contact_card_record_fzn_contact_device_hops_get(view);
@@ -231,7 +231,7 @@ typedef struct {
 	uint8_t kind;
 	uint16_t record_len;
 	const uint8_t *record;	/* into your backing */
-	uint32_t record_len;
+	uint32_t record_span;
 	uint8_t hop_count;
 	uint8_t hops;
 } fzn_contact_card_record_fzn_contact_estate_item_edit_t;
@@ -276,12 +276,12 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_estate_item_edit_de
 	uint32_t at = 0u;
 	out->kind = fzn_contact_card_record_fzn_contact_estate_item_kind_get(view);
 	out->record_len = fzn_contact_card_record_fzn_contact_estate_item_record_len_get(view);
-	out->record_len = fzn_contact_card_record_fzn_contact_estate_item_record_len(view);
+	out->record_span = fzn_contact_card_record_fzn_contact_estate_item_record_len(view);
 	out->record     = backing + at;
-	for (uint32_t i = 0u; i < out->record_len; i++) {
+	for (uint32_t i = 0u; i < out->record_span; i++) {
 		backing[at + i] = fzn_contact_card_record_fzn_contact_estate_item_record_ptr(view)[i];
 	}
-	at += out->record_len;
+	at += out->record_span;
 	out->hop_count = fzn_contact_card_record_fzn_contact_estate_item_hop_count_get(view);
 	out->hops = fzn_contact_card_record_fzn_contact_estate_item_hops_get(view);
 	(void)at;
@@ -299,7 +299,7 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_estate_item_edit_de
 typedef struct {
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint16_t port;
 	uint8_t transport;
 	uint8_t metric;
@@ -344,12 +344,12 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_seed_edit_deco
 
 	uint32_t at = 0u;
 	out->address_len = fzn_contact_card_record_fzn_contact_card_seed_address_len_get(view);
-	out->address_len = fzn_contact_card_record_fzn_contact_card_seed_address_len(view);
+	out->address_span = fzn_contact_card_record_fzn_contact_card_seed_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_contact_card_record_fzn_contact_card_seed_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->port = fzn_contact_card_record_fzn_contact_card_seed_port_get(view);
 	out->transport = fzn_contact_card_record_fzn_contact_card_seed_transport_get(view);
 	out->metric = fzn_contact_card_record_fzn_contact_card_seed_metric_get(view);
@@ -370,11 +370,11 @@ typedef struct {
 	uint8_t tag;
 	uint16_t host_len;
 	const uint8_t *host;	/* into your backing */
-	uint32_t host_len;
+	uint32_t host_span;
 	uint8_t seed_count;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint64_t expires_at;
 } fzn_contact_card_record_fzn_contact_card_edit_t;
 
@@ -420,20 +420,20 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_edit_decode(co
 	out->version = fzn_contact_card_record_fzn_contact_card_version_get(view);
 	out->tag = fzn_contact_card_record_fzn_contact_card_tag_get(view);
 	out->host_len = fzn_contact_card_record_fzn_contact_card_host_len_get(view);
-	out->host_len = fzn_contact_card_record_fzn_contact_card_host_len(view);
+	out->host_span = fzn_contact_card_record_fzn_contact_card_host_len(view);
 	out->host     = backing + at;
-	for (uint32_t i = 0u; i < out->host_len; i++) {
+	for (uint32_t i = 0u; i < out->host_span; i++) {
 		backing[at + i] = fzn_contact_card_record_fzn_contact_card_host_ptr(view)[i];
 	}
-	at += out->host_len;
+	at += out->host_span;
 	out->seed_count = fzn_contact_card_record_fzn_contact_card_seed_count_get(view);
 	out->name_len = fzn_contact_card_record_fzn_contact_card_name_len_get(view);
-	out->name_len = fzn_contact_card_record_fzn_contact_card_name_len(view);
+	out->name_span = fzn_contact_card_record_fzn_contact_card_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_contact_card_record_fzn_contact_card_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->expires_at = fzn_contact_card_record_fzn_contact_card_expires_at_get(view);
 	(void)at;
 	return SITU_OK;

@@ -34,7 +34,7 @@ typedef struct {
 	uint8_t estate;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_stickers_local_pack_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -79,12 +79,12 @@ static inline situ_err_t fzn_stickers_local_pack_row_edit_decode(const situ_msg_
 	out->held = fzn_stickers_local_pack_row_held_get(view);
 	out->estate = fzn_stickers_local_pack_row_estate_get(view);
 	out->name_len = fzn_stickers_local_pack_row_name_len_get(view);
-	out->name_len = fzn_stickers_local_pack_row_name_len(view);
+	out->name_span = fzn_stickers_local_pack_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_stickers_local_pack_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -113,7 +113,7 @@ typedef struct {
 	uint16_t main_h;
 	uint8_t desc_len;
 	const uint8_t *desc;	/* into your backing */
-	uint32_t desc_len;
+	uint32_t desc_span;
 } fzn_stickers_local_item_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -168,12 +168,12 @@ static inline situ_err_t fzn_stickers_local_item_row_edit_decode(const situ_msg_
 	out->main_w = fzn_stickers_local_item_row_main_w_get(view);
 	out->main_h = fzn_stickers_local_item_row_main_h_get(view);
 	out->desc_len = fzn_stickers_local_item_row_desc_len_get(view);
-	out->desc_len = fzn_stickers_local_item_row_desc_len(view);
+	out->desc_span = fzn_stickers_local_item_row_desc_len(view);
 	out->desc     = backing + at;
-	for (uint32_t i = 0u; i < out->desc_len; i++) {
+	for (uint32_t i = 0u; i < out->desc_span; i++) {
 		backing[at + i] = fzn_stickers_local_item_row_desc_ptr(view)[i];
 	}
-	at += out->desc_len;
+	at += out->desc_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -189,7 +189,7 @@ static inline situ_err_t fzn_stickers_local_item_row_edit_decode(const situ_msg_
 typedef struct {
 	uint16_t path_len;
 	const uint8_t *path;	/* into your backing */
-	uint32_t path_len;
+	uint32_t path_span;
 } fzn_stickers_local_put_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -231,12 +231,12 @@ static inline situ_err_t fzn_stickers_local_put_ask_edit_decode(const situ_msg_t
 
 	uint32_t at = 0u;
 	out->path_len = fzn_stickers_local_put_ask_path_len_get(view);
-	out->path_len = fzn_stickers_local_put_ask_path_len(view);
+	out->path_span = fzn_stickers_local_put_ask_path_len(view);
 	out->path     = backing + at;
-	for (uint32_t i = 0u; i < out->path_len; i++) {
+	for (uint32_t i = 0u; i < out->path_span; i++) {
 		backing[at + i] = fzn_stickers_local_put_ask_path_ptr(view)[i];
 	}
-	at += out->path_len;
+	at += out->path_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -252,7 +252,7 @@ static inline situ_err_t fzn_stickers_local_put_ask_edit_decode(const situ_msg_t
 typedef struct {
 	uint8_t words_len;
 	const uint8_t *words;	/* into your backing */
-	uint32_t words_len;
+	uint32_t words_span;
 } fzn_stickers_local_reference_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -294,12 +294,12 @@ static inline situ_err_t fzn_stickers_local_reference_ask_edit_decode(const situ
 
 	uint32_t at = 0u;
 	out->words_len = fzn_stickers_local_reference_ask_words_len_get(view);
-	out->words_len = fzn_stickers_local_reference_ask_words_len(view);
+	out->words_span = fzn_stickers_local_reference_ask_words_len(view);
 	out->words     = backing + at;
-	for (uint32_t i = 0u; i < out->words_len; i++) {
+	for (uint32_t i = 0u; i < out->words_span; i++) {
 		backing[at + i] = fzn_stickers_local_reference_ask_words_ptr(view)[i];
 	}
-	at += out->words_len;
+	at += out->words_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -315,7 +315,7 @@ static inline situ_err_t fzn_stickers_local_reference_ask_edit_decode(const situ
 typedef struct {
 	uint16_t ref_len;
 	const uint8_t *ref;	/* into your backing */
-	uint32_t ref_len;
+	uint32_t ref_span;
 } fzn_stickers_local_referenced_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -357,12 +357,12 @@ static inline situ_err_t fzn_stickers_local_referenced_row_edit_decode(const sit
 
 	uint32_t at = 0u;
 	out->ref_len = fzn_stickers_local_referenced_row_ref_len_get(view);
-	out->ref_len = fzn_stickers_local_referenced_row_ref_len(view);
+	out->ref_span = fzn_stickers_local_referenced_row_ref_len(view);
 	out->ref     = backing + at;
-	for (uint32_t i = 0u; i < out->ref_len; i++) {
+	for (uint32_t i = 0u; i < out->ref_span; i++) {
 		backing[at + i] = fzn_stickers_local_referenced_row_ref_ptr(view)[i];
 	}
-	at += out->ref_len;
+	at += out->ref_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -379,7 +379,7 @@ typedef struct {
 	uint8_t role;
 	uint16_t path_len;
 	const uint8_t *path;	/* into your backing */
-	uint32_t path_len;
+	uint32_t path_span;
 } fzn_stickers_local_art_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -422,12 +422,12 @@ static inline situ_err_t fzn_stickers_local_art_ask_edit_decode(const situ_msg_t
 	uint32_t at = 0u;
 	out->role = fzn_stickers_local_art_ask_role_get(view);
 	out->path_len = fzn_stickers_local_art_ask_path_len_get(view);
-	out->path_len = fzn_stickers_local_art_ask_path_len(view);
+	out->path_span = fzn_stickers_local_art_ask_path_len(view);
 	out->path     = backing + at;
-	for (uint32_t i = 0u; i < out->path_len; i++) {
+	for (uint32_t i = 0u; i < out->path_span; i++) {
 		backing[at + i] = fzn_stickers_local_art_ask_path_ptr(view)[i];
 	}
-	at += out->path_len;
+	at += out->path_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -444,7 +444,7 @@ typedef struct {
 	uint64_t id;
 	uint8_t description_len;
 	const uint8_t *description;	/* into your backing */
-	uint32_t description_len;
+	uint32_t description_span;
 } fzn_stickers_local_recent_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -487,12 +487,12 @@ static inline situ_err_t fzn_stickers_local_recent_row_edit_decode(const situ_ms
 	uint32_t at = 0u;
 	out->id = fzn_stickers_local_recent_row_id_get(view);
 	out->description_len = fzn_stickers_local_recent_row_description_len_get(view);
-	out->description_len = fzn_stickers_local_recent_row_description_len(view);
+	out->description_span = fzn_stickers_local_recent_row_description_len(view);
 	out->description     = backing + at;
-	for (uint32_t i = 0u; i < out->description_len; i++) {
+	for (uint32_t i = 0u; i < out->description_span; i++) {
 		backing[at + i] = fzn_stickers_local_recent_row_description_ptr(view)[i];
 	}
-	at += out->description_len;
+	at += out->description_span;
 	(void)at;
 	return SITU_OK;
 }

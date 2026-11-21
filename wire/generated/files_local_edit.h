@@ -32,7 +32,7 @@ typedef struct {
 	uint8_t add;
 	uint8_t to_len;
 	const uint8_t *to;	/* into your backing */
-	uint32_t to_len;
+	uint32_t to_span;
 } fzn_files_local_share_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -75,12 +75,12 @@ static inline situ_err_t fzn_files_local_share_edit_decode(const situ_msg_t *msg
 	uint32_t at = 0u;
 	out->add = fzn_files_local_share_add_get(view);
 	out->to_len = fzn_files_local_share_to_len_get(view);
-	out->to_len = fzn_files_local_share_to_len(view);
+	out->to_span = fzn_files_local_share_to_len(view);
 	out->to     = backing + at;
-	for (uint32_t i = 0u; i < out->to_len; i++) {
+	for (uint32_t i = 0u; i < out->to_span; i++) {
 		backing[at + i] = fzn_files_local_share_to_ptr(view)[i];
 	}
-	at += out->to_len;
+	at += out->to_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -96,10 +96,10 @@ static inline situ_err_t fzn_files_local_share_edit_decode(const situ_msg_t *msg
 typedef struct {
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 	uint16_t value_len;
 	const uint8_t *value;	/* into your backing */
-	uint32_t value_len;
+	uint32_t value_span;
 } fzn_files_local_catalog_add_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -142,19 +142,19 @@ static inline situ_err_t fzn_files_local_catalog_add_edit_decode(const situ_msg_
 
 	uint32_t at = 0u;
 	out->name_len = fzn_files_local_catalog_add_name_len_get(view);
-	out->name_len = fzn_files_local_catalog_add_name_len(view);
+	out->name_span = fzn_files_local_catalog_add_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_files_local_catalog_add_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	out->value_len = fzn_files_local_catalog_add_value_len_get(view);
-	out->value_len = fzn_files_local_catalog_add_value_len(view);
+	out->value_span = fzn_files_local_catalog_add_value_len(view);
 	out->value     = backing + at;
-	for (uint32_t i = 0u; i < out->value_len; i++) {
+	for (uint32_t i = 0u; i < out->value_span; i++) {
 		backing[at + i] = fzn_files_local_catalog_add_value_ptr(view)[i];
 	}
-	at += out->value_len;
+	at += out->value_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -171,7 +171,7 @@ typedef struct {
 	uint8_t kind;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_files_local_share_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -214,12 +214,12 @@ static inline situ_err_t fzn_files_local_share_row_edit_decode(const situ_msg_t 
 	uint32_t at = 0u;
 	out->kind = fzn_files_local_share_row_kind_get(view);
 	out->name_len = fzn_files_local_share_row_name_len_get(view);
-	out->name_len = fzn_files_local_share_row_name_len(view);
+	out->name_span = fzn_files_local_share_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_files_local_share_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }
@@ -240,10 +240,10 @@ typedef struct {
 	uint16_t arriving;
 	uint8_t kind_len;
 	const uint8_t *kind;	/* into your backing */
-	uint32_t kind_len;
+	uint32_t kind_span;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
-	uint32_t name_len;
+	uint32_t name_span;
 } fzn_files_local_library_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -291,19 +291,19 @@ static inline situ_err_t fzn_files_local_library_row_edit_decode(const situ_msg_
 	out->held_here = fzn_files_local_library_row_held_here_get(view);
 	out->arriving = fzn_files_local_library_row_arriving_get(view);
 	out->kind_len = fzn_files_local_library_row_kind_len_get(view);
-	out->kind_len = fzn_files_local_library_row_kind_len(view);
+	out->kind_span = fzn_files_local_library_row_kind_len(view);
 	out->kind     = backing + at;
-	for (uint32_t i = 0u; i < out->kind_len; i++) {
+	for (uint32_t i = 0u; i < out->kind_span; i++) {
 		backing[at + i] = fzn_files_local_library_row_kind_ptr(view)[i];
 	}
-	at += out->kind_len;
+	at += out->kind_span;
 	out->name_len = fzn_files_local_library_row_name_len_get(view);
-	out->name_len = fzn_files_local_library_row_name_len(view);
+	out->name_span = fzn_files_local_library_row_name_len(view);
 	out->name     = backing + at;
-	for (uint32_t i = 0u; i < out->name_len; i++) {
+	for (uint32_t i = 0u; i < out->name_span; i++) {
 		backing[at + i] = fzn_files_local_library_row_name_ptr(view)[i];
 	}
-	at += out->name_len;
+	at += out->name_span;
 	(void)at;
 	return SITU_OK;
 }

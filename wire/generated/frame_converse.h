@@ -53,6 +53,36 @@ static inline void situ_conv_reply_to_init(situ_conv_reply_to_t *table,
 	}
 }
 
+/* The key a request with these values would have, packed as the
+ * table packs one it reads. */
+static inline uint64_t situ_conv_reply_to_key(uint64_t head_msg)
+{
+	uint64_t key = 0u;
+	key = (key << 32u) | (head_msg & UINT64_C(0xffffffff));
+	return key;
+}
+
+/* Remember a request by its key alone, under `peer`, against your
+ * handle for it: one this side awaits without holding its bytes --
+ * sealed and sent by somebody else, or forwarded -- built with
+ * `situ_conv_reply_to_key` (fuzznet, inbox 20261121T0600Z). */
+static inline situ_err_t situ_conv_reply_to_record_key_from(situ_conv_reply_to_t *table,
+                                                uint64_t key,
+                                                uint32_t peer,
+                                                uint32_t id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live == 0u) {
+			table->slots[i].key  = key;
+			table->slots[i].id   = id;
+			table->slots[i].peer = peer;
+			table->slots[i].live = 1u;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_BOUNDS;
+}
+
 /* Remember `request` under its key and `peer`, against your
  * handle for it. */
 static inline situ_err_t situ_conv_reply_to_record_from(situ_conv_reply_to_t *table,
@@ -68,16 +98,7 @@ static inline situ_err_t situ_conv_reply_to_record_from(situ_conv_reply_to_t *ta
 	const uint64_t situ_k_3 = (uint64_t)situ_fzn_head_msg_get(situ_k_2);	/* request.head.msg */
 	key = (key << 32u) | situ_k_3;
 
-	for (uint32_t i = 0u; i < table->cap; i++) {
-		if (table->slots[i].live == 0u) {
-			table->slots[i].key  = key;
-			table->slots[i].id   = id;
-			table->slots[i].peer = peer;
-			table->slots[i].live = 1u;
-			return SITU_OK;
-		}
-	}
-	return SITU_ERR_BOUNDS;
+	return situ_conv_reply_to_record_key_from(table, key, peer, id);
 }
 
 /* Remember `request` under its key, against your handle for it. */

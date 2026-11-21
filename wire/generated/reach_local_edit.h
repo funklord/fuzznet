@@ -31,7 +31,7 @@ extern "C" {
 typedef struct {
 	uint8_t address_len;
 	const uint8_t *address;	/* into your backing */
-	uint32_t address_len;
+	uint32_t address_span;
 	uint8_t measured;
 	uint64_t latency_ms;
 	uint64_t loss_permille;
@@ -91,12 +91,12 @@ static inline situ_err_t fzn_reach_local_leg_row_edit_decode(const situ_msg_t *m
 
 	uint32_t at = 0u;
 	out->address_len = fzn_reach_local_leg_row_address_len_get(view);
-	out->address_len = fzn_reach_local_leg_row_address_len(view);
+	out->address_span = fzn_reach_local_leg_row_address_len(view);
 	out->address     = backing + at;
-	for (uint32_t i = 0u; i < out->address_len; i++) {
+	for (uint32_t i = 0u; i < out->address_span; i++) {
 		backing[at + i] = fzn_reach_local_leg_row_address_ptr(view)[i];
 	}
-	at += out->address_len;
+	at += out->address_span;
 	out->measured = fzn_reach_local_leg_row_measured_get(view);
 	out->latency_ms = fzn_reach_local_leg_row_latency_ms_get(view);
 	out->loss_permille = fzn_reach_local_leg_row_loss_permille_get(view);
