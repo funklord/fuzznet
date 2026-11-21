@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1376
+The newest work is at the end of this file. **Read secs 1287 to 1377
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -63856,7 +63856,7 @@ So 2b splits:
   every listed host, in metric order, each under its own pairing. Designed
   in detail when built, next.
 
-### The wire: `messages/deliver.situ`
+### The wire: `messages/deliver_wire.situ`
 
 Notes-sync's version byte and type space, after the conversation keys:
 
@@ -64110,7 +64110,7 @@ and the last two never leave it -- `live_contacts.py` runs S under a
 devices keep messages; **it asks each one**, as fuzzypickles' DECLINE
 does, and each answers by its own rules.
 
-### The messages, `messages/deliver.situ`
+### The messages, `messages/deliver_wire.situ`
 
 - **HOLDS 33**: a conversation and a line's item id -- the hash of the
   line as its device signed it, which every device holding the line keeps
@@ -93052,7 +93052,7 @@ The goal gap sec 1277 named: LINE has replies, reactions and unsend, and
 fuzznet had none. A design pass first, as recorded there.
 
 **How a line names another: by the 16-byte id both ends hold for it.**
-One to one, a line is delivered under its id (`messages/deliver.situ`)
+One to one, a line is delivered under its id (`messages/deliver_wire.situ`)
 and listed with it; in a group, a line is filed under its id
 (`node/group_line.situ`). The question sec 1277 left -- how a line names
 another "across a group's filed ids" -- has that answer: the id the
@@ -96038,3 +96038,28 @@ situ's two answers of sec 1375, taken:
 
 **Tests:** succession_test (26), cause_test (7), cause_wire_vectors, and
 the 29 targets linking the cause envelope.
+
+## 1377. Delivery to a contact and settlement between members through situ's code, 2026-11-22
+
+The twenty-eighth of the 40 layouts: `messages/deliver.situ` is
+`messages/deliver_wire.situ` (secs 613, 615). In `node/messages.c` all
+four messages are built by the generated builders and read through the
+generated view and `validate`:
+
+- **DELIVER** (`offer_request`, and the contact's answer): the text at
+  most 512 bytes and exactly the rest, `required` against the length. A
+  line no offer can carry is passed over rather than offered empty, and
+  is not counted as sent.
+- **DELIVERED** (the answer, `offer_outcome`): an outcome of at most
+  SETTLED, and the id the offered line's.
+- **HOLDS** and **HOLDING** (`answer_holds`, `ask_holds`): an answer of
+  at most DECLINES, and the item the one asked about.
+
+**Tests:** deliver_wire_vectors (4, one of each); messages_test (301),
+delivery_fuzz (3000 cases), keys_fuzz (3000). Sabotage
+`node-messages-delivery-length-exact`,
+`node-messages-delivery-text-where-it-is`,
+`node-messages-delivered-echoes-the-id`,
+`messages-delivered-names-the-line`, `messages-delivered-exact-length`,
+`messages-contact-text-exact` and `messages-contact-answers-settled`
+retargeted onto the new code.

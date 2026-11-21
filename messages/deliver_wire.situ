@@ -1,6 +1,7 @@
 // Delivery of one line to a contact's host, project.md sec 613: the two
-// messages, as situ schemas. The hand-written codec is node/messages.c, and
-// these are its checked contract.
+// messages, as situ schemas. node/messages.c writes and reads all four
+// through the code situ generates from this (sec 1377); `_wire`, so the
+// generated file's name meets no source's.
 //
 // CMD MESSAGES (10, wire/cmd.h; notes-sync's family 2 until sec 1085),
 // SUBCMDs 27 and 28, after the conversation keys' 26. Unlike the keys, these are a

@@ -10920,22 +10920,22 @@ SABOTAGES = [
 	(
 		'node-messages-delivery-length-exact',
 		'node/messages.c',
-		'\t    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)',
-		'\t    || request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)',
+		'\t\t    || need != request_len)',
+		'\t\t    || need > request_len)',
 		"a contact's delivery with bytes past its text is filed as a line; delivery_fuzz's property 2 -- sec 731",
 	),
 	(
 		'node-messages-delivery-text-where-it-is',
 		'node/messages.c',
-		'\t\t                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,',
-		'\t\t                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN - 1,',
+		'\t\ttext = fzn_deliver_wire_fzn_message_deliver_text_ptr(v);',
+		'\t\ttext = fzn_deliver_wire_fzn_message_deliver_text_ptr(v) - 1;',
 		"a delivered line is filed with a byte of its header for text; delivery_fuzz's property 1 -- sec 731",
 	),
 	(
 		'node-messages-delivered-echoes-the-id',
 		'node/messages.c',
-		'\tmemcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);\n\treply[2 + FZN_MESSAGE_ID_LEN] =',
-		'\tmemset(reply + 2, 0, FZN_MESSAGE_ID_LEN);\n\treply[2 + FZN_MESSAGE_ID_LEN] =',
+		'FZN_NODE_MESSAGES_DELIVERED, id, outcome, &wrote)',
+		'FZN_NODE_MESSAGES_DELIVERED, contact, outcome, &wrote)',
 		"a delivery is answered for no line, so its sender never learns it was held; delivery_fuzz's property 1 -- sec 731",
 	),
 	(
@@ -13367,15 +13367,15 @@ SABOTAGES = [
 	(
 		"messages-delivered-names-the-line",
 		"node/messages.c",
-		"\t    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED\n\t    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)\n",
-		"\t    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED)\n",
+		"\t    || memcmp(fzn_deliver_wire_fzn_message_delivered_id_ptr(v), id, FZN_MESSAGE_ID_LEN) != 0)\n",
+		"\t    || 0)\n",
 		"an answer about another line marks this one delivered, and a line nobody holds is never sent -- sec 613",
 	),
 	(
 		"messages-delivered-exact-length",
 		"node/messages.c",
-		"\tif (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN\n",
-		"\tif (!reply\n",
+		"\tif (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN)\n",
+		"\tif (!reply)\n",
 		"an answer cut short is read past its end and taken as held -- sec 613",
 	),
 	(
@@ -13388,8 +13388,8 @@ SABOTAGES = [
 	(
 		"messages-contact-text-exact",
 		"node/messages.c",
-		"\tif (text_len > FZN_MESSAGE_TEXT_MAX\n\t    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)\n",
-		"\tif (text_len > FZN_MESSAGE_TEXT_MAX)\n",
+		"\t\t    || fzn_deliver_wire_fzn_message_deliver_validate(v) != SITU_OK)\n",
+		"\t\t    || 0)\n",
 		"a delivery whose length lies is filed with bytes past its end, or cut short -- sec 613",
 	),
 	(
@@ -13507,8 +13507,8 @@ SABOTAGES = [
 	(
 		"messages-contact-answers-settled",
 		"node/messages.c",
-		"\t        : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED\n",
-		"\t        : 0\n",
+		"\t          : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED\n",
+		"\t          : 0\n",
 		"a settled line is answered held for ever, and the sender never learns it settled -- sec 615",
 	),
 	(

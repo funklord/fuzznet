@@ -1,0 +1,9 @@
+# Golden vectors for messages/deliver_wire.situ, written by hand from its
+# layouts: line 11s offered at time 1 with the text "hi"; its delivery
+# held; a member asked whether it holds item 33s of contact 22s; and its
+# answer that it does.
+
+fzn_message_deliver hi 0A 1B 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 01 00 02 68 69
+fzn_message_delivered held 0A 1C 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 01
+fzn_message_holds ask 0A 21 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33
+fzn_message_holding holds 0A 22 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 01

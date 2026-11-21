@@ -2,7 +2,7 @@
  * A LINE ABOUT ANOTHER LINE, sec 1282: a reply, which answers one, and a
  * reaction, which marks one; and sec 1284's unsend, which takes one back.
  * Each names the line by its 16-byte id -- one to one, the id both ends
- * hold, the one a line is delivered under (`messages/deliver.situ`). IN A
+ * hold, the one a line is delivered under (`messages/deliver_wire.situ`). IN A
  * GROUP the ids differ, sec 1284: a member's line is filed on every other
  * member's node under a hash of its sealing host and its id
  * (`fzn_group_lines_filed_id`), while its author's devices hold it by the

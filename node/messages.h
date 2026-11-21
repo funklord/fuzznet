@@ -61,7 +61,7 @@
 #define FZN_NODE_MESSAGES_GIVEN 24u
 #define FZN_NODE_MESSAGES_WANT 25u
 #define FZN_NODE_MESSAGES_KEYS 26u
-/* DELIVERY TO A CONTACT, sec 613, `messages/deliver.situ`: DELIVER carries
+/* DELIVERY TO A CONTACT, sec 613, `messages/deliver_wire.situ`: DELIVER carries
  * one line, DELIVERED answers it HELD or REFUSED. */
 #define FZN_NODE_MESSAGES_DELIVER 27u
 #define FZN_NODE_MESSAGES_DELIVERED 28u
@@ -73,7 +73,7 @@
 /* HELD, and by every device of the recipient that keeps messages, sec
  * 615: the line is settled. */
 #define FZN_NODE_MESSAGES_SETTLED 2u
-/* SETTLEMENT BETWEEN MEMBERS, sec 615, `messages/deliver.situ`: HOLDS asks
+/* SETTLEMENT BETWEEN MEMBERS, sec 615, `messages/deliver_wire.situ`: HOLDS asks
  * a member whether it holds a line's item; HOLDING answers LACKS, HOLDS
  * or DECLINES -- it keeps none of that conversation's lines. */
 /* A READ MARK, sec 1269: this user read the contact's lines up to ID,

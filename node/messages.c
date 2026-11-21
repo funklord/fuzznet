@@ -3,6 +3,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "messages.h"
+#include "../wire/generated/deliver_wire.h"
+#include "../wire/generated/deliver_wire_build.h"
 
 #include "../contact/contact.h"
 #include "../messages/attachment.h"
@@ -878,27 +880,39 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 
 /* ---- delivery to a contact, sec 613 --------------------------------------- */
 
-/* ONE LINE'S OFFER, into `request`: its length. */
+/* ONE LINE'S OFFER, into `request`: its length, or 0 for a line no offer
+ * can carry. Built by the code situ generates from
+ * `messages/deliver_wire.situ` (sec 1377). */
 static size_t offer_request(const fzn_message_t *line, uint8_t *request)
 {
-	request[0] = FZN_CMD_MESSAGES;
-	request[1] = FZN_NODE_MESSAGES_DELIVER;
-	memcpy(request + 2, line->id, FZN_MESSAGE_ID_LEN);
-	fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, line->stime);
-	fzn_put_be16(request + 2 + FZN_MESSAGE_ID_LEN + 8, (uint16_t)line->text_len);
-	memcpy(request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN, line->text, line->text_len);
-	return FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + line->text_len;
+	uint32_t wrote = 0;
+
+	if (fzn_deliver_wire_fzn_message_deliver_build(request, FZN_NODE_MESSAGES_DELIVER_MAX, FZN_CMD_MESSAGES,
+	                                               FZN_NODE_MESSAGES_DELIVER, line->id, line->stime,
+	                                               (const uint8_t *)line->text, (uint32_t)line->text_len,
+	                                               &wrote)
+	    != SITU_OK)
+		return 0;
+	return wrote;
 }
 
 /* ITS OUTCOME: 2 settled, 1 held, 0 refused, -1 unanswered (`reply` NULL)
  * or answered with anything but line `id`'s DELIVERED. */
 static int offer_outcome(const uint8_t *reply, size_t reply_len, const uint8_t *id)
 {
-	if (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN
-	    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED
-	    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)
+	situ_msg_t m;
+	situ_view_t v;
+
+	/* READ AS THE SCHEMA SAYS, sec 1377: version, type and an outcome of
+	 * at most SETTLED the generated validate's. */
+	if (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN)
 		return -1;
-	switch (reply[2 + FZN_MESSAGE_ID_LEN]) {
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_deliver_wire_fzn_message_delivered_view(&m, 0u, &v) != SITU_OK
+	    || fzn_deliver_wire_fzn_message_delivered_validate(v) != SITU_OK
+	    || memcmp(fzn_deliver_wire_fzn_message_delivered_id_ptr(v), id, FZN_MESSAGE_ID_LEN) != 0)
+		return -1;
+	switch (fzn_deliver_wire_fzn_message_delivered_outcome_get(v)) {
 	case FZN_NODE_MESSAGES_SETTLED:
 		return 2;
 	case FZN_NODE_MESSAGES_HELD:
@@ -1025,10 +1039,12 @@ static fzn_messages_err_t deliver_next(fzn_node_messages_delivering_t *d, uint8_
 		if (!same_key(line.device, nm->m.issuer)
 		    && !(nm->takes_over && nm->takes_over(nm->takes_over_ctx, line.device, line.id)))
 			continue;
+		/* A LINE NO OFFER CAN CARRY is passed over, not offered empty. */
+		if ((*request_len = offer_request(&line, request)) == 0u)
+			continue;
 		d->tally.sent++;
 		memcpy(d->id, line.id, FZN_MESSAGE_ID_LEN);
 		d->state = line.state;
-		*request_len = offer_request(&line, request);
 		return FZN_MESSAGES_OK;
 	}
 }
@@ -1129,9 +1145,12 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
                                  int keeps, const uint8_t *request, size_t request_len,
                                  uint8_t *reply, size_t reply_cap)
 {
-	const uint8_t *id;
+	const uint8_t *id, *text;
 	size_t text_len;
+	uint64_t stime;
 	int written = 0;
+	uint8_t outcome;
+	uint32_t wrote = 0;
 
 	if (!nm || !contact || !request || !reply || request_len < 2u || request[0] != FZN_CMD_MESSAGES
 	    || reply_cap < FZN_NODE_MESSAGES_DELIVERED_LEN)
@@ -1153,20 +1172,32 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 	}
 	if (request[1] != FZN_NODE_MESSAGES_DELIVER)
 		return 0;
-	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN)
+	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN || request_len > FZN_NODE_MESSAGES_DELIVER_MAX)
 		return 0;
-	id = request + 2;
-	text_len = fzn_get_be16(request + 2 + FZN_MESSAGE_ID_LEN + 8);
-	/* THE TEXT IS THE REST, exactly: a length that disagrees is not a line. */
-	if (text_len > FZN_MESSAGE_TEXT_MAX
-	    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)
-		return 0;
+	/* READ AS THE SCHEMA SAYS, sec 1377: version, type, a text of at most
+	 * 512 bytes, and THE TEXT IS THE REST, exactly -- a length that
+	 * disagrees is not a line. */
+	{
+		situ_msg_t m;
+		situ_view_t v;
+		uint32_t need = 0;
+
+		if (fzn_deliver_wire_fzn_message_deliver_required(request, (uint32_t)request_len, &need) != SITU_OK
+		    || need != request_len)
+			return 0;
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+		if (fzn_deliver_wire_fzn_message_deliver_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+		    || fzn_deliver_wire_fzn_message_deliver_validate(v) != SITU_OK)
+			return 0;
+		id = fzn_deliver_wire_fzn_message_deliver_id_ptr(v);
+		stime = fzn_deliver_wire_fzn_message_deliver_stime_get(v);
+		text = fzn_deliver_wire_fzn_message_deliver_text_ptr(v);
+		text_len = fzn_deliver_wire_fzn_message_deliver_text_len_get(v);
+	}
 	if (keeps) {
 		/* HELD ALREADY IS HELD: a re-offer files nothing twice. */
-		if (fzn_messages_import(&nm->m, contact, FZN_MESSAGE_IN, id,
-		                        fzn_get_be64(request + 2 + FZN_MESSAGE_ID_LEN),
-		                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,
-		                        text_len, &written)
+		if (fzn_messages_import(&nm->m, contact, FZN_MESSAGE_IN, id, stime, (const char *)text, text_len,
+		                        &written)
 		    != FZN_MESSAGES_OK)
 			return 0;
 		if (written)
@@ -1177,11 +1208,9 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 		 * settles as one; never listed. */
 		{
 			uint8_t target[FZN_MESSAGE_ID_LEN];
-			uint64_t target_stime = 0, stime = fzn_get_be64(request + 2 + FZN_MESSAGE_ID_LEN);
+			uint64_t target_stime = 0;
 
-			if (written
-			    && fzn_message_unsend_parse((const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,
-			                                text_len, target)
+			if (written && fzn_message_unsend_parse((const char *)text, text_len, target)
 			    && nm->unsends && nm->unsends(nm->unsends_ctx)
 			    && fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_IN, target, &target_stime)
 			    && stime >= target_stime && stime - target_stime <= FZN_MESSAGE_UNSEND_WINDOW_MS
@@ -1189,15 +1218,15 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 				nm->fresh = 1;
 		}
 	}
-	reply[0] = FZN_CMD_MESSAGES;
-	reply[1] = FZN_NODE_MESSAGES_DELIVERED;
-	memcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);
-	reply[2 + FZN_MESSAGE_ID_LEN] =
-	        !keeps ? FZN_NODE_MESSAGES_REFUSED
-	        : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED
-	                ? FZN_NODE_MESSAGES_SETTLED
-	                : FZN_NODE_MESSAGES_HELD;
-	return FZN_NODE_MESSAGES_DELIVERED_LEN;
+	outcome = !keeps ? FZN_NODE_MESSAGES_REFUSED
+	          : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED
+	                  ? FZN_NODE_MESSAGES_SETTLED
+	                  : FZN_NODE_MESSAGES_HELD;
+	if (fzn_deliver_wire_fzn_message_delivered_build(reply, (uint32_t)reply_cap, FZN_CMD_MESSAGES,
+	                                                 FZN_NODE_MESSAGES_DELIVERED, id, outcome, &wrote)
+	    != SITU_OK)
+		return 0;
+	return wrote;
 }
 
 /* ---- settlement, sec 615 ---------------------------------------------------- */
@@ -1207,18 +1236,29 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 static size_t answer_holds(fzn_node_messages_t *nm, const uint8_t *request, size_t request_len,
                            uint8_t *reply, size_t reply_cap)
 {
-	const uint8_t *contact = request + 2, *id = request + 2 + FZN_PUBKEY_LEN;
+	const uint8_t *contact, *id;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t wrote = 0;
+	uint8_t answer;
 
 	if (request_len != FZN_NODE_MESSAGES_HOLDS_LEN || reply_cap < FZN_NODE_MESSAGES_HOLDING_LEN)
 		return 0;
-	reply[0] = FZN_CMD_MESSAGES;
-	reply[1] = FZN_NODE_MESSAGES_HOLDING;
-	memcpy(reply + 2, id, FZN_BUCKETS_ID_LEN);
-	reply[2 + FZN_BUCKETS_ID_LEN] =
-	        fzn_buckets_has(&nm->buckets, FZN_BUCKETS_MESSAGES, id) ? FZN_NODE_MESSAGES_HOLDS_IT
-	        : nm->keeps && !nm->keeps(nm->keeps_ctx, contact) ? FZN_NODE_MESSAGES_DECLINES
-	                                                          : FZN_NODE_MESSAGES_LACKS;
-	return FZN_NODE_MESSAGES_HOLDING_LEN;
+	/* READ AND ANSWERED AS THE SCHEMA SAYS, sec 1377. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_deliver_wire_fzn_message_holds_view(&m, 0u, &v) != SITU_OK
+	    || fzn_deliver_wire_fzn_message_holds_validate(v) != SITU_OK)
+		return 0;
+	contact = fzn_deliver_wire_fzn_message_holds_contact_ptr(v);
+	id = fzn_deliver_wire_fzn_message_holds_item_ptr(v);
+	answer = fzn_buckets_has(&nm->buckets, FZN_BUCKETS_MESSAGES, id) ? FZN_NODE_MESSAGES_HOLDS_IT
+	         : nm->keeps && !nm->keeps(nm->keeps_ctx, contact)     ? FZN_NODE_MESSAGES_DECLINES
+	                                                               : FZN_NODE_MESSAGES_LACKS;
+	if (fzn_deliver_wire_fzn_message_holding_build(reply, (uint32_t)reply_cap, FZN_CMD_MESSAGES,
+	                                               FZN_NODE_MESSAGES_HOLDING, id, answer, &wrote)
+	    != SITU_OK)
+		return 0;
+	return wrote;
 }
 
 /* ONE MEMBER ASKED: its answer, or -1 for none that reads. */
@@ -1227,20 +1267,26 @@ static int ask_holds(const fzn_node_messages_member_t *member,
 {
 	uint8_t request[FZN_NODE_MESSAGES_HOLDS_LEN], reply[FZN_NODE_MESSAGES_HOLDING_LEN + 8u];
 	size_t reply_len = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t wrote = 0;
 
-	if (!member->ask)
+	if (!member->ask
+	    || fzn_deliver_wire_fzn_message_holds_build(request, (uint32_t)sizeof(request), FZN_CMD_MESSAGES,
+	                                                FZN_NODE_MESSAGES_HOLDS, contact, id, &wrote)
+	               != SITU_OK)
 		return -1;
-	request[0] = FZN_CMD_MESSAGES;
-	request[1] = FZN_NODE_MESSAGES_HOLDS;
-	memcpy(request + 2, contact, FZN_PUBKEY_LEN);
-	memcpy(request + 2 + FZN_PUBKEY_LEN, id, FZN_BUCKETS_ID_LEN);
+	/* THE ANSWER READ AS THE SCHEMA SAYS, sec 1377: version, type and an
+	 * answer of at most DECLINES the generated validate's. */
 	if (!member->ask(member->ctx, request, sizeof(request), reply, sizeof(reply), &reply_len)
-	    || reply_len != FZN_NODE_MESSAGES_HOLDING_LEN || reply[0] != FZN_CMD_MESSAGES
-	    || reply[1] != FZN_NODE_MESSAGES_HOLDING
-	    || memcmp(reply + 2, id, FZN_BUCKETS_ID_LEN) != 0
-	    || reply[2 + FZN_BUCKETS_ID_LEN] > FZN_NODE_MESSAGES_DECLINES)
+	    || reply_len != FZN_NODE_MESSAGES_HOLDING_LEN)
 		return -1;
-	return reply[2 + FZN_BUCKETS_ID_LEN];
+	situ_msg_init(&m, reply, (uint32_t)reply_len);
+	if (fzn_deliver_wire_fzn_message_holding_view(&m, 0u, &v) != SITU_OK
+	    || fzn_deliver_wire_fzn_message_holding_validate(v) != SITU_OK
+	    || memcmp(fzn_deliver_wire_fzn_message_holding_item_ptr(v), id, FZN_BUCKETS_ID_LEN) != 0)
+		return -1;
+	return fzn_deliver_wire_fzn_message_holding_answer_get(v);
 }
 
 fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
