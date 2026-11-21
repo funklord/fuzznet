@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1362
+The newest work is at the end of this file. **Read secs 1287 to 1363
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95692,3 +95692,23 @@ state its extent" -- though the entry's own unit has that name's
 **Tests:** cause_wire_vectors (1); cause_test (7), and every target
 linking the envelope (29). Sabotage `cause-envelope-uses-every-byte` and
 `cause-envelope-is-version-3` retargeted.
+
+## 1363. A tree node's body built and read through situ's code, 2026-11-21
+
+The seventeenth of the 40 layouts: `tree/tree.situ` is
+`tree/tree_row.situ`, the body a tree node keeps in a record (notes'
+folders and order, sec 422). `fzn_tree_body` builds with the generated
+builder; `fzn_tree_open` reads the record's body through the generated
+view, `validate` and getters. The schema now bounds the content at 470
+bytes, a record body's 512 less the node's 42 -- `FZN_TREE_CONTENT_MAX`,
+which only the codec stated. **`validate` cannot refuse a node here**: the
+record already bounds its body at 512, so no sabotage entry is written
+over it -- one would report a defence that cannot fire.
+
+situ's `wire --check` called bounding the trailing `content[remaining]`
+breaking -- "every later field shifts for an old receiver" -- though
+nothing follows it; a narrowing, as a gained `[max]` is (sent with the
+next message to situ).
+
+**Tests:** tree_row_vectors (2); tree_test (160), note_test (147),
+text_test (35), tree_fuzz (20000 cases).

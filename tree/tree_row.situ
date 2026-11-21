@@ -1,5 +1,7 @@
 // The tree node body as a situ schema -- converted from hand-written C
-// (tree/tree.h) the way record/record.situ was. VARIABLE LENGTH: two fixed
+// (tree/tree.h) the way record/record.situ was, and since sec 1363 built and
+// read through the code situ generates from it (`tree/tree.c`); `_row`, so
+// the generated file's name meets no source's. VARIABLE LENGTH: two fixed
 // fields, a content_type, then the consumer's opaque content. Measured
 // against the committed FZN_TREE_OFF_* constants before anything is
 // generated.
@@ -20,5 +22,5 @@ struct fzn_tree_node {
 	u8  parent[32];          // FZN_TREE_OFF_PARENT        0  (FZN_TREE_ID_LEN)
 	u64 order;               // FZN_TREE_OFF_ORDER         32
 	u16 content_type;        // FZN_TREE_OFF_CONTENT_TYPE  40
-	u8  content[remaining];  // FZN_TREE_OFF_CONTENT       42 = FZN_TREE_BODY_HEADER_LEN
+	u8  content[remaining] max 470;  // FZN_TREE_OFF_CONTENT 42; FZN_TREE_CONTENT_MAX, a record body's 512 less 42
 }

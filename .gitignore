@@ -437,4 +437,5 @@ __pycache__/
 /wire/test/succession_record_vectors
 /wire/test/entry_record_vectors
 /wire/test/cause_wire_vectors
+/wire/test/tree_row_vectors
 /node/test/settings_registry_test

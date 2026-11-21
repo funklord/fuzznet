@@ -258,6 +258,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
              wire/generated/setting_record.c wire/generated/record_row.c wire/generated/hop_record.c \
              wire/generated/succession_record.c wire/generated/entry_record.c wire/generated/cause_wire.c \
+             wire/generated/tree_row.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -279,7 +280,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/prekey_record_vectors.c wire/generated/setting_record_vectors.c \
                  wire/generated/record_row_vectors.c wire/generated/hop_record_vectors.c \
                  wire/generated/succession_record_vectors.c wire/generated/entry_record_vectors.c \
-                 wire/generated/cause_wire_vectors.c
+                 wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -764,6 +765,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/succession_record_vectors \
              $(BUILD_DIR)/wire/test/entry_record_vectors \
              $(BUILD_DIR)/wire/test/cause_wire_vectors \
+             $(BUILD_DIR)/wire/test/tree_row_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2251,7 +2253,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o $(BUILD_DIR)/record/journal.o \
               $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/state/state.o \
-              $(BUILD_DIR)/log/log.o $(BUILD_DIR)/tree/tree.o \
+              $(BUILD_DIR)/log/log.o $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
               $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/spool/spool.o \
               $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/message.o \
               $(BUILD_DIR)/spool/scrub.o \
@@ -2596,7 +2598,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/notes/purge.o \
                                           $(BUILD_DIR)/notes/import.o \
                                           $(BUILD_DIR)/notes/note.o \
-                                          $(BUILD_DIR)/tree/tree.o \
+                                          $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                           $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                           $(BUILD_DIR)/persist/persist.o \
                                           $(BUILD_DIR)/trust/trust.o \
@@ -2630,7 +2632,7 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
                                          $(BUILD_DIR)/notes/author.o \
                                          $(BUILD_DIR)/notes/purge.o \
                                          $(BUILD_DIR)/notes/note.o \
-                                         $(BUILD_DIR)/tree/tree.o \
+                                         $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                          $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                          $(BUILD_DIR)/persist/persist.o \
                                          $(BUILD_DIR)/trust/trust.o \
@@ -2652,7 +2654,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
                                    $(BUILD_DIR)/notes/author.o \
                                    $(BUILD_DIR)/notes/purge.o \
                                    $(BUILD_DIR)/notes/note.o \
-                                   $(BUILD_DIR)/tree/tree.o \
+                                   $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/persist/persist.o \
                                    $(BUILD_DIR)/trust/trust.o \
@@ -2686,7 +2688,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
-                                   $(BUILD_DIR)/tree/tree.o \
+                                   $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/local/peer.o \
@@ -2773,7 +2775,7 @@ $(BUILD_DIR)/record/test/record_test: $(BUILD_DIR)/record/test/record_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/tree/test/tree_test: $(BUILD_DIR)/tree/test/tree_test.o \
-                                  $(BUILD_DIR)/tree/tree.o \
+                                  $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                   $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -2817,13 +2819,13 @@ $(BUILD_DIR)/record/test/record_fuzz: $(BUILD_DIR)/record/test/record_fuzz.o \
 # the fuzz harness for the same reason: a node body is parsed out of a
 # record, so record/ is the only thing beneath it.
 $(BUILD_DIR)/tree/test/tree_kat_test: $(BUILD_DIR)/tree/test/tree_kat_test.o \
-                                      $(BUILD_DIR)/tree/tree.o \
+                                      $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                       $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/tree/test/tree_fuzz: $(BUILD_DIR)/tree/test/tree_fuzz.o \
-                                  $(BUILD_DIR)/tree/tree.o \
+                                  $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                   $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2854,7 +2856,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                     $(BUILD_DIR)/record/journal.o \
                                     $(BUILD_DIR)/record/sync.o \
-                                    $(BUILD_DIR)/tree/tree.o \
+                                    $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                     $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
                                     $(BUILD_DIR)/chain/revocation.o \
                                     $(BUILD_DIR)/chain/manifest.o \
@@ -4109,7 +4111,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/chain/service.o \
                                      $(BUILD_DIR)/notes/note.o \
-                                     $(BUILD_DIR)/tree/tree.o \
+                                     $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                      $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                      $(BUILD_DIR)/local/vocabulary.o \
                                      $(BUILD_DIR)/local/peer.o \
@@ -4664,6 +4666,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# A TREE NODE'S BODY, generated, sec 1363.
+$(BUILD_DIR)/wire/test/tree_row_vectors: wire/generated/tree_row_vectors.c \
+                                        wire/generated/tree_row.c wire/generated/situ.c \
+                                        $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5620,7 +5629,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(B
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
                        $(BUILD_DIR)/notes/sync.o \
                        $(BUILD_DIR)/notes/share.o $(BUILD_DIR)/notes/received.o \
-                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o \
+                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                        $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
@@ -6044,7 +6053,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/notes/sync.o \
                                       $(BUILD_DIR)/notes/purge.o \
                                       $(BUILD_DIR)/notes/view.o \
-                                      $(BUILD_DIR)/tree/tree.o \
+                                      $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/node/files.o \
                                         $(BUILD_DIR)/blob/levels.o \
@@ -6140,7 +6149,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/catalog/catalog.o \
                                       $(BUILD_DIR)/catalog/retention.o \
                                       $(if $(CLI_ON),$(BUILD_DIR)/cli/cli.o) \
-                                      $(BUILD_DIR)/tree/tree.o \
+                                      $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
@@ -7777,7 +7786,7 @@ SITU_DIR ?=
 # with the hand-written codec still producing the bytes. sec 304-305.
 SITU_SPECS := chain/hop_record.situ chain/revocation.situ chain/manifest.situ \
               prekey/prekey_record.situ persist/persist.situ spool/message.situ \
-              spool/sidecar.situ record/record_row.situ tree/tree.situ \
+              spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
@@ -8547,6 +8556,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_tree_row --layer edit \
+	         --out $(BUILD_DIR)/.gen.new tree/tree_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_tree_row \
+	         --out $(BUILD_DIR)/.gen.new tree/tree_row.situ tree/tree_row.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_cause_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new log/cause_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_cause_wire \
@@ -8691,6 +8704,7 @@ schema:
 	          succession_record.c succession_record.h succession_record_vectors.c \
 	          entry_record.c entry_record.h entry_record_build.h entry_record_edit.h entry_record_vectors.c \
 	          cause_wire.c cause_wire.h cause_wire_build.h cause_wire_edit.h cause_wire_vectors.c \
+	          tree_row.c tree_row.h tree_row_build.h tree_row_edit.h tree_row_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

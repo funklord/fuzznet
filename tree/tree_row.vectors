@@ -1,0 +1,6 @@
+# Golden vectors for tree/tree_row.situ, written by hand from its layout:
+# a node under a parent of 11s, ordered 1000, content type 2, content
+# "hello"; and a root's child with no content.
+
+fzn_tree_node hello 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 03 E8 00 02 68 65 6C 6C 6F
+fzn_tree_node empty 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00

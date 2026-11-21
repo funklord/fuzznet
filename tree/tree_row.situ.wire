@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: tree.situ
+# schema: tree_row.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,8 +18,8 @@
 endian big
 target buffer
 
-struct fzn_tree_node size=42..
+struct fzn_tree_node size=42..512
   @0x0000   32        u8         parent  big
   @0x0020   8         u64        order  big
   @0x0028   2         u16        content_type  big
-  @0x002a   0..       u8         content  sized-by=remaining
+  @0x002a   0..470    u8         content  sized-by=remaining

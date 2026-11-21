@@ -1,6 +1,8 @@
 #include "tree.h"
 
 #include "../wire/bytes.h"
+#include "../wire/generated/tree_row.h"
+#include "../wire/generated/tree_row_build.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +48,8 @@ fzn_tree_err_t fzn_tree_open(fzn_record_t record, fzn_tree_node_t *out)
 {
 	const uint8_t *body;
 	size_t body_len;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (out == NULL)
 		return FZN_TREE_ERR_NULL;
@@ -60,10 +64,16 @@ fzn_tree_err_t fzn_tree_open(fzn_record_t record, fzn_tree_node_t *out)
 	if (body == NULL)
 		return FZN_TREE_ERR_NULL;
 
+	/* READ AS THE SCHEMA SAYS, sec 1363: `tree/tree_row.situ`'s generated
+	 * view over the record's body, its content the rest of it. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)body, (uint32_t)body_len);
+	if (fzn_tree_row_fzn_tree_node_view(&m, 0u, (uint32_t)body_len, &v) != SITU_OK
+	    || fzn_tree_row_fzn_tree_node_validate(v) != SITU_OK)
+		return FZN_TREE_ERR_SHORT_BODY;
 	out->id = fzn_record_subject(record);
-	out->parent = body + FZN_TREE_OFF_PARENT;
-	out->order = fzn_get_be64(body + FZN_TREE_OFF_ORDER);
-	out->content_type = fzn_get_be16(body + FZN_TREE_OFF_CONTENT_TYPE);
+	out->parent = fzn_tree_row_fzn_tree_node_parent_ptr(v);
+	out->order = fzn_tree_row_fzn_tree_node_order_get(v);
+	out->content_type = fzn_tree_row_fzn_tree_node_content_type_get(v);
 	out->content_len = body_len - (size_t)FZN_TREE_BODY_HEADER_LEN;
 	/* A zero-length content still points somewhere valid: one past the
 	 * header, which is inside the body buffer whenever body_len equals
@@ -79,7 +89,7 @@ fzn_tree_err_t fzn_tree_body(const uint8_t parent[FZN_TREE_ID_LEN],
                              const uint8_t *content, size_t content_len,
                              uint8_t *out, size_t out_cap, size_t *out_len)
 {
-	size_t need;
+	uint32_t wrote = 0;
 
 	if (parent == NULL || out == NULL || out_len == NULL)
 		return FZN_TREE_ERR_NULL;
@@ -87,18 +97,15 @@ fzn_tree_err_t fzn_tree_body(const uint8_t parent[FZN_TREE_ID_LEN],
 		return FZN_TREE_ERR_NULL;
 	if (content_len > FZN_TREE_CONTENT_MAX)
 		return FZN_TREE_ERR_CONTENT_LEN;
-
-	need = (size_t)FZN_TREE_BODY_HEADER_LEN + content_len;
-	if (out_cap < need)
+	if (out_cap < (size_t)FZN_TREE_BODY_HEADER_LEN + content_len)
 		return FZN_TREE_ERR_CAPACITY;
 
-	memcpy(out + FZN_TREE_OFF_PARENT, parent, (size_t)FZN_TREE_ID_LEN);
-	fzn_put_be64(out + FZN_TREE_OFF_ORDER, order);
-	fzn_put_be16(out + FZN_TREE_OFF_CONTENT_TYPE, content_type);
-	if (content_len != 0u)
-		memcpy(out + FZN_TREE_OFF_CONTENT, content, content_len);
-
-	*out_len = need;
+	/* BUILT BY THE CODE situ GENERATES, sec 1363. */
+	if (fzn_tree_row_fzn_tree_node_build(out, out_cap > UINT32_MAX ? UINT32_MAX : (uint32_t)out_cap, parent, order,
+	                                     content_type, content, (uint32_t)content_len, &wrote)
+	    != SITU_OK)
+		return FZN_TREE_ERR_CAPACITY;
+	*out_len = wrote;
 	return FZN_TREE_OK;
 }
 
