@@ -3,6 +3,8 @@
 #include "opjournal.h"
 
 #include "../wire/bytes.h"
+#include "../wire/generated/opjournal_row.h"
+#include "../wire/generated/opjournal_row_build.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -13,37 +15,38 @@ _Static_assert(FZN_OPJOURNAL_OFF_LENGTH + 4u == FZN_OPJOURNAL_ENTRY_LEN,
 int fzn_opjournal_entry_write(const fzn_opjournal_entry_t *e,
                               uint8_t out[FZN_OPJOURNAL_ENTRY_LEN])
 {
-	if (!e || !out
-	    || (e->op != FZN_OPJOURNAL_OP_SAVE && e->op != FZN_OPJOURNAL_OP_REMOVE
-	        && e->op != FZN_OPJOURNAL_OP_OPENED)
-	    || (e->flags & (uint8_t)~(FZN_OPJOURNAL_HAS_SUBJECT | FZN_OPJOURNAL_BYTES_KEPT)))
+	uint32_t wrote = 0;
+
+	/* BUILT BY THE CODE situ GENERATES from `node/opjournal_row.situ`
+	 * (sec 1337), which refuses an op or a flag it does not name. */
+	if (!e || !out)
 		return 0;
-	out[FZN_OPJOURNAL_OFF_VERSION] = FZN_OPJOURNAL_VERSION;
-	out[FZN_OPJOURNAL_OFF_OP] = e->op;
-	out[FZN_OPJOURNAL_OFF_SLOT] = e->slot;
-	out[FZN_OPJOURNAL_OFF_FLAGS] = e->flags;
-	memcpy(out + FZN_OPJOURNAL_OFF_SUBJECT, e->subject, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_OPJOURNAL_OFF_HASH, e->hash, sizeof(e->hash));
-	fzn_put_be32(out + FZN_OPJOURNAL_OFF_LENGTH, e->length);
-	return 1;
+	return fzn_opjournal_row_fzn_opjournal_entry_build(out, FZN_OPJOURNAL_ENTRY_LEN, FZN_OPJOURNAL_VERSION,
+	                                                   (fzn_opjournal_row_fzn_opjournal_op_t)e->op, e->slot,
+	                                                   e->flags, e->subject, e->hash, e->length, &wrote)
+	               == SITU_OK
+	       && wrote == FZN_OPJOURNAL_ENTRY_LEN;
 }
 
 int fzn_opjournal_entry_open(const uint8_t *body, size_t len, fzn_opjournal_entry_t *out)
 {
-	if (!body || !out || len != FZN_OPJOURNAL_ENTRY_LEN
-	    || body[FZN_OPJOURNAL_OFF_VERSION] != FZN_OPJOURNAL_VERSION
-	    || (body[FZN_OPJOURNAL_OFF_OP] != FZN_OPJOURNAL_OP_SAVE
-	        && body[FZN_OPJOURNAL_OFF_OP] != FZN_OPJOURNAL_OP_REMOVE
-	        && body[FZN_OPJOURNAL_OFF_OP] != FZN_OPJOURNAL_OP_OPENED)
-	    || (body[FZN_OPJOURNAL_OFF_FLAGS]
-	        & (uint8_t)~(FZN_OPJOURNAL_HAS_SUBJECT | FZN_OPJOURNAL_BYTES_KEPT)))
+	situ_msg_t m;
+	situ_view_t v;
+
+	/* READ AS THE SCHEMA SAYS: its version, op and flags the generated
+	 * validate's to check. */
+	if (!body || !out || len != FZN_OPJOURNAL_ENTRY_LEN)
 		return 0;
-	out->op = body[FZN_OPJOURNAL_OFF_OP];
-	out->slot = body[FZN_OPJOURNAL_OFF_SLOT];
-	out->flags = body[FZN_OPJOURNAL_OFF_FLAGS];
-	memcpy(out->subject, body + FZN_OPJOURNAL_OFF_SUBJECT, FZN_PUBKEY_LEN);
-	memcpy(out->hash, body + FZN_OPJOURNAL_OFF_HASH, sizeof(out->hash));
-	out->length = fzn_get_be32(body + FZN_OPJOURNAL_OFF_LENGTH);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)body, (uint32_t)len);
+	if (fzn_opjournal_row_fzn_opjournal_entry_view(&m, 0u, &v) != SITU_OK
+	    || fzn_opjournal_row_fzn_opjournal_entry_validate(v) != SITU_OK)
+		return 0;
+	out->op = (uint8_t)fzn_opjournal_row_fzn_opjournal_entry_op_get(v);
+	out->slot = fzn_opjournal_row_fzn_opjournal_entry_slot_get(v);
+	out->flags = fzn_opjournal_row_fzn_opjournal_entry_flags_get(v);
+	memcpy(out->subject, fzn_opjournal_row_fzn_opjournal_entry_subject_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(out->hash, fzn_opjournal_row_fzn_opjournal_entry_hash_ptr(v), sizeof(out->hash));
+	out->length = fzn_opjournal_row_fzn_opjournal_entry_length_get(v);
 	return 1;
 }
 

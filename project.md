@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1336
+The newest work is at the end of this file. **Read secs 1287 to 1337
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95022,3 +95022,16 @@ signed.
 **Tests:** fix_row_vectors (2: a full fix, a bare one); location_test
 (38), gpsd_test (15), tpv_test (19) and location_fuzz (3000 cases, 788
 bent fixes decoded and each re-encoded alike) over the generated code.
+
+## 1337. An operation journal's entry on situ's generated code, 2026-11-21
+
+The eighth of the 40 layouts: `node/opjournal.situ` is
+`node/opjournal_row.situ` (an entry is a row of the node's own journal).
+`fzn_opjournal_entry_write` builds through the generated builder and
+`fzn_opjournal_entry_open` reads through the generated view, `validate`
+and getters, so the version, the op and the flags' bound are the
+schema's to check -- the codec had them by hand, twice. The generated
+object joins `FUZZNETD_JOURNAL_OBJS`.
+
+**Tests:** opjournal_row_vectors (1); opjournal_test (55),
+node_journal_test (73) and messages_test (283) over the generated code.

@@ -428,4 +428,5 @@ __pycache__/
 /wire/test/contact_card_record_vectors
 /wire/test/routing_record_vectors
 /wire/test/fix_row_vectors
+/wire/test/opjournal_row_vectors
 /node/test/settings_registry_test

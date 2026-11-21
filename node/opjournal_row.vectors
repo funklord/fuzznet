@@ -1,0 +1,5 @@
+# Golden vectors for node/opjournal_row.situ, written by hand from its
+# layout: version 1, a save to slot 9 with a subject and its bytes kept,
+# the subject, the bytes' hash and their length 300.
+
+fzn_opjournal_entry save 01 01 09 03 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD 00 00 01 2C

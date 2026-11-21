@@ -1,10 +1,12 @@
 // One entry of a node's operation journal: a write to persistent state, as
 // the body of a record on the node's own stream in a journal of its own,
-// never served. project.md secs 523-524, sec 496's tier 2. The hand-written codec
-// is node/opjournal.c; this is its checked contract, in `make schema`'s list.
+// never served. project.md secs 523-524, sec 496's tier 2.
 //
 // The bytes written are not here: an entry names them by hash, and they are
 // kept beside it, so erasing them deletes the content while the entry stays.
+
+// node/opjournal.c writes and reads an entry through the code situ generates
+// from this (sec 1337); `_row`, so the generated file's name meets no source's.
 
 target buffer;
 endian big;

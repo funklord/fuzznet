@@ -17797,6 +17797,13 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"opjournal-entry-unvalidated",
+		"node/opjournal.c",
+		"\t    || fzn_opjournal_row_fzn_opjournal_entry_validate(v) != SITU_OK)\n",
+		"\t    )\n",
+		"an entry read without the schema's checks: an unknown op or flag replayed -- secs 523, 1337",
+	),
+	(
 		"location-fix-unvalidated",
 		"location/location.c",
 		" || fzn_fix_row_fzn_location_fix_validate(v) != SITU_OK)\n",
