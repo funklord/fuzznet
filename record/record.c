@@ -2,6 +2,8 @@
 
 #include "record.h"
 
+#include "../wire/generated/record_row.h"
+
 #include <string.h>
 
 /* THE HEADER'S TABLE, CHECKED BY THE COMPILER. record.h states the layout
@@ -43,31 +45,37 @@ static int prev_is_zero(const uint8_t *p)
 
 fzn_record_err_t fzn_record_open(const uint8_t *bytes, size_t len, fzn_record_t *out)
 {
-	size_t body_len;
+	situ_msg_t m;
+	situ_view_t v;
+	situ_err_t err;
+	uint32_t which = 0, rule = 0;
+	size_t rules = 0;
 
 	if (!bytes || !out)
 		return FZN_RECORD_ERR_MALFORMED;
 
 	/* The floor first, because everything below reads the header. */
-	if (len < FZN_RECORD_MIN_LEN)
+	if (len < FZN_RECORD_MIN_LEN || len > UINT32_MAX)
 		return FZN_RECORD_ERR_SHAPE;
 
-	/* THE TWO BYTES THE SIGNATURE COVERS BUT NOTHING ELSE READS. A record
-	 * whose object byte says "hop" is a hop, and refusing it here is what
-	 * stops one signed object being presented as another -- see
-	 * wire/bytes.h, where the sibling project that paid for the collision
-	 * is named. */
-	if (bytes[FZN_RECORD_OFF_VERSION] != (uint8_t)FZN_SIGNED_VERSION)
+	/* READ AS THE SCHEMA SAYS (sec 1344): `record/record_row.situ`'s
+	 * generated `check` refuses a version or object byte not a record's --
+	 * THE TWO BYTES THE SIGNATURE COVERS BUT NOTHING ELSE READS, which stop
+	 * one signed object being presented as another (wire/bytes.h) -- a body
+	 * past its bound, and, as `when` rules, a sequence of zero (journal.h
+	 * keeps it for "nothing seen yet") and a first record naming a
+	 * predecessor (sec 500). `check` names the member it refused at, and
+	 * `messages` the rule, so each keeps its own answer. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_record_row_fzn_record_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
 		return FZN_RECORD_ERR_SHAPE;
-	if (bytes[FZN_RECORD_OFF_OBJECT] != (uint8_t)FZN_OBJECT_RECORD)
-		return FZN_RECORD_ERR_SHAPE;
+	err = fzn_record_row_fzn_record_check(v, &which);
 
 	/* The bound BEFORE the length agreement, so that an oversized body is
 	 * reported as the sizing decision it is rather than as a shapeless
 	 * buffer. A consumer can act on BODY_TOO_LARGE -- split the statement,
 	 * or raise the bound -- and can do nothing at all about SHAPE. */
-	body_len = fzn_get_be16(bytes + FZN_RECORD_OFF_BODY_LEN);
-	if (body_len > FZN_RECORD_BODY_MAX)
+	if (err != SITU_OK && which == FZN_RECORD_ROW_FZN_RECORD_BODY_LEN_CHECK)
 		return FZN_RECORD_ERR_BODY_TOO_LARGE;
 
 	/* THE LENGTH MUST AGREE WITH THE FIELD, EXACTLY. This is the half of
@@ -77,21 +85,20 @@ fzn_record_err_t fzn_record_open(const uint8_t *bytes, size_t len, fzn_record_t 
 	 * the same signed bytes could be read back as two different records.
 	 * Refusing anything but the exact length is what makes the encoding
 	 * canonical, and canonical is what makes it signable. */
-	if (len != (size_t)FZN_RECORD_HEADER_LEN + body_len + FZN_SIG_LEN)
+	if ((size_t)fzn_record_row_fzn_record_signature_offset(v) + FZN_SIG_LEN != len)
 		return FZN_RECORD_ERR_SHAPE;
 
-	/* Zero is not a sequence a legitimate issuer produces: journal.h
-	 * reserves it for "nothing seen yet". Refused here rather than in
-	 * `fzn_record_verify`, so a record refused for its sequence has not
-	 * reached a function that holds a key -- the ordering claim, made
-	 * structural. */
-	if (fzn_get_be64(bytes + FZN_RECORD_OFF_SEQ) == 0)
-		return FZN_RECORD_ERR_SEQ_ZERO;
-	/* THE FIRST RECORD OF A STREAM HAS NO PREDECESSOR, sec 500, so one
-	 * naming one is not a record anybody chained honestly. */
-	if (fzn_get_be64(bytes + FZN_RECORD_OFF_SEQ) == 1u
-	    && !prev_is_zero(bytes + FZN_RECORD_OFF_PREV))
+	/* Zero is refused here rather than in `fzn_record_verify`, so a record
+	 * refused for its sequence has not reached a function that holds a
+	 * key -- the ordering claim, made structural. */
+	if (err != SITU_OK) {
+		if (which == 0xFFFFFFFFu) {
+			fzn_record_row_fzn_record_messages(v, &rule, 1u, &rules);
+			if (rules && rule == FZN_RECORD_ROW_FZN_RECORD_SEQ_ZERO_MSG)
+				return FZN_RECORD_ERR_SEQ_ZERO;
+		}
 		return FZN_RECORD_ERR_SHAPE;
+	}
 
 	out->base = bytes;
 	out->len = len;

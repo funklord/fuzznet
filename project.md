@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1343
+The newest work is at the end of this file. **Read secs 1287 to 1344
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95207,3 +95207,35 @@ After: **RssAnon 3788 KB, 80 below 364241c**; the remaining big blocks
 cleared at start costs an idle host all of it -- calloc it and do not
 clear it. Test: rate_test's `test_zeroed_rows_untouched`; sabotage
 `rate-zeroed-rows-untouched`.
+
+## 1344. A signed record opened through situ's code, its sequence rules `when`s, 2026-11-21
+
+The twelfth of the 40 layouts, and the one every stream is made of:
+`record/record.situ` is `record/record_row.situ`, and says what only the
+codec said -- **a sequence of zero** (journal.h keeps it for "nothing seen
+yet") and **a first record naming a predecessor** (sec 500) are `when`
+refusals, the second by `sum(prev) != 0`. `fzn_record_open` reads through
+the generated view and `check`, keeping each answer its own: `check`
+names the member it refused at, so a body past 512 is still
+BODY_TOO_LARGE and before the length agreement; the exact length is the
+signature's offset plus 64; and a `when` refusal is named by the
+generated `messages`, so sequence zero is still SEQ_ZERO. Signing stays
+hand-written: situ makes no builder for a record signed by an extern keyed
+signature (sec 1340's item for situ), and an edit-layer write of a
+variable-length body shifts members.
+
+**It costs time, measured**: 20 million opens of a valid record, -Os, this
+machine -- 7.5 ns each by hand, 21-24 ns through the generated code (at
+-O2, 5.9 against 20.8); a profile puts it in `check` and the inline
+offset arithmetic, not in the two walks (one removed, no change). Beside
+an Ed25519 verify of tens of microseconds it is nothing; a store scan of
+100,000 records pays 1.4 ms more. **Taken, and sent to situ** (inbox
+20261121T0800Z) as the measurement the "no performance lost" aim needs.
+
+**Tests:** record_row_vectors (2: a first record, a second); record_test
+(140), store_test (104), node_journal_test (73), record_fuzz (20000
+cases: 4.7 million shape, 31640 body and 10561 sequence refusals each
+answered as before), store_fuzz and exchange_fuzz. Sabotage
+`record-open-refusals-ignored`, `record-body-bound-said`,
+`record-seq-zero-said`, `record-exact-length`; the hand predecessor check
+went with its entry.

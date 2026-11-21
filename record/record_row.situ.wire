@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: record.situ
+# schema: record_row.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -32,3 +32,5 @@ struct fzn_record size=188..700
   @0x007c   0..512    u8         content  sized-by=body_len
   ~         64        u8         signature
   signature covers: body body_len content issued_at issuer kind object prev seq stream subject version
+  fzn_record refuses: first_names_a_predecessor when fzn_record.seq == 1 && sum(fzn_record.prev) != 0
+  fzn_record refuses: seq_zero when fzn_record.seq == 0

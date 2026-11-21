@@ -1,5 +1,8 @@
-// The signed record as a situ schema -- converted from hand-written C
-// (record/record.h) the way chain/hop.situ and chain/manifest.situ were.
+// The signed record as a situ schema. record/record.c opens a record through
+// the code situ generates from this (sec 1344) -- its shape, its bound and
+// its two sequence rules -- and signs it by hand, situ making no builder
+// for a record whose signature is an extern keyed one; `_row`, a row of a
+// stream, so the generated file's name meets no source's.
 // VARIABLE LENGTH: a fixed header, then a body sized by the body_len field,
 // then the signature. Measured against the committed FZN_RECORD_OFF_*
 // constants before anything is generated.
@@ -36,3 +39,13 @@ struct fzn_record {
 	// extern, so no codec -- the caller signs and verifies.
 	checksum u8 signature[64] covers(body); // at 124 + body_len (FZN_SIG_LEN)
 }
+
+// ZERO IS NOT A SEQUENCE a legitimate issuer produces: journal.h keeps it
+// for "nothing seen yet".
+when fzn_record.seq == 0
+	refuse seq_zero
+	"a record numbered zero";
+// THE FIRST RECORD OF A STREAM HAS NO PREDECESSOR, sec 500.
+when fzn_record.seq == 1 && sum(fzn_record.prev) != 0
+	refuse first_names_a_predecessor
+	"the first record of a stream names a predecessor";
