@@ -264,6 +264,41 @@ static inline situ_err_t situ_drive_reply_to_track_from(situ_drive_reply_to_t *d
 	return held;
 }
 
+/* Another way the live exchange `id` may be answered: a relayed
+ * request awaited under the relay's (peer, key) beside the
+ * target's (26.1126). No bytes and no timer -- the exchange keeps
+ * its deadline and its resends, which still reach you once, by
+ * `id`. A reply matching either key ends both, as do expiry and
+ * `_end`. SITU_ERR_CONSTRAINT where no exchange `id` is live, so
+ * this never starts one; SITU_ERR_BOUNDS where the table is full.
+ * Each key is a slot of `drive->pending`, which `_init` sized for
+ * one per exchange: for room for both, call
+ * `situ_conv_reply_to_init(&drive->pending, keys, key_cap)` with a larger
+ * array straight after `_init`. */
+static inline situ_err_t situ_drive_reply_to_track_also_from(situ_drive_reply_to_t *drive,
+                                                situ_view_t request,
+                                                uint32_t peer, uint32_t id)
+{
+	for (uint32_t i = 0u; i < drive->cap; i++) {
+		if (drive->slots[i].live != 0u && drive->slots[i].id == id) {
+			return situ_conv_reply_to_record_from(&drive->pending, request, peer, id);
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
+static inline situ_err_t situ_drive_reply_to_track_also_key_from(situ_drive_reply_to_t *drive,
+                                                    uint64_t key,
+                                                    uint32_t peer, uint32_t id)
+{
+	for (uint32_t i = 0u; i < drive->cap; i++) {
+		if (drive->slots[i].live != 0u && drive->slots[i].id == id) {
+			return situ_conv_reply_to_record_key_from(&drive->pending, key, peer, id);
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
 static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *drive,
                                            situ_view_t request,
                                            const uint8_t *bytes,
@@ -359,6 +394,8 @@ static inline situ_err_t situ_drive_reply_to_on_message_from(situ_drive_reply_to
 	if (err != SITU_OK) {
 		return err;
 	}
+	/* Any other key it was awaited under ends with it (26.1126). */
+	situ_conv_reply_to_forget(&drive->pending, *id);
 
 	for (uint32_t i = 0u; i < drive->cap; i++) {
 		if (drive->slots[i].live != 0u && drive->slots[i].id == *id) {

@@ -204,13 +204,14 @@ static inline situ_err_t situ_conv_same_message_match(situ_conv_same_message_t *
  * ended without its reply -- expired, or refused a driver slot --
  * leaves no key a late reply could match and no slot taken: the
  * driver dropped its own and kept this one, so after `cap`
- * expiries every send was SITU_ERR_BOUNDS for good (26.1054). */
+ * expiries every send was SITU_ERR_BOUNDS for good (26.1054).
+ * Every key held for `id`: a relayed exchange is awaited under
+ * two (26.1126). */
 static inline void situ_conv_same_message_forget(situ_conv_same_message_t *table, uint32_t id)
 {
 	for (uint32_t i = 0u; i < table->cap; i++) {
 		if (table->slots[i].live != 0u && table->slots[i].id == id) {
 			table->slots[i].live = 0u;
-			return;
 		}
 	}
 }
@@ -398,13 +399,14 @@ static inline situ_err_t situ_conv_reply_to_match(situ_conv_reply_to_t *table,
  * ended without its reply -- expired, or refused a driver slot --
  * leaves no key a late reply could match and no slot taken: the
  * driver dropped its own and kept this one, so after `cap`
- * expiries every send was SITU_ERR_BOUNDS for good (26.1054). */
+ * expiries every send was SITU_ERR_BOUNDS for good (26.1054).
+ * Every key held for `id`: a relayed exchange is awaited under
+ * two (26.1126). */
 static inline void situ_conv_reply_to_forget(situ_conv_reply_to_t *table, uint32_t id)
 {
 	for (uint32_t i = 0u; i < table->cap; i++) {
 		if (table->slots[i].live != 0u && table->slots[i].id == id) {
 			table->slots[i].live = 0u;
-			return;
 		}
 	}
 }
