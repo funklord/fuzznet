@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1359
+The newest work is at the end of this file. **Read secs 1287 to 1360
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95623,3 +95623,22 @@ is left to hand over (situ inbox 20261121T1530Z).
 hop_kat_test (8), chain_fuzz (20000 cases) over the generated code.
 Sabotage `CONTROL-delegable` and `hop-sig-zero` retargeted,
 `hop-open-unvalidated` new.
+
+## 1360. A key's succession on situ's generated code; a `when` over two runs reported, 2026-11-21
+
+The fourteenth of the 40 layouts: `chain/succession.situ` is
+`chain/succession_record.situ`. Like the prekey (sec 1340) and the hop
+(sec 1359), a signed object with an extern keyed signature: `issue` writes
+through the edit layer and signs the range `signature_covered` names, then
+`finalize`s; `open` reads through the generated view and `validate`.
+
+**What stays the codec's**: a key succeeded by itself (sec 498's cycle of
+one). Stated as `when fzn_succession.old == fzn_succession.successor`,
+situ accepted it and generated C that does not compile -- `_old_get` and
+`_successor_get`, where a run has only `_ptr` -- so it is reported (situ
+inbox 20261121T1640Z) and kept as the codec's constant-time compare until
+situ compares runs.
+
+**Tests:** succession_record_vectors (1); succession_test (26). Sabotage
+`succession-a-key-is-not-its-own-successor` retargeted,
+`succession-open-unvalidated` and `succession-signs-what-situ-covers` new.

@@ -9494,9 +9494,23 @@ SABOTAGES = [
 	(
 		"succession-a-key-is-not-its-own-successor",
 		"chain/succession.c",
-		"\tif (fzn_ct_memeq(bytes + FZN_SUCCESSION_OFF_OLD, bytes + FZN_SUCCESSION_OFF_NEW,\n\t                 FZN_PUBKEY_LEN))\n\t\treturn FZN_CHAIN_ERR_SHAPE;\n",
+		"\tif (fzn_ct_memeq(fzn_succession_record_fzn_succession_old_ptr(v),\n\t                 fzn_succession_record_fzn_succession_successor_ptr(v), FZN_PUBKEY_LEN))\n\t\treturn FZN_CHAIN_ERR_SHAPE;\n",
 		"",
-		"a key succeeded by itself moves no reference and is a cycle of one -- sec 498",
+		"a key succeeded by itself moves no reference and is a cycle of one -- secs 498, 1360",
+	),
+	(
+		"succession-open-unvalidated",
+		"chain/succession.c",
+		"\t    || fzn_succession_record_fzn_succession_validate(v) != SITU_OK)\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		")\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		"a succession of another version or object opened: a signed object read as one it is not -- secs 498, 1360",
+	),
+	(
+		"succession-signs-what-situ-covers",
+		"chain/succession.c",
+		"fzn_succession_record_fzn_succession_signature_ptr(v), out + at, n)) {",
+		"fzn_succession_record_fzn_succession_signature_ptr(v), out + at, n - 1u)) {",
+		"a succession signed over less than its body: the cut's last byte is anybody's -- sec 1360",
 	),
 	(
 		"succession-a-chainless-issuer-is-a-root",

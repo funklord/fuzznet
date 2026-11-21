@@ -4,6 +4,7 @@
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
+#include "../wire/generated/succession_record.h"
 
 #include <string.h>
 
@@ -23,15 +24,25 @@ _Static_assert(FZN_SUCCESSION_ID_LEN == FZN_REVOCATION_ID_LEN,
 fzn_chain_err_t fzn_succession_open(const uint8_t *bytes, size_t len,
                                     fzn_succession_record_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!bytes || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
-	if (len != FZN_SUCCESSION_LEN || bytes[FZN_SUCCESSION_OFF_VERSION] != FZN_SIGNED_VERSION
-	    || bytes[FZN_SUCCESSION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_SUCCESSION)
+	/* READ AS THE SCHEMA SAYS, sec 1360: its version and object are the
+	 * generated validate's. */
+	if (len != FZN_SUCCESSION_LEN)
+		return FZN_CHAIN_ERR_SHAPE;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_succession_record_fzn_succession_view(&m, 0u, &v) != SITU_OK
+	    || fzn_succession_record_fzn_succession_validate(v) != SITU_OK)
 		return FZN_CHAIN_ERR_SHAPE;
 	/* A KEY SUCCEEDED BY ITSELF moves no reference and would be a cycle of
-	 * one; refused at `open` so no reader has to remember. */
-	if (fzn_ct_memeq(bytes + FZN_SUCCESSION_OFF_OLD, bytes + FZN_SUCCESSION_OFF_NEW,
-	                 FZN_PUBKEY_LEN))
+	 * one; refused at `open` so no reader has to remember. The codec's
+	 * still: situ's `when` cannot compare two runs yet (situ inbox
+	 * 20261121T1640Z). */
+	if (fzn_ct_memeq(fzn_succession_record_fzn_succession_old_ptr(v),
+	                 fzn_succession_record_fzn_succession_successor_ptr(v), FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_SHAPE;
 	out->base = bytes;
 	return FZN_CHAIN_OK;
@@ -43,25 +54,38 @@ fzn_chain_err_t fzn_succession_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const uint8_t cut[FZN_SUCCESSION_ID_LEN],
                                      const fzn_sign_ops_t *sign, uint8_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+
 	if (!issuer || !old || !new_key || !sign || !sign->sign || !out
 	    || fzn_ct_memeq(old, new_key, FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_MALFORMED;
-	out[FZN_SUCCESSION_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_SUCCESSION_OFF_OBJECT] = (uint8_t)FZN_OBJECT_SUCCESSION;
-	memcpy(out + FZN_SUCCESSION_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_SUCCESSION_OFF_OLD, old, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_SUCCESSION_OFF_NEW, new_key, FZN_PUBKEY_LEN);
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1360, as the prekey is (sec
+	 * 1340): no builder for an extern keyed signature, so the setters mark
+	 * it stale, it is made over the range situ says it covers, and
+	 * `finalize` clears the mark. A cut of none is zeros. */
+	memset(out, 0, FZN_SUCCESSION_LEN);
+	situ_msg_init(&m, out, FZN_SUCCESSION_LEN);
+	if (fzn_succession_record_fzn_succession_view(&m, 0u, &v) != SITU_OK)
+		return FZN_CHAIN_ERR_MALFORMED;
+	memcpy(fzn_succession_record_fzn_succession_issuer_ptr(v), issuer, FZN_PUBKEY_LEN);
+	memcpy(fzn_succession_record_fzn_succession_old_ptr(v), old, FZN_PUBKEY_LEN);
+	memcpy(fzn_succession_record_fzn_succession_successor_ptr(v), new_key, FZN_PUBKEY_LEN);
 	if (cut)
-		memcpy(out + FZN_SUCCESSION_OFF_CUT, cut, FZN_SUCCESSION_ID_LEN);
-	else
-		memset(out + FZN_SUCCESSION_OFF_CUT, 0, FZN_SUCCESSION_ID_LEN);
-	if (!sign->sign(sign->ctx, out + FZN_SUCCESSION_OFF_SIGNATURE, out,
-	                FZN_SUCCESSION_BODY_LEN)) {
+		memcpy(fzn_succession_record_fzn_succession_cut_ptr(v), cut, FZN_SUCCESSION_ID_LEN);
+	fzn_succession_record_fzn_succession_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_succession_record_fzn_succession_object_set(&m, v, (uint8_t)FZN_OBJECT_SUCCESSION);
+	if (fzn_succession_record_fzn_succession_signature_covered(v, &at, &n) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_succession_record_fzn_succession_signature_ptr(v), out + at, n)) {
 		/* No half-made record: one that opens and was never signed. */
 		memset(out, 0, FZN_SUCCESSION_LEN);
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
 	}
-	return FZN_CHAIN_OK;
+	fzn_succession_record_fzn_succession_signature_finalize(&m);
+	return situ_msg_transmittable(&m) == SITU_OK && fzn_succession_record_fzn_succession_validate(v) == SITU_OK
+	               ? FZN_CHAIN_OK
+	               : FZN_CHAIN_ERR_MALFORMED;
 }
 
 fzn_chain_err_t fzn_succession_set_init(fzn_succession_set_t *set, fzn_succession_t *entries,

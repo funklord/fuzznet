@@ -1,6 +1,8 @@
-// A succession as a situ schema: the hand-written codec is
-// chain/succession.c, and this is its checked contract, the way
-// chain/root_act.situ is root_log.c's. project.md sec 498.
+// A succession as a situ schema: chain/succession.c opens it through the
+// view and validate situ generates from this and writes it through the edit
+// layer, signed over the range situ says the signature covers (sec 1360);
+// `_record`, so the generated file's name meets no source's. project.md sec
+// 498.
 //
 // One key succeeded by another, with the line in the old key's act log up to
 // which its acts are still trusted. The body is `authenticated` and the
