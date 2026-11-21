@@ -261,6 +261,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/tree_row.c wire/generated/revocation_record.c wire/generated/manifest_record.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
+             wire/generated/note_row.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -286,7 +287,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/revocation_record_vectors.c wire/generated/manifest_record_vectors.c \
                  wire/generated/chain_wire_vectors.c wire/generated/roster_record_vectors.c \
                  wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c \
-                 wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c
+                 wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c \
+                 wire/generated/note_row_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -780,6 +782,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/attribute_row_vectors \
              $(BUILD_DIR)/wire/test/piece_wire_vectors \
              $(BUILD_DIR)/wire/test/gather_wire_vectors \
+             $(BUILD_DIR)/wire/test/note_row_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2535,7 +2538,7 @@ $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test
 # notes/ parses and builds a note body and its blob reference, and calls
 # nothing: blob/ and tree/ give it constants only. sec 422.
 $(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
-                                   $(BUILD_DIR)/notes/note.o
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -2547,7 +2550,7 @@ $(BUILD_DIR)/node/test/stage_fuzz: $(BUILD_DIR)/node/test/stage_fuzz.o \
 
 # A note as another host wrote it, fuzzed: its meta and payload, sec 818.
 $(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
-                                   $(BUILD_DIR)/notes/note.o
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -2591,7 +2594,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
 $(BUILD_DIR)/node/test/shelf_test: $(BUILD_DIR)/node/test/shelf_test.o \
                                    $(BUILD_DIR)/node/shelf.o \
                                    $(BUILD_DIR)/notes/text.o \
-                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
                                    $(BUILD_DIR)/spool/spool.o \
                                    $(BUILD_DIR)/spool/message.o \
@@ -2611,7 +2614,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/notes/author.o \
                                           $(BUILD_DIR)/notes/purge.o \
                                           $(BUILD_DIR)/notes/import.o \
-                                          $(BUILD_DIR)/notes/note.o \
+                                          $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                           $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                           $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                           $(BUILD_DIR)/persist/persist.o \
@@ -2645,7 +2648,7 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
                                          $(BUILD_DIR)/notes/view.o \
                                          $(BUILD_DIR)/notes/author.o \
                                          $(BUILD_DIR)/notes/purge.o \
-                                         $(BUILD_DIR)/notes/note.o \
+                                         $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                          $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                          $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                          $(BUILD_DIR)/persist/persist.o \
@@ -2667,7 +2670,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
                                    $(BUILD_DIR)/notes/view.o \
                                    $(BUILD_DIR)/notes/author.o \
                                    $(BUILD_DIR)/notes/purge.o \
-                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                    $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/persist/persist.o \
@@ -2701,7 +2704,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
                                    $(BUILD_DIR)/chain/service.o \
-                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                    $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
@@ -2718,7 +2721,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
 # notes/text seals a long note's text into a spool and opens it back. sec 423.
 $(BUILD_DIR)/notes/test/text_test: $(BUILD_DIR)/notes/test/text_test.o \
                                    $(BUILD_DIR)/notes/text.o \
-                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/spool/spool.o \
                                    $(BUILD_DIR)/blob/blob.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
@@ -4124,7 +4127,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
                                      $(BUILD_DIR)/chain/service.o \
-                                     $(BUILD_DIR)/notes/note.o \
+                                     $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                      $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                      $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                      $(BUILD_DIR)/local/vocabulary.o \
@@ -4680,6 +4683,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# A NOTE'S META AND PAYLOAD, generated, sec 1374.
+$(BUILD_DIR)/wire/test/note_row_vectors: wire/generated/note_row_vectors.c \
+                                        wire/generated/note_row.c wire/generated/situ.c \
+                                        $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5700,7 +5710,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(B
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
                        $(BUILD_DIR)/notes/sync.o \
                        $(BUILD_DIR)/notes/share.o $(BUILD_DIR)/notes/received.o \
-                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
+                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                        $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
@@ -5708,7 +5718,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
                        $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/node/stickers_binary.o) \
                        $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
-                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
+                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/spool/spool_file.o \
                        $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
                        $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/transfer.o \
                        $(BUILD_DIR)/blob/blob.o
@@ -6150,7 +6160,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/buckets.o \
                                       $(BUILD_DIR)/node/reconcile.o \
                                       $(BUILD_DIR)/node/apply.o \
-                                      $(BUILD_DIR)/notes/note.o \
+                                      $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/node/roots.o \
                                       $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
@@ -7862,7 +7872,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               record/store_file.situ catalog/attribute_row.situ \
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
-              wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
+              wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note_row.situ node/opjournal_row.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting_record.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry_record.situ log/cause_wire.situ log/gather_wire.situ chunk/piece_wire.situ \
@@ -8356,7 +8366,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(FLOG_OBJS) \
                     $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
                     $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o \
-                    $(BUILD_DIR)/notes/note.o \
+                    $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
 qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(THORVG_OBJS)) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/wire/generated/gather_wire.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o))
@@ -8627,6 +8637,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_note_row --layer edit \
+	         --out $(BUILD_DIR)/.gen.new notes/note_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_note_row \
+	         --out $(BUILD_DIR)/.gen.new notes/note_row.situ notes/note_row.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_gather_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new log/gather_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_gather_wire \
@@ -8821,6 +8835,7 @@ schema:
 	          attribute_row.c attribute_row.h attribute_row_build.h attribute_row_edit.h attribute_row_vectors.c \
 	          piece_wire.c piece_wire.h piece_wire_build.h piece_wire_edit.h piece_wire_vectors.c \
 	          gather_wire.c gather_wire.h gather_wire_build.h gather_wire_edit.h gather_wire_vectors.c \
+	          note_row.c note_row.h note_row_build.h note_row_edit.h note_row_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

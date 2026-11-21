@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1373
+The newest work is at the end of this file. **Read secs 1287 to 1374
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58237,7 +58237,7 @@ codec. The consumers move onto it in step 3, which deletes version 1.
 
 ### The two layouts
 
-Both are in `notes/note.situ`, a new schema in `make schema`'s list. No
+Both are in `notes/note_row.situ`, a new schema in `make schema`'s list. No
 schema had described the note body before.
 
 - **The meta**, a node's content, is exactly 94 bytes:
@@ -95960,3 +95960,24 @@ This commit puts it right; history is not rewritten, being pushed.
 query, a ring page of one record); gather_test (19), entries_view_test,
 err_str_test. Sabotage `gather-page-exact-length` and
 `gather-page-validated` new.
+
+## 1374. A note's meta and payload through situ's code, 2026-11-21
+
+The twenty-seventh of the 40 layouts: `notes/note.situ` is
+`notes/note_row.situ` (sec 513). `fzn_note_meta_write` and
+`fzn_note_payload_write` build with the generated builders, the payload's
+three lengths written from its parts so they partition it by
+construction. `fzn_note_meta_open` and `fzn_note_payload_open` read
+through the generated view and `check`, **which names the member it
+refused at, so every refusal keeps the answer it had** -- the order and
+codes note_test and note_fuzz hold: SHORT, then VERSION, then for the
+meta a trailing byte PARTITION, unknown flags TYPE, a payload shorter
+than its header BLOB_LEN; for the payload a payload past 256 KiB LEN, a
+title or labels past their bounds LEN, and a part past the end or a
+byte after the last PARTITION. The upper bound on a payload, which the
+schema does not state, stays the codec's.
+
+**Tests:** note_row_vectors (2: a pinned note's meta, its payload);
+note_test (147), text_test (35), shelf_test (175), note_fuzz (10000
+cases). Sabotage `note-payload-partitions`, `note-meta-knows-its-flags`
+and `note-payload-bounds-the-title` retargeted onto the `check` mapping.

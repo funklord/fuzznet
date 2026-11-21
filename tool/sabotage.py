@@ -13325,8 +13325,8 @@ SABOTAGES = [
 	(
 		"note-payload-partitions",
 		"notes/note.c",
-		"\tif (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 != payload_len)\n\t\treturn FZN_NOTE_ERR_PARTITION;",
-		"\tif (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 > payload_len)\n\t\treturn FZN_NOTE_ERR_PARTITION;",
+		"\tif (fzn_note_row_fzn_note_payload_required(payload, len, &need) != SITU_OK || need != len)\n",
+		"\tif (fzn_note_row_fzn_note_payload_required(payload, len, &need) != SITU_OK || need > len)\n",
 		"a payload whose lengths leave bytes over is two encodings of one note, and bytes nobody owns ride inside a sealed blob -- sec 513",
 	),
 	(
@@ -13339,15 +13339,15 @@ SABOTAGES = [
 	(
 		"note-meta-knows-its-flags",
 		"notes/note.c",
-		"\tif (content[FZN_NOTE_META_OFF_FLAGS] & ~FZN_NOTE_META_FLAGS_KNOWN)\n\t\treturn FZN_NOTE_ERR_TYPE;\n\tout->flags",
-		"\tout->flags",
+		"\tif (checked != SITU_OK)\n\t\treturn which == FZN_NOTE_ROW_FZN_NOTE_META_FLAGS_CHECK",
+		"\tif (checked != SITU_OK && which != FZN_NOTE_ROW_FZN_NOTE_META_FLAGS_CHECK)\n\t\treturn which == FZN_NOTE_ROW_FZN_NOTE_META_FLAGS_CHECK",
 		"a version-2 note claiming TEXT_IS_BLOB, or a flag this build does not know, reads as one it does -- sec 513",
 	),
 	(
 		"note-payload-bounds-the-title",
 		"notes/note.c",
-		"\tif (n1 > FZN_NOTE_TITLE_MAX || n3 > FZN_NOTE_LABELS_MAX)\n\t\treturn FZN_NOTE_ERR_LEN;\n\t/* THE PARTITION",
-		"\t/* THE PARTITION",
+		"\tif (checked != SITU_OK)\n\t\treturn which == FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_TITLE_LEN_CHECK",
+		"\tif (checked != SITU_OK && which != FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_TITLE_LEN_CHECK)\n\t\treturn which == FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_TITLE_LEN_CHECK",
 		"a title or labels past the bounds a listing caches overflow the cache entry every note gets -- sec 513",
 	),
 	(

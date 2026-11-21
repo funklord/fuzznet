@@ -1,6 +1,8 @@
 /* See note.h. Ported from fuzzypickles' core/src/notes.c at b419405. */
 
 #include "note.h"
+#include "../wire/generated/note_row.h"
+#include "../wire/generated/note_row_build.h"
 
 #include "../session/commitment.h"
 
@@ -169,7 +171,8 @@ fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
 
 /* ---- version 2, sec 513 ----------------------------------------------- */
 
-/* THE LAYOUT, pinned as literals against `notes/note.situ`. */
+/* THE LAYOUT, pinned as literals against `notes/note_row.situ`, from which
+ * situ generates the code that writes and reads it (sec 1374). */
 _Static_assert(FZN_NOTE_META_LEN == 94u, "a version-2 note's meta is not 94 bytes");
 _Static_assert(FZN_NOTE_META_OFF_REF == 22u, "the content reference moved");
 _Static_assert(FZN_NOTE_META_LEN <= FZN_TREE_CONTENT_MAX, "the meta does not fit a node's content");
@@ -178,31 +181,42 @@ _Static_assert(FZN_NOTE_PAYLOAD_HEADER_LEN == 9u, "a payload's header is not 9 b
 fzn_note_err_t fzn_note_meta_open(uint16_t content_type, const uint8_t *content,
                                   size_t content_len, fzn_note_meta_t *out)
 {
+	situ_msg_t msg;
+	situ_view_t v;
+	uint32_t which = 0;
+	situ_err_t checked;
+
 	if (!content || !out)
 		return FZN_NOTE_ERR_NULL;
 	if (content_type == FZN_NOTE_TYPE_NONE)
 		return FZN_NOTE_ERR_TYPE;
 	if (content_len < FZN_NOTE_META_LEN)
 		return FZN_NOTE_ERR_SHORT;
-	if (content[FZN_NOTE_META_OFF_VERSION] != FZN_NOTE_META_VERSION)
+	/* READ AS THE SCHEMA SAYS, sec 1374: `check` names the member it
+	 * refused at, so each refusal keeps its answer -- the version, flags
+	 * outside the three known, a payload shorter than its header. */
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)content, (uint32_t)FZN_NOTE_META_LEN);
+	if (fzn_note_row_fzn_note_meta_view(&msg, 0u, &v) != SITU_OK)
+		return FZN_NOTE_ERR_SHORT;
+	checked = fzn_note_row_fzn_note_meta_check(v, &which);
+	if (checked != SITU_OK && which == FZN_NOTE_ROW_FZN_NOTE_META_VERSION_CHECK)
 		return FZN_NOTE_ERR_VERSION;
 	/* EXACTLY THE META: a trailing byte is a second encoding of one note. */
 	if (content_len != FZN_NOTE_META_LEN)
 		return FZN_NOTE_ERR_PARTITION;
-	if (content[FZN_NOTE_META_OFF_FLAGS] & ~FZN_NOTE_META_FLAGS_KNOWN)
-		return FZN_NOTE_ERR_TYPE;
-	out->flags = content[FZN_NOTE_META_OFF_FLAGS];
-	out->colour = fzn_get_be32(content + FZN_NOTE_META_OFF_COLOUR);
-	out->created_at_ms = fzn_get_be64(content + FZN_NOTE_META_OFF_CREATED);
-	out->edited_at_ms = fzn_get_be64(content + FZN_NOTE_META_OFF_EDITED);
-	memcpy(out->content.root, content + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_ROOT,
-	       FZN_BLOB_HASH_LEN);
-	memcpy(out->content.key, content + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_KEY,
-	       FZN_BLOB_KEY_LEN);
-	out->content.length = fzn_get_be64(content + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_LEN);
-	/* A PAYLOAD SHORTER THAN ITS HEADER names nothing a note could be. */
-	if (out->content.length < FZN_NOTE_PAYLOAD_HEADER_LEN
-	    || out->content.length > FZN_NOTE_PAYLOAD_MAX)
+	if (checked != SITU_OK)
+		return which == FZN_NOTE_ROW_FZN_NOTE_META_FLAGS_CHECK ? FZN_NOTE_ERR_TYPE
+		                                                       : FZN_NOTE_ERR_BLOB_LEN;
+	out->flags = fzn_note_row_fzn_note_meta_flags_get(v);
+	out->colour = fzn_note_row_fzn_note_meta_colour_get(v);
+	out->created_at_ms = fzn_note_row_fzn_note_meta_created_at_get(v);
+	out->edited_at_ms = fzn_note_row_fzn_note_meta_edited_at_get(v);
+	memcpy(out->content.root, fzn_note_row_fzn_note_meta_root_ptr(v), FZN_BLOB_HASH_LEN);
+	memcpy(out->content.key, fzn_note_row_fzn_note_meta_key_ptr(v), FZN_BLOB_KEY_LEN);
+	out->content.length = fzn_note_row_fzn_note_meta_length_get(v);
+	/* A PAYLOAD PAST ITS BOUND: the codec's, the schema saying only the
+	 * least. */
+	if (out->content.length > FZN_NOTE_PAYLOAD_MAX)
 		return FZN_NOTE_ERR_BLOB_LEN;
 	return FZN_NOTE_OK;
 }
@@ -216,50 +230,63 @@ fzn_note_err_t fzn_note_meta_write(const fzn_note_meta_t *meta, uint8_t out[FZN_
 	if (meta->content.length < FZN_NOTE_PAYLOAD_HEADER_LEN
 	    || meta->content.length > FZN_NOTE_PAYLOAD_MAX)
 		return FZN_NOTE_ERR_BLOB_LEN;
-	out[FZN_NOTE_META_OFF_VERSION] = (uint8_t)FZN_NOTE_META_VERSION;
-	out[FZN_NOTE_META_OFF_FLAGS] = meta->flags;
-	fzn_put_be32(out + FZN_NOTE_META_OFF_COLOUR, meta->colour);
-	fzn_put_be64(out + FZN_NOTE_META_OFF_CREATED, meta->created_at_ms);
-	fzn_put_be64(out + FZN_NOTE_META_OFF_EDITED, meta->edited_at_ms);
-	memcpy(out + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_ROOT, meta->content.root,
-	       FZN_BLOB_HASH_LEN);
-	memcpy(out + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_KEY, meta->content.key,
-	       FZN_BLOB_KEY_LEN);
-	fzn_put_be64(out + FZN_NOTE_META_OFF_REF + FZN_NOTE_REF_OFF_LEN, meta->content.length);
+	/* BUILT BY THE CODE situ GENERATES, sec 1374. */
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_note_row_fzn_note_meta_build(out, FZN_NOTE_META_LEN, (uint8_t)FZN_NOTE_META_VERSION,
+		                                     meta->flags, meta->colour, meta->created_at_ms,
+		                                     meta->edited_at_ms, meta->content.root,
+		                                     meta->content.key, meta->content.length, &wrote)
+		            != SITU_OK
+		    || wrote != FZN_NOTE_META_LEN)
+			return FZN_NOTE_ERR_TYPE;
+	}
 	return FZN_NOTE_OK;
 }
 
 fzn_note_err_t fzn_note_payload_open(const uint8_t *payload, size_t payload_len,
                                      fzn_note_t *out)
 {
-	size_t n1, n2, n3;
+	situ_msg_t msg;
+	situ_view_t v;
+	uint32_t which = 0, need = 0, len;
+	situ_err_t checked;
 
 	if (!payload || !out)
 		return FZN_NOTE_ERR_NULL;
 	if (payload_len < FZN_NOTE_PAYLOAD_HEADER_LEN)
 		return FZN_NOTE_ERR_SHORT;
-	if (payload[FZN_NOTE_PAYLOAD_OFF_VERSION] != FZN_NOTE_PAYLOAD_VERSION)
+	/* READ AS THE SCHEMA SAYS, sec 1374, each refusal keeping its answer:
+	 * the version first, then a payload past its bound, a title or labels
+	 * past theirs, and -- THE PARTITION CHECK, equality and not "fits" --
+	 * a part running past the end or bytes left after the last. A gap
+	 * describes bytes nobody owns and an overlap the same bytes twice. The
+	 * view is at most one byte past the bound, enough to read the version
+	 * of anything longer. */
+	len = payload_len > FZN_NOTE_PAYLOAD_MAX ? FZN_NOTE_PAYLOAD_MAX + 1u : (uint32_t)payload_len;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)payload, len);
+	if (fzn_note_row_fzn_note_payload_view(&msg, 0u, len, &v) != SITU_OK)
+		return FZN_NOTE_ERR_SHORT;
+	checked = fzn_note_row_fzn_note_payload_check(v, &which);
+	if (checked != SITU_OK && which == FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_VERSION_CHECK)
 		return FZN_NOTE_ERR_VERSION;
 	if (payload_len > FZN_NOTE_PAYLOAD_MAX)
 		return FZN_NOTE_ERR_LEN;
-	n1 = fzn_get_be16(payload + FZN_NOTE_PAYLOAD_OFF_TITLE_LEN);
-	n3 = fzn_get_be16(payload + FZN_NOTE_PAYLOAD_OFF_LABELS_LEN);
-	n2 = fzn_get_be32(payload + FZN_NOTE_PAYLOAD_OFF_TEXT_LEN);
-	if (n1 > FZN_NOTE_TITLE_MAX || n3 > FZN_NOTE_LABELS_MAX)
-		return FZN_NOTE_ERR_LEN;
-	/* THE PARTITION CHECK: equality, not "fits". A gap describes bytes
-	 * nobody owns and an overlap the same bytes twice; one comparison
-	 * refuses both. Each length is bounded by the whole above, so the sum
-	 * cannot wrap. */
-	if (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 != payload_len)
+	if (checked != SITU_OK)
+		return which == FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_TITLE_LEN_CHECK
+		                       || which == FZN_NOTE_ROW_FZN_NOTE_PAYLOAD_LABELS_LEN_CHECK
+		               ? FZN_NOTE_ERR_LEN
+		               : FZN_NOTE_ERR_PARTITION;
+	if (fzn_note_row_fzn_note_payload_required(payload, len, &need) != SITU_OK || need != len)
 		return FZN_NOTE_ERR_PARTITION;
 	memset(out, 0, sizeof(*out));
-	out->title = payload + FZN_NOTE_PAYLOAD_HEADER_LEN;
-	out->title_len = n1;
-	out->text = out->title + n1;
-	out->text_len = n2;
-	out->labels = out->text + n2;
-	out->labels_len = n3;
+	out->title = fzn_note_row_fzn_note_payload_title_ptr(v);
+	out->title_len = fzn_note_row_fzn_note_payload_title_len_get(v);
+	out->text = fzn_note_row_fzn_note_payload_text_ptr(v);
+	out->text_len = fzn_note_row_fzn_note_payload_text_len_get(v);
+	out->labels = fzn_note_row_fzn_note_payload_labels_ptr(v);
+	out->labels_len = fzn_note_row_fzn_note_payload_labels_len_get(v);
 	return FZN_NOTE_OK;
 }
 
@@ -267,7 +294,6 @@ fzn_note_err_t fzn_note_payload_write(const fzn_note_t *note, uint8_t *out, size
                                       size_t *out_len)
 {
 	size_t need;
-	uint8_t *p;
 
 	if (!note || !out || !out_len)
 		return FZN_NOTE_ERR_NULL;
@@ -283,19 +309,19 @@ fzn_note_err_t fzn_note_payload_write(const fzn_note_t *note, uint8_t *out, size
 		return FZN_NOTE_ERR_LEN;
 	if (need > out_cap)
 		return FZN_NOTE_ERR_CAPACITY;
-	out[FZN_NOTE_PAYLOAD_OFF_VERSION] = (uint8_t)FZN_NOTE_PAYLOAD_VERSION;
-	fzn_put_be16(out + FZN_NOTE_PAYLOAD_OFF_TITLE_LEN, (uint16_t)note->title_len);
-	fzn_put_be16(out + FZN_NOTE_PAYLOAD_OFF_LABELS_LEN, (uint16_t)note->labels_len);
-	fzn_put_be32(out + FZN_NOTE_PAYLOAD_OFF_TEXT_LEN, (uint32_t)note->text_len);
-	p = out + FZN_NOTE_PAYLOAD_HEADER_LEN;
-	if (note->title_len)
-		memcpy(p, note->title, note->title_len);
-	p += note->title_len;
-	if (note->text_len)
-		memcpy(p, note->text, note->text_len);
-	p += note->text_len;
-	if (note->labels_len)
-		memcpy(p, note->labels, note->labels_len);
+	/* BUILT BY THE CODE situ GENERATES, sec 1374: the lengths written
+	 * from the parts, so they partition the payload by construction. */
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_note_row_fzn_note_payload_build(out, (uint32_t)need, (uint8_t)FZN_NOTE_PAYLOAD_VERSION,
+		                                        note->title, (uint32_t)note->title_len, note->text,
+		                                        (uint32_t)note->text_len, note->labels,
+		                                        (uint32_t)note->labels_len, &wrote)
+		            != SITU_OK
+		    || wrote != need)
+			return FZN_NOTE_ERR_LEN;
+	}
 	*out_len = need;
 	return FZN_NOTE_OK;
 }

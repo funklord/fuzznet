@@ -1,5 +1,7 @@
-// A note, version 2, as situ schemas: the hand-written codec is notes/note.c,
-// and these are its checked contract. project.md sec 513.
+// A note, version 2, as situ schemas: notes/note.c writes and reads both
+// through the code situ generates from this (sec 1374), each refusal keeping
+// its own answer; `_row`, so the generated file's name meets no source's.
+// project.md sec 513.
 //
 // Since sec 511 a note record carries no content. Its body is tree/'s header
 // and `fzn_note_meta`: what is not content -- flags, colour, the two times --

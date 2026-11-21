@@ -1,0 +1,7 @@
+# Golden vectors for notes/note_row.situ, written by hand from its
+# layouts: a pinned note's meta, coloured 0x11223344, made at 1 ms and
+# edited at 2, its content root 55s and key 66s, a 14-byte payload; and
+# that payload, titled "hi", the text "x", labelled "a" NUL "b".
+
+fzn_note_meta pinned 03 01 11 22 33 44 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 02 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 55 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 00 00 00 00 00 00 00 0E
+fzn_note_payload titled 01 00 02 00 03 00 00 00 01 68 69 78 61 00 62

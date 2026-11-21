@@ -446,4 +446,5 @@ __pycache__/
 /wire/test/attribute_row_vectors
 /wire/test/piece_wire_vectors
 /wire/test/gather_wire_vectors
+/wire/test/note_row_vectors
 /node/test/settings_registry_test

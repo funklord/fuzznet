@@ -167,7 +167,7 @@ fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
 
 /*
  * VERSION 2: THE RECORD KEEPS NO CONTENT. project.md secs 511 and 513, stated
- * in `notes/note.situ`.
+ * in `notes/note_row.situ`.
  *
  * A purge must still delete a note whose records stay in a chained stream,
  * so the record holds only what is not content, and a reference to a sealed
