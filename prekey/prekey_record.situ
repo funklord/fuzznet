@@ -1,8 +1,10 @@
-// The prekey record as a situ schema, converted from the hand-written layout
-// in prekey/prekey.h and prekey/prekey.c. The offsets here are measured
-// against the committed FZN_PREKEY_OFF_* constants (prekey.h) and the field-
-// by-field _Static_asserts in prekey.c before anything is generated, the same
-// way chain/hop.situ measured the FZN_HOP_OFF_* offsets.
+// The prekey record as a situ schema. prekey/prekey.c writes it through the
+// edit layer situ generates from this and reads it through the generated
+// view and validate (sec 1340), the signature made over the range situ says
+// it covers; `_record`, so the generated file's name meets no source's.
+// The FZN_PREKEY_OFF_* constants (prekey.h) and the field-by-field
+// _Static_asserts in prekey.c still pin the offsets, the same way
+// chain/hop.situ measured the FZN_HOP_OFF_* offsets.
 //
 // A host's statement of its own key-agreement key, signed under its own
 // long-term key. It is SELF-SIGNED: `host` is both the signer and the subject

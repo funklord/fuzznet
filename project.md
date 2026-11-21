@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1339
+The newest work is at the end of this file. **Read secs 1287 to 1340
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95081,3 +95081,30 @@ node/contact_card_record.vectors in a request); contact_request_test
 card_fuzz (3000 cases, 1512 bent requests decoded) over the generated
 code. Sabotage `contact-request-exact-length` (retargeted) and
 `contact-request-unvalidated`.
+
+## 1340. A prekey written through situ's edit layer, its signature over what situ says it covers, 2026-11-21
+
+The tenth of the 40 layouts: `prekey/prekey.situ` is
+`prekey/prekey_record.situ`. situ makes **no builder** for it -- its
+signature is a `checksum covers(body)` whose codec is Ed25519, extern and
+keyed -- so the prekey is the first layout here written through situ's
+**edit layer**: `fzn_prekey_issue` writes the host and prekey through
+their pointers and the scalars through setters (which mark the signature
+stale), signs the range `signature_covered` names, `finalize`s, and
+refuses to return unless `situ_msg_transmittable` and `validate` agree.
+`fzn_prekey_verify` checks the signature over the same named range, so
+the signed bytes are the schema's rather than `FZN_PREKEY_BODY_LEN`'s;
+`fzn_prekey_open` reads through the generated view and `validate`.
+
+**Two things for situ**, sent with sec 1339's (inbox 20261121T0400Z,
+appended): a write through an array's `_ptr` marks no tag stale -- only a
+scalar setter does -- so the issuer writes the scalars last to be sure the
+mark is set; and a record signed by an extern keyed signature gets no
+builder at all, where one taking the signature as a field (or a
+caller-supplied sign function) would serve every signed record fuzznet
+has -- most of the remaining thirty.
+
+**Tests:** prekey_record_vectors (1); prekey_test (200), prekey_fuzz
+(20000 cases), identity_test (50) and provision_test (179) over the
+generated code. Sabotage `prekey-open-unvalidated`,
+`prekey-open-exact-length`, `prekey-signs-what-situ-covers`.

@@ -1,0 +1,5 @@
+# Golden vectors for prekey/prekey_record.situ, written by hand from its
+# layout: version 1, object 132, a host of 11s, a prekey of 22s, created at
+# 1700000000, and a signature of 33s (not checked by the layout).
+
+fzn_prekey_record issued 01 84 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 00 00 00 00 65 53 F1 00 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33

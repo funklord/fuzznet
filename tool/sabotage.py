@@ -17804,6 +17804,27 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"prekey-open-unvalidated",
+		"prekey/prekey.c",
+		"\t    || fzn_prekey_record_fzn_prekey_record_validate(v) != SITU_OK)\n\t\treturn FZN_PREKEY_ERR_SHAPE;",
+		")\n\t\treturn FZN_PREKEY_ERR_SHAPE;",
+		"a prekey of another version or object opened: a signed object read as one it is not -- secs 45, 1340",
+	),
+	(
+		"prekey-open-exact-length",
+		"prekey/prekey.c",
+		"\tif (len != FZN_PREKEY_LEN_TOTAL)\n",
+		"\tif (len < FZN_PREKEY_LEN_TOTAL)\n",
+		"a prekey with bytes after it opened: two encodings of one signed record -- sec 1340",
+	),
+	(
+		"prekey-signs-what-situ-covers",
+		"prekey/prekey.c",
+		"out + at, n))",
+		"out + at, n - 1u))",
+		"a prekey signed over less than its body: the last byte of created_at is anybody's -- sec 1340",
+	),
+	(
 		"opjournal-entry-unvalidated",
 		"node/opjournal.c",
 		"\t    || fzn_opjournal_row_fzn_opjournal_entry_validate(v) != SITU_OK)\n",

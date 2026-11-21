@@ -15,7 +15,7 @@
 #endif
 
 #include "../constant_time/constant_time.h"
-#include "../wire/bytes.h"
+#include "../wire/generated/prekey_record.h"
 
 #include <string.h>
 
@@ -55,51 +55,74 @@ fzn_prekey_err_t fzn_prekey_issue(const uint8_t host[FZN_PUBKEY_LEN],
                                    const fzn_sign_ops_t *signer,
                                    uint8_t out[FZN_PREKEY_LEN_TOTAL])
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+
 	if (!host || !prekey || !out)
 		return FZN_PREKEY_ERR_MALFORMED;
 	if (!signer || !signer->sign)
 		return FZN_PREKEY_ERR_SIGNER;
 
-	out[FZN_PREKEY_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_PREKEY_OFF_OBJECT] = (uint8_t)FZN_OBJECT_PREKEY;
-	memcpy(out + FZN_PREKEY_OFF_HOST, host, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_PREKEY_OFF_PREKEY, prekey, FZN_PREKEY_LEN);
-	fzn_put_be64(out + FZN_PREKEY_OFF_CREATED_AT, created_at);
+	/* WRITTEN THROUGH situ's EDIT LAYER (sec 1340): a setter marks the
+	 * signature stale, the signature is made over the range situ says it
+	 * covers, and `finalize` clears the mark -- so the bytes signed are the
+	 * schema's, not a length kept here. A write through a pointer marks
+	 * nothing, so the scalars go last. */
+	memset(out, 0, FZN_PREKEY_LEN_TOTAL);
+	situ_msg_init(&m, out, FZN_PREKEY_LEN_TOTAL);
+	if (fzn_prekey_record_fzn_prekey_record_view(&m, 0u, &v) != SITU_OK)
+		return FZN_PREKEY_ERR_MALFORMED;
+	memcpy(fzn_prekey_record_fzn_prekey_record_host_ptr(v), host, FZN_PUBKEY_LEN);
+	memcpy(fzn_prekey_record_fzn_prekey_record_prekey_ptr(v), prekey, FZN_PREKEY_LEN);
+	fzn_prekey_record_fzn_prekey_record_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_prekey_record_fzn_prekey_record_object_set(&m, v, (uint8_t)FZN_OBJECT_PREKEY);
+	fzn_prekey_record_fzn_prekey_record_created_at_set(&m, v, created_at);
 
 	/* THE SIGNATURE IS OVER THE BYTES THAT WILL BE STORED, in place,
 	 * rather than over a transcript rebuilt at signing time. That is what
 	 * leaves no second implementation of the layout to drift, and it is
 	 * why `fzn_prekey_verify` can re-read the range instead of
 	 * reconstructing it. */
-	if (!signer->sign(signer->ctx, out + FZN_PREKEY_OFF_SIGNATURE, out,
-	                  FZN_PREKEY_BODY_LEN))
+	if (fzn_prekey_record_fzn_prekey_record_signature_covered(v, &at, &n) != SITU_OK
+	    || !signer->sign(signer->ctx, fzn_prekey_record_fzn_prekey_record_signature_ptr(v), out + at, n))
 		return FZN_PREKEY_ERR_SIGNER;
-
+	fzn_prekey_record_fzn_prekey_record_signature_finalize(&m);
+	if (situ_msg_transmittable(&m) != SITU_OK || fzn_prekey_record_fzn_prekey_record_validate(v) != SITU_OK)
+		return FZN_PREKEY_ERR_MALFORMED;
 	return FZN_PREKEY_OK;
 }
 
 fzn_prekey_err_t fzn_prekey_open(const uint8_t *bytes, size_t len, fzn_prekey_record_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!bytes || !out)
 		return FZN_PREKEY_ERR_MALFORMED;
 	/* EXACT, not "at least". A trailing byte would be a second encoding
-	 * of one record and therefore a second set of signed bytes. */
+	 * of one record and therefore a second set of signed bytes. Its
+	 * version and object are the generated validate's. */
 	if (len != FZN_PREKEY_LEN_TOTAL)
 		return FZN_PREKEY_ERR_SHAPE;
-	if (bytes[FZN_PREKEY_OFF_VERSION] != (uint8_t)FZN_SIGNED_VERSION)
-		return FZN_PREKEY_ERR_SHAPE;
-	if (bytes[FZN_PREKEY_OFF_OBJECT] != (uint8_t)FZN_OBJECT_PREKEY)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_prekey_record_fzn_prekey_record_view(&m, 0u, &v) != SITU_OK
+	    || fzn_prekey_record_fzn_prekey_record_validate(v) != SITU_OK)
 		return FZN_PREKEY_ERR_SHAPE;
 
 	out->bytes = bytes;
-	out->host = bytes + FZN_PREKEY_OFF_HOST;
-	out->prekey = bytes + FZN_PREKEY_OFF_PREKEY;
-	out->created_at = fzn_get_be64(bytes + FZN_PREKEY_OFF_CREATED_AT);
+	out->host = fzn_prekey_record_fzn_prekey_record_host_ptr(v);
+	out->prekey = fzn_prekey_record_fzn_prekey_record_prekey_ptr(v);
+	out->created_at = fzn_prekey_record_fzn_prekey_record_created_at_get(v);
 	return FZN_PREKEY_OK;
 }
 
 fzn_prekey_err_t fzn_prekey_verify(fzn_prekey_record_t record, const fzn_sign_ops_t *verifier)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+
 	if (!record.bytes || !record.host)
 		return FZN_PREKEY_ERR_MALFORMED;
 	if (!verifier || !verifier->verify)
@@ -110,8 +133,11 @@ fzn_prekey_err_t fzn_prekey_verify(fzn_prekey_record_t record, const fzn_sign_op
 	 * holding that secret key wrote these bytes. It says nothing about
 	 * whether that key belongs to the party the user meant, and
 	 * `fzn_prekey_pin` does not pretend otherwise. */
-	if (!verifier->verify(verifier->ctx, record.host, record.bytes, FZN_PREKEY_BODY_LEN,
-	                      record.bytes + FZN_PREKEY_OFF_SIGNATURE))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)record.bytes, FZN_PREKEY_LEN_TOTAL);
+	if (fzn_prekey_record_fzn_prekey_record_view(&m, 0u, &v) != SITU_OK
+	    || fzn_prekey_record_fzn_prekey_record_signature_covered(v, &at, &n) != SITU_OK
+	    || !verifier->verify(verifier->ctx, record.host, record.bytes + at, n,
+	                         fzn_prekey_record_fzn_prekey_record_signature_ptr(v)))
 		return FZN_PREKEY_ERR_SIGNATURE;
 
 	return FZN_PREKEY_OK;

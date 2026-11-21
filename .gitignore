@@ -430,4 +430,5 @@ __pycache__/
 /wire/test/fix_row_vectors
 /wire/test/opjournal_row_vectors
 /wire/test/contact_request_record_vectors
+/wire/test/prekey_record_vectors
 /node/test/settings_registry_test

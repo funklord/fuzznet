@@ -12,7 +12,7 @@
 // is therefore covered twice, by its own signature and by the card's.
 
 import "../chain/hop.situ";
-import "../prekey/prekey.situ";
+import "../prekey/prekey_record.situ";
 import "../chain/root_act.situ";
 
 target buffer;
