@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "pieces.h"
+#include "../wire/generated/piece_wire.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -31,7 +32,7 @@ const char *fzn_pieces_err_str(fzn_pieces_err_t err)
 	return "unknown";
 }
 
-/* `chunk/piece.situ`'s offsets. */
+/* `chunk/piece_wire.situ`'s offsets. */
 #define OFF_VERSION 0u
 #define OFF_KIND 1u
 #define OFF_ID 2u
@@ -173,7 +174,7 @@ fzn_pieces_err_t fzn_pieces_held(const char *dir, const uint8_t id[FZN_BUCKETS_I
 }
 
 /* WHETHER `head` IS A PIECE'S: its fields within their bounds and agreeing
- * with one another, as `chunk/piece.situ` says and the codec needs. The
+ * with one another, as `chunk/piece_wire.situ` says and the codec needs. The
  * kinds whose items are cut are the messages' and the logs'; a piece is
  * not cut again. */
 static int head_ok(const uint8_t head[FZN_PIECE_HEAD_LEN])
@@ -193,10 +194,26 @@ fzn_pieces_err_t fzn_pieces_keep(const char *dir, const uint8_t *bytes, size_t l
 	char path[PATH_MAX_], tmp[PATH_MAX_];
 	int fd, ok;
 
-	if (!dir || !dir[0] || !bytes || !item_id || !index || len < FZN_PIECE_HEAD_LEN
-	    || !head_ok(bytes)
-	    || len - FZN_PIECE_HEAD_LEN != fzn_get_be32(bytes + OFF_PIECE_LEN))
+	if (!dir || !dir[0] || !bytes || !item_id || !index || len < FZN_PIECE_HEAD_LEN)
 		return FZN_PIECES_ERR_MALFORMED;
+	/* A WHOLE PIECE FROM THE WIRE, READ AS THE SCHEMA SAYS, sec 1371: its
+	 * bounds, a cut of at most 31, an index inside it and every byte
+	 * accounted for the generated code's; that the piece's length is its
+	 * item's share is the erasure code's, so head_ok's too. */
+	{
+		situ_msg_t m;
+		situ_view_t v;
+		uint32_t need = 0;
+
+		if (len > UINT32_MAX
+		    || fzn_piece_wire_fzn_erasure_piece_required(bytes, (uint32_t)len, &need) != SITU_OK
+		    || need != len)
+			return FZN_PIECES_ERR_MALFORMED;
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+		if (fzn_piece_wire_fzn_erasure_piece_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+		    || fzn_piece_wire_fzn_erasure_piece_validate(v) != SITU_OK || !head_ok(bytes))
+			return FZN_PIECES_ERR_MALFORMED;
+	}
 	memcpy(item_id, bytes + OFF_ID, FZN_BUCKETS_ID_LEN);
 	*index = bytes[OFF_INDEX];
 	if (!piece_path(path, sizeof(path), dir, item_id, *index, "")

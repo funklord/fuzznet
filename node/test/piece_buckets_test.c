@@ -674,7 +674,7 @@ static void test_lost_and_put_back(void)
 	      "B does not hold the piece put back");
 }
 
-/* A RELEASE, made here by hand from `chunk/piece.situ` rather than by the
+/* A RELEASE, made here by hand from `chunk/piece_wire.situ` rather than by the
  * module, so the layout has a second witness: piece `index` of `id`, the
  * piece `piece_id`, of `host`'s item, signed with `signer`. */
 static void release_of(uint8_t rec[FZN_PIECE_RELEASE_LEN], const uint8_t host[32],

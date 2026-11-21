@@ -3,7 +3,7 @@
  * erasure coding planned in sec 594. An archived item -- a log segment's,
  * `node/log_buckets.h` -- cut by `chunk/erasure.h` into k data pieces and m
  * parity, each a file `IDHEX.INDEX.piece` in a directory, laid out as
- * `chunk/piece.situ`: a head naming the item, its kind, whose it is, its
+ * `chunk/piece_wire.situ`: a head naming the item, its kind, whose it is, its
  * length, k, m and the piece's index, then the piece.
  *
  * REBUILT AND CHECKED HERE. Every piece present is read and its head held
@@ -39,7 +39,7 @@ typedef enum fzn_pieces_err {
 
 const char *fzn_pieces_err_str(fzn_pieces_err_t err);
 
-/* A piece's head, `chunk/piece.situ`: everything before its bytes. */
+/* A piece's head, `chunk/piece_wire.situ`: everything before its bytes. */
 #define FZN_PIECE_HEAD_LEN 113u
 
 /*
@@ -64,7 +64,7 @@ fzn_pieces_err_t fzn_pieces_held(const char *dir, const uint8_t id[FZN_BUCKETS_I
                                  uint32_t *mask);
 
 /*
- * KEEP ONE PIECE, `bytes` whole as `chunk/piece.situ` lays it out, into
+ * KEEP ONE PIECE, `bytes` whole as `chunk/piece_wire.situ` lays it out, into
  * `dir` under the name its head gives -- the item's id and its index, both
  * into `item_id` and `*index` -- written beside it and renamed into place.
  * MALFORMED for a head that is not a piece's: a version not 1, a kind not one

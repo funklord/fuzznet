@@ -3,7 +3,7 @@
  * project.md sec 597, the third stage of the erasure coding planned in sec
  * 594. POSIX, built with FZN_LOG_PACK.
  *
- * AN ITEM is one piece's file whole, `chunk/piece.situ`: its head names the
+ * AN ITEM is one piece's file whole, `chunk/piece_wire.situ`: its head names the
  * item it is a piece of, so whoever keeps it keeps it as itself. Its
  * SUBJECT is the host that is to KEEP it -- not the host whose segment it is
  * -- and its MONTH the segment's. So a host wants exactly the buckets whose
@@ -68,7 +68,7 @@ int fzn_piece_buckets_rank(const fzn_hash_ops_t *hash, const uint8_t id[FZN_BUCK
 
 /* PLACE the pieces of `id` already cut `k` + `m` into the pieces
  * directory: the placement recorded first, as `IDHEX.cut`
- * (`chunk/piece.situ`'s fzn_erasure_cut), then piece i taken into the
+ * (`chunk/piece_wire.situ`'s fzn_erasure_cut), then piece i taken into the
  * bucket (pieces, `keepers[i]`, `month`), each read and hashed for its id.
  * `*placed` counts those newly taken; 0 when a piece is missing, the
  * record would not be written, or the store refused. */
@@ -101,7 +101,7 @@ int fzn_piece_buckets_host(const fzn_piece_buckets_t *pb,
 int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
                              unsigned index);
 
-/* A RELEASE's length, `chunk/piece.situ`'s fzn_erasure_release. */
+/* A RELEASE's length, `chunk/piece_wire.situ`'s fzn_erasure_release. */
 #define FZN_PIECE_RELEASE_LEN 163u
 
 /* RELEASE PIECE `index` OF `id`, sec 602: a record naming the piece

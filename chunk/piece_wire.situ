@@ -2,12 +2,16 @@
 // a file under ARCHIVE/pieces/, named by its item's id and its index. The
 // pieces of one item rebuild it through chunk/erasure.h, and the rebuilt
 // bytes must hash to `item_id`, which is the only check a piece needs: one
-// wrong in a byte rebuilds an item that does not. The hand-written codec is
-// node/pieces.c; this is its checked contract, in `make schema`'s list.
+// wrong in a byte rebuilds an item that does not. node/pieces.c checks a
+// whole piece kept from the wire, and node/piece_buckets.c writes and reads
+// the cut and the release, through the code situ generates from this (sec
+// 1371); `_wire`, so the generated file's name meets no source's. A piece
+// file itself is written and read in two steps -- its head, then up to 64
+// MiB of piece -- so that path stays node/pieces.c's own.
 //
-// What the schema cannot say and the codec checks: k + m is at most 32,
-// `index` is below k + m, and `piece_len` is item_len / k rounded up; and
-// in a cut record, that k + m is at most 32.
+// The `when`s below say k + m is at most 32 and `index` below k + m; what
+// the schema cannot say and the codec checks is that `piece_len` is
+// item_len / k rounded up.
 
 target buffer;
 endian big;
@@ -56,3 +60,15 @@ struct fzn_erasure_release {
 	u8   piece_id[32];                        // the piece let go, by its id
 	u8   sig[64];
 }
+
+// A CUT OF AT MOST 32 PIECES (FZN_ERASURE_PIECES_MAX), and a piece's index
+// inside its cut.
+when fzn_erasure_piece.k + fzn_erasure_piece.m > 32
+	refuse piece_cut_too_wide
+	"a piece of a cut of more than 32 pieces";
+when fzn_erasure_piece.index >= fzn_erasure_piece.k + fzn_erasure_piece.m
+	refuse index_past_the_cut
+	"a piece whose index is past its cut";
+when fzn_erasure_cut.k + fzn_erasure_cut.m > 32
+	refuse cut_too_wide
+	"a placement of more than 32 pieces";

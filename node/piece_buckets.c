@@ -5,6 +5,7 @@
 #include "piece_buckets.h"
 
 #include "pieces.h"
+#include "../wire/generated/piece_wire.h"
 #include "../chunk/erasure.h"
 #include "../hex/hex.h"
 
@@ -133,8 +134,8 @@ static uint8_t *file_bytes(const char *path, size_t *len)
 	return out;
 }
 
-/* `chunk/piece.situ`'s fzn_erasure_cut: version, id, k, m, then a key per
- * piece. */
+/* `chunk/piece_wire.situ`'s fzn_erasure_cut: version, id, k, m, then a key
+ * per piece, written and read through the code situ generates (sec 1371). */
 #define CUT_HEAD (1u + FZN_BUCKETS_ID_LEN + 2u)
 
 static int cut_path(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
@@ -157,12 +158,24 @@ static int write_cut(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS
 	size_t len = CUT_HEAD + (size_t)(k + m) * 32u, i;
 	int fd, ok;
 
-	bytes[0] = 1u;
-	memcpy(bytes + 1, id, FZN_BUCKETS_ID_LEN);
-	bytes[1u + FZN_BUCKETS_ID_LEN] = (uint8_t)k;
-	bytes[2u + FZN_BUCKETS_ID_LEN] = (uint8_t)m;
-	for (i = 0; i < k + m; i++)
-		memcpy(bytes + CUT_HEAD + i * 32u, keepers[i], 32u);
+	situ_msg_t msg;
+	situ_view_t v, keeper;
+
+	if (!k || !m || k + m > FZN_ERASURE_PIECES_MAX)
+		return 0;
+	memset(bytes, 0, len);
+	situ_msg_init(&msg, bytes, (uint32_t)len);
+	if (fzn_piece_wire_fzn_erasure_cut_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_piece_wire_fzn_erasure_cut_version_set(v, 1u);
+	memcpy(fzn_piece_wire_fzn_erasure_cut_item_id_ptr(v), id, FZN_BUCKETS_ID_LEN);
+	fzn_piece_wire_fzn_erasure_cut_k_set(&msg, v, (uint8_t)k);
+	fzn_piece_wire_fzn_erasure_cut_m_set(&msg, v, (uint8_t)m);
+	for (i = 0; i < k + m; i++) {
+		if (fzn_piece_wire_fzn_erasure_cut_keepers_at(v, (uint32_t)i, &keeper) != SITU_OK)
+			return 0;
+		memcpy(fzn_piece_wire_fzn_erasure_keeper_key_ptr(keeper), keepers[i], 32u);
+	}
 	if (!cut_path(pb, id, "", path) || !cut_path(pb, id, ".new", tmp))
 		return 0;
 	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
@@ -195,16 +208,31 @@ int fzn_piece_buckets_cut_of(const fzn_piece_buckets_t *pb, const uint8_t id[FZN
 	while (got < sizeof(bytes) && (r = read(fd, bytes + got, sizeof(bytes) - got)) > 0)
 		got += (size_t)r;
 	(void)close(fd);
-	/* ITS OWN SHAPE, and of this item. */
-	if (got < CUT_HEAD || bytes[0] != 1u || memcmp(bytes + 1, id, FZN_BUCKETS_ID_LEN) != 0)
-		return 0;
-	*k = bytes[1u + FZN_BUCKETS_ID_LEN];
-	*m = bytes[2u + FZN_BUCKETS_ID_LEN];
-	if (!*k || !*m || *k + *m > FZN_ERASURE_PIECES_MAX
-	    || got != CUT_HEAD + (size_t)(*k + *m) * 32u)
-		return 0;
-	for (i = 0; i < *k + *m; i++)
-		memcpy(keepers[i], bytes + CUT_HEAD + i * 32u, 32u);
+	/* ITS OWN SHAPE, the schema's -- version, k and m each at least 1, at
+	 * most 31 pieces, a key for each and nothing after -- and of this
+	 * item. */
+	{
+		situ_msg_t msg;
+		situ_view_t v, keeper;
+		uint32_t need = 0;
+
+		if (got < CUT_HEAD
+		    || fzn_piece_wire_fzn_erasure_cut_required(bytes, (uint32_t)got, &need) != SITU_OK
+		    || need != got)
+			return 0;
+		situ_msg_init(&msg, bytes, (uint32_t)got);
+		if (fzn_piece_wire_fzn_erasure_cut_view(&msg, 0u, (uint32_t)got, &v) != SITU_OK
+		    || fzn_piece_wire_fzn_erasure_cut_validate(v) != SITU_OK
+		    || memcmp(fzn_piece_wire_fzn_erasure_cut_item_id_ptr(v), id, FZN_BUCKETS_ID_LEN) != 0)
+			return 0;
+		*k = fzn_piece_wire_fzn_erasure_cut_k_get(v);
+		*m = fzn_piece_wire_fzn_erasure_cut_m_get(v);
+		for (i = 0; i < *k + *m; i++) {
+			if (fzn_piece_wire_fzn_erasure_cut_keepers_at(v, (uint32_t)i, &keeper) != SITU_OK)
+				return 0;
+			memcpy(keepers[i], fzn_piece_wire_fzn_erasure_keeper_key_ptr(keeper), 32u);
+		}
+	}
 	return 1;
 }
 
@@ -334,7 +362,7 @@ int fzn_piece_buckets_host(const fzn_piece_buckets_t *pb,
 	(void)close(fd);
 	if (got != (ssize_t)sizeof(head))
 		return 0;
-	/* `chunk/piece.situ`: the host after the version, the kind and the
+	/* `chunk/piece_wire.situ`: the host after the version, the kind and the
 	 * item's id. */
 	memcpy(host, head + 2u + FZN_BUCKETS_ID_LEN, 32u);
 	return 1;
@@ -368,13 +396,10 @@ static int item_read(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t off
 
 /* ---- releasing ---------------------------------------------------------------- */
 
-/* `chunk/piece.situ`'s fzn_erasure_release: its offsets, and the label its
- * signature is over, so a signature over a log trailer or anything else the
- * same key signs is never one over a release. */
-#define REL_ID 2u
-#define REL_HOST 34u
-#define REL_INDEX 66u
-#define REL_PIECE 67u
+/* `chunk/piece_wire.situ`'s fzn_erasure_release, written and read through
+ * the code situ generates (sec 1371): where its signature starts, and the
+ * label the signature is over, so a signature over a log trailer or
+ * anything else the same key signs is never one over a release. */
 #define REL_SIG 99u
 #define REL_LABEL "fuzznet.piece.release"
 
@@ -393,17 +418,24 @@ int fzn_piece_buckets_release(fzn_piece_buckets_t *pb, const fzn_sign_ops_t *sig
                               const uint8_t keeper[32], uint32_t month)
 {
 	uint8_t rec[FZN_PIECE_RELEASE_LEN], msg[sizeof(REL_LABEL) + REL_SIG];
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!pb || !pb->b || !signer || !signer->sign || !host || !id || !piece_id || !keeper
 	    || index >= FZN_ERASURE_PIECES_MAX)
 		return 0;
-	rec[0] = 1u;
-	rec[1] = 255u;
-	memcpy(rec + REL_ID, id, FZN_BUCKETS_ID_LEN);
-	memcpy(rec + REL_HOST, host, 32u);
-	rec[REL_INDEX] = (uint8_t)index;
-	memcpy(rec + REL_PIECE, piece_id, FZN_BUCKETS_ID_LEN);
-	if (!signer->sign(signer->ctx, rec + REL_SIG, msg, release_msg(rec, msg)))
+	memset(rec, 0, sizeof(rec));
+	situ_msg_init(&m, rec, (uint32_t)sizeof(rec));
+	if (fzn_piece_wire_fzn_erasure_release_view(&m, 0u, &v) != SITU_OK)
+		return 0;
+	fzn_piece_wire_fzn_erasure_release_version_set(v, 1u);
+	fzn_piece_wire_fzn_erasure_release_marker_set(v, 255u);
+	memcpy(fzn_piece_wire_fzn_erasure_release_item_id_ptr(v), id, FZN_BUCKETS_ID_LEN);
+	memcpy(fzn_piece_wire_fzn_erasure_release_host_ptr(v), host, 32u);
+	fzn_piece_wire_fzn_erasure_release_index_set(v, (uint8_t)index);
+	memcpy(fzn_piece_wire_fzn_erasure_release_piece_id_ptr(v), piece_id, FZN_BUCKETS_ID_LEN);
+	if (!signer->sign(signer->ctx, fzn_piece_wire_fzn_erasure_release_sig_ptr(v), msg,
+	                  release_msg(rec, msg)))
 		return 0;
 	return fzn_buckets_add(pb->b, FZN_BUCKETS_PIECES, keeper, month, rec, sizeof(rec), NULL)
 	       == FZN_BUCKETS_OK;
@@ -418,25 +450,37 @@ static fzn_node_apply_outcome_t take_release(fzn_piece_buckets_t *pb, const uint
 {
 	uint8_t msg[sizeof(REL_LABEL) + REL_SIG], got[FZN_BUCKETS_ID_LEN];
 	char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
+	const uint8_t *host, *piece_id;
 	uint8_t *bytes;
 	size_t len = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	unsigned index;
 
-	if (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX
-	    || !pb->sign->verify(pb->sign->ctx, rec + REL_HOST, msg, release_msg(rec, msg),
-	                         rec + REL_SIG))
+	/* READ AS THE SCHEMA SAYS, sec 1371: version, marker and an index
+	 * inside a cut the generated validate's. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)rec, FZN_PIECE_RELEASE_LEN);
+	if (fzn_piece_wire_fzn_erasure_release_view(&m, 0u, &v) != SITU_OK
+	    || fzn_piece_wire_fzn_erasure_release_validate(v) != SITU_OK)
 		return FZN_NODE_APPLY_REFUSED;
-	if (!piece_ref(pb, rec + REL_ID, rec[REL_INDEX], ref, path))
+	host = fzn_piece_wire_fzn_erasure_release_host_ptr(v);
+	piece_id = fzn_piece_wire_fzn_erasure_release_piece_id_ptr(v);
+	index = fzn_piece_wire_fzn_erasure_release_index_get(v);
+	if (memcmp(subject, pb->self, 32u) != 0
+	    || !pb->sign->verify(pb->sign->ctx, host, msg, release_msg(rec, msg),
+	                         fzn_piece_wire_fzn_erasure_release_sig_ptr(v)))
+		return FZN_NODE_APPLY_REFUSED;
+	if (!piece_ref(pb, fzn_piece_wire_fzn_erasure_release_item_id_ptr(v), index, ref, path))
 		return FZN_NODE_APPLY_REFUSED;
 	bytes = file_bytes(path, &len);
 	if (bytes) {
 		int ours = len >= FZN_PIECE_HEAD_LEN && fzn_buckets_id(pb->hash, bytes, len, got)
-		           && memcmp(got, rec + REL_PIECE, FZN_BUCKETS_ID_LEN) == 0
-		           && memcmp(bytes + 2u + FZN_BUCKETS_ID_LEN, rec + REL_HOST, 32u) == 0;
+		           && memcmp(got, piece_id, FZN_BUCKETS_ID_LEN) == 0
+		           && memcmp(bytes + 2u + FZN_BUCKETS_ID_LEN, host, 32u) == 0;
 
 		free(bytes);
 		if (ours) {
-			fzn_buckets_err_t err = fzn_buckets_let_go(pb->b, FZN_BUCKETS_PIECES,
-			                                           rec + REL_PIECE);
+			fzn_buckets_err_t err = fzn_buckets_let_go(pb->b, FZN_BUCKETS_PIECES, piece_id);
 
 			if ((err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT)
 			    || (remove(path) != 0 && errno != ENOENT))
@@ -463,7 +507,7 @@ static fzn_node_apply_outcome_t keep(fzn_piece_buckets_t *pb, const uint8_t subj
 	unsigned index = 0;
 
 	/* PLACED ON THIS HOST, by its bucket and by its own head, sec 601:
-	 * `chunk/piece.situ` names the keeper after the version, the kind, the
+	 * `chunk/piece_wire.situ` names the keeper after the version, the kind, the
 	 * item's id and host, its length, k, m and the index. */
 	if (memcmp(subject, pb->self, 32u) != 0 || len < FZN_PIECE_HEAD_LEN
 	    || memcmp(item + 77u, pb->self, 32u) != 0)

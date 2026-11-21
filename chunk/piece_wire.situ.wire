@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: piece.situ
+# schema: piece_wire.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -24,6 +24,7 @@ struct fzn_erasure_cut size=99..2019
   @0x0021   1         u8         k  min=1 max=31
   @0x0022   1         u8         m  min=1 max=31
   @0x0023   64..1984  fzn_erasure_keeper keepers  big sized-by=k+m
+  fzn_erasure_cut refuses: cut_too_wide when fzn_erasure_cut.k + fzn_erasure_cut.m > 32
 
 struct fzn_erasure_keeper size=32
   @0x0000   32        u8         key  big
@@ -40,6 +41,8 @@ struct fzn_erasure_piece size=114..67108977
   @0x004d   32        u8         keeper  big
   @0x006d   4         u32        piece_len  big min=1 max=67108864
   @0x0071   1..67108864 u8         piece  sized-by=piece_len
+  fzn_erasure_piece refuses: index_past_the_cut when fzn_erasure_piece.index >= fzn_erasure_piece.k + fzn_erasure_piece.m
+  fzn_erasure_piece refuses: piece_cut_too_wide when fzn_erasure_piece.k + fzn_erasure_piece.m > 32
 
 struct fzn_erasure_release size=163
   @0x0000   1         u8         version  must_eq=1

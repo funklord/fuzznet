@@ -260,7 +260,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/succession_record.c wire/generated/entry_record.c wire/generated/cause_wire.c \
              wire/generated/tree_row.c wire/generated/revocation_record.c wire/generated/manifest_record.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
-             wire/generated/attribute_row.c \
+             wire/generated/attribute_row.c wire/generated/piece_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -285,7 +285,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c \
                  wire/generated/revocation_record_vectors.c wire/generated/manifest_record_vectors.c \
                  wire/generated/chain_wire_vectors.c wire/generated/roster_record_vectors.c \
-                 wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c
+                 wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c \
+                 wire/generated/piece_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -777,6 +778,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/roster_record_vectors \
              $(BUILD_DIR)/wire/test/root_act_record_vectors \
              $(BUILD_DIR)/wire/test/attribute_row_vectors \
+             $(BUILD_DIR)/wire/test/piece_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -4680,6 +4682,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# AN ERASURE PIECE, ITS CUT AND ITS RELEASE, generated, sec 1371.
+$(BUILD_DIR)/wire/test/piece_wire_vectors: wire/generated/piece_wire_vectors.c \
+                                          wire/generated/piece_wire.c wire/generated/situ.c \
+                                          $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A CATALOGUE ATTRIBUTE, generated, sec 1370.
 $(BUILD_DIR)/wire/test/attribute_row_vectors: wire/generated/attribute_row_vectors.c \
                                              wire/generated/attribute_row.c wire/generated/situ.c \
@@ -5644,7 +5653,7 @@ $(BUILD_DIR)/node/test/responsible_test: $(BUILD_DIR)/node/test/responsible_test
 
 # An item as erasure-coded pieces on disk, sec 595.
 $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
-                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/node/buckets.o \
+                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/buckets.o \
                                     $(BUILD_DIR)/chunk/erasure.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5653,7 +5662,7 @@ $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
 # A piece a lying peer hands over, and the rebuild that reads it: sec 689's
 # journey 3, retention and logs.
 $(BUILD_DIR)/node/test/pieces_fuzz: $(BUILD_DIR)/node/test/pieces_fuzz.o \
-                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/chunk/erasure.o \
+                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/chunk/erasure.o \
                                     $(BUILD_DIR)/node/buckets.o \
                                     $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
@@ -5661,7 +5670,7 @@ $(BUILD_DIR)/node/test/pieces_fuzz: $(BUILD_DIR)/node/test/pieces_fuzz.o \
 
 $(BUILD_DIR)/node/test/piece_buckets_test: $(BUILD_DIR)/node/test/piece_buckets_test.o \
                                            $(BUILD_DIR)/node/piece_buckets.o \
-                                           $(BUILD_DIR)/node/pieces.o \
+                                           $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o \
                                            $(BUILD_DIR)/chunk/erasure.o \
                                            $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
@@ -5744,7 +5753,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
-                $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o \
+                $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o \
                 $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
               $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o $(BUILD_DIR)/node/routing.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
@@ -6118,7 +6127,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/log/gather.o) \
                                       $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
                                         $(BUILD_DIR)/log/copy.o \
-                                        $(BUILD_DIR)/node/pieces.o) \
+                                        $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
@@ -7848,7 +7857,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting_record.situ \
               node/reconcile.situ node/buckets.situ \
-              log/entry_record.situ log/cause_wire.situ log/gather.situ chunk/piece.situ \
+              log/entry_record.situ log/cause_wire.situ log/gather.situ chunk/piece_wire.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
               node/settings_registry.situ node/group_line_wire.situ location/fix_row.situ sticker/pack.situ node/objects.situ \
@@ -8610,6 +8619,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_piece_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new chunk/piece_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_piece_wire \
+	         --out $(BUILD_DIR)/.gen.new chunk/piece_wire.situ chunk/piece_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_attribute_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new catalog/attribute_row.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_attribute_row \
@@ -8794,6 +8807,7 @@ schema:
 	          roster_record.c roster_record.h roster_record_edit.h roster_record_vectors.c \
 	          root_act_record.c root_act_record.h root_act_record_vectors.c \
 	          attribute_row.c attribute_row.h attribute_row_build.h attribute_row_edit.h attribute_row_vectors.c \
+	          piece_wire.c piece_wire.h piece_wire_build.h piece_wire_edit.h piece_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

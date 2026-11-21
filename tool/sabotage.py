@@ -12765,15 +12765,15 @@ SABOTAGES = [
 	(
 		"release-signed-by-its-host",
 		"node/piece_buckets.c",
-		"\tif (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX\n\t    || !pb->sign->verify(pb->sign->ctx, rec + REL_HOST, msg, release_msg(rec, msg),\n\t                         rec + REL_SIG))\n",
-		"\tif (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX)\n",
+		"\tif (memcmp(subject, pb->self, 32u) != 0\n\t    || !pb->sign->verify(pb->sign->ctx, host, msg, release_msg(rec, msg),\n\t                         fzn_piece_wire_fzn_erasure_release_sig_ptr(v)))\n",
+		"\tif (memcmp(subject, pb->self, 32u) != 0)\n",
 		"any peer can have a keeper let go of any piece it keeps -- sec 602",
 	),
 	(
 		"release-only-of-its-hosts-pieces",
 		"node/piece_buckets.c",
-		"\t\t           && memcmp(got, rec + REL_PIECE, FZN_BUCKETS_ID_LEN) == 0\n\t\t           && memcmp(bytes + 2u + FZN_BUCKETS_ID_LEN, rec + REL_HOST, 32u) == 0;\n",
-		"\t\t           && memcmp(got, rec + REL_PIECE, FZN_BUCKETS_ID_LEN) == 0;\n",
+		"\t\t           && memcmp(got, piece_id, FZN_BUCKETS_ID_LEN) == 0\n\t\t           && memcmp(bytes + 2u + FZN_BUCKETS_ID_LEN, host, 32u) == 0;\n",
+		"\t\t           && memcmp(got, piece_id, FZN_BUCKETS_ID_LEN) == 0;\n",
 		"a host releases pieces of another host's item, signing as itself -- sec 602",
 	),
 	(
@@ -12786,8 +12786,8 @@ SABOTAGES = [
 	(
 		"release-placed-on-this-host",
 		"node/piece_buckets.c",
-		"\tif (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX\n",
-		"\tif (rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX\n",
+		"\tif (memcmp(subject, pb->self, 32u) != 0\n",
+		"\tif (0\n",
 		"a release placed on another host is taken here, and lets go of this host's piece -- sec 602",
 	),
 	(
@@ -12882,10 +12882,24 @@ SABOTAGES = [
 		"a piece placed on another host is sent here whole only to be refused -- sec 597",
 	),
 	(
+		"pieces-cut-read-unvalidated",
+		"node/piece_buckets.c",
+		"\t\t    || fzn_piece_wire_fzn_erasure_cut_validate(v) != SITU_OK\n",
+		"\t\t    || 0\n",
+		"a placement of more than 32 keepers, or a k of 0, read as a cut -- secs 601, 1371",
+	),
+	(
+		"pieces-release-unvalidated",
+		"node/piece_buckets.c",
+		"\t    || fzn_piece_wire_fzn_erasure_release_validate(v) != SITU_OK)\n\t\treturn FZN_NODE_APPLY_REFUSED;\n",
+		"\t    )\n\t\treturn FZN_NODE_APPLY_REFUSED;\n",
+		"a release naming an index past any cut taken -- secs 602, 1371",
+	),
+	(
 		"pieces-kept-whole",
 		"node/pieces.c",
-		"\t    || !head_ok(bytes)\n\t    || len - FZN_PIECE_HEAD_LEN != fzn_get_be32(bytes + OFF_PIECE_LEN))\n",
-		"\t    || !head_ok(bytes))\n",
+		"\t\t    || need != len)\n\t\t\treturn FZN_PIECES_ERR_MALFORMED;\n\t\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);\n",
+		"\t\t    || need > len)\n\t\t\treturn FZN_PIECES_ERR_MALFORMED;\n\t\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);\n",
 		"a piece cut short is kept, and its rebuild reads past what it holds -- sec 597",
 	),
 	(

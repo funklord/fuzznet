@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1370
+The newest work is at the end of this file. **Read secs 1287 to 1371
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -62768,7 +62768,7 @@ from the pieces present.
 
 ### The layout
 
-`chunk/piece.situ`, in `make schema`'s list: a head -- version, the
+`chunk/piece_wire.situ`, in `make schema`'s list: a head -- version, the
 bucket kind, the item's 32-byte id, its length, k, m and the piece's
 index; 49 bytes here, 81 since sec 599 added whose item it is, 113 since
 sec 601 added its keeper -- then the piece, `piece_len` bytes. The schema bounds each field;
@@ -62937,7 +62937,7 @@ The host that cut a fossil asks each keeper, each round after the
 exchange, whether it holds its piece -- the length and no byte, as sec
 592 asks of a whole. Two things make that possible:
 
-- **The piece names whose item it is**: `chunk/piece.situ`'s head gains
+- **The piece names whose item it is**: `chunk/piece_wire.situ`'s head gains
   `host[32]`, 81 bytes then (113 since sec 601). The layout changed
   before any build stored one, so it stays version 1.
 - **One item may be served where its bucket is not**: the exchange's gate
@@ -62949,7 +62949,7 @@ exchange, whether it holds its piece -- the length and no byte, as sec
 ### What the cutter keeps, sec 599
 
 - **A placement record**, `IDHEX.cut` beside the pieces
-  (`chunk/piece.situ`'s `fzn_erasure_cut`): k, m and each keeper, written
+  (`chunk/piece_wire.situ`'s `fzn_erasure_cut`): k, m and each keeper, written
   before the pieces are taken. A let-go bucket row no longer names its
   subject, and the cut must still be counted after its copies go.
 - **Held enough, this host's copies of the others' pieces go**: let go in
@@ -63071,7 +63071,7 @@ fossil is rebuilt as a repair rebuilds it (sec 600), cut again with the
 new keeper, placed, and the piece pushed to its keeper at once rather
 than a round later. A move shares the round's bound with repairs.
 
-**A piece now names its keeper**: `chunk/piece.situ`'s head gains
+**A piece now names its keeper**: `chunk/piece_wire.situ`'s head gains
 `keeper[32]` after the index, 113 bytes. A piece's id is its bytes' hash,
 and an id cannot leave the bucket of the keeper it was first taken into,
 so a piece moved must be other bytes. The old piece's id is let go here
@@ -63123,7 +63123,7 @@ the piece has to say so.
 
 ### A release
 
-`chunk/piece.situ`'s `fzn_erasure_release`, 163 bytes: version, a marker
+`chunk/piece_wire.situ`'s `fzn_erasure_release`, 163 bytes: version, a marker
 of 255 -- no bucket kind, which is what tells it from a piece in the same
 bucket -- the item's id and host, the piece's index, the id of the piece
 let go, and the host's signature over "fuzznet.piece.release", a NUL and
@@ -95872,3 +95872,37 @@ without); catalog_test (69), copy_plan_test (50), dimension_test (18),
 attribute_fuzz (20000 cases). Sabotage
 `catalogue-refuses-an-unknown-enum` and
 `catalogue-attribute-value-is-exactly-the-remaining-bytes` retargeted.
+
+## 1371. An erasure piece's cut and release, and a piece kept from the wire, through situ's code, 2026-11-21
+
+The twenty-fifth of the 40 layouts: `chunk/piece.situ` is
+`chunk/piece_wire.situ` (secs 595-602). It gains the rules the code
+already held, as `when`s -- a piece's cut and a placement at most 32
+pieces (`FZN_ERASURE_PIECES_MAX`), a piece's index inside its cut --
+which `wire --check` calls compatible, no byte moving.
+
+- **The cut** (`node/piece_buckets.c`, `write_cut` and
+  `fzn_piece_buckets_cut_of`): written through situ's edit layer, k and m
+  through their counters and each keeper through `keepers_at`, since situ
+  makes no builder for a run sized by `k + m`; read through `required`,
+  the view and `validate`, the id compared after.
+- **The release** (`fzn_piece_buckets_release`, `take_release`): written
+  through the edit layer and signed, with its label, over the bytes
+  before the signature as before; read through the view and `validate`
+  before the signature is checked. The offsets `REL_ID` to `REL_PIECE`
+  went.
+- **A whole piece kept from the wire** (`fzn_pieces_keep`): `required`,
+  the view and `validate`, then `head_ok` for what the schema cannot
+  say, that the piece's length is its item's share.
+
+**Not moved, and why**: a piece file is written and read in two steps --
+its 113-byte head, then up to 64 MiB of piece -- so `fzn_pieces_cut`'s
+writer and `read_piece` keep the hand offsets and `head_ok`, as the
+spool's sidecar and the store file's slot do (secs 1359, 1370).
+
+**Tests:** piece_wire_vectors (3: a parity piece, a placement of three,
+a release); piece_buckets_test (64), pieces_test (16), pieces_fuzz (2000
+cases). Sabotage `release-signed-by-its-host`,
+`release-only-of-its-hosts-pieces`, `release-placed-on-this-host` and
+`pieces-kept-whole` retargeted; `pieces-cut-read-unvalidated` and
+`pieces-release-unvalidated` new.
