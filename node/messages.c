@@ -39,6 +39,10 @@ static size_t say(char *reply, size_t cap, fzn_reply_t kind, const char *detail)
 	return answer(reply, cap, kind, detail, detail ? strlen(detail) : 0u);
 }
 
+static int find_own(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY_LEN],
+                    const uint8_t given[FZN_MESSAGE_ID_LEN], uint8_t own[FZN_MESSAGE_ID_LEN],
+                    uint8_t shared[FZN_MESSAGE_ID_LEN]);
+
 static size_t refuse(char *reply, size_t cap, fzn_messages_err_t err)
 {
 	return say(reply, cap,
@@ -1529,6 +1533,22 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		if (!word(&rest, &rest_left, &w, &w_len)
 		    || !parse_hex(w, w_len, id, FZN_MESSAGE_ID_LEN) || rest_left)
 			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		/* THIS USER'S OWN GROUP LINE BY THE ID THE LISTING GIVES, sec 1354:
+		 * its shared one (sec 1285), mapped to the id the index holds it
+		 * under, as `remove message` does -- kept as given, a read at a
+		 * group's newest line, when it was this user's, set a position no
+		 * count reaches, and every line read came back unread on every
+		 * host (fuzzypickles' unread tracker). A line that came in is filed
+		 * under the shared id already. */
+		{
+			uint8_t own[FZN_MESSAGE_ID_LEN], shared[FZN_MESSAGE_ID_LEN];
+			char group_name[FZN_CONTACT_NAME_MAX + 1u];
+			size_t group_name_len = 0;
+
+			if (fzn_node_group_name(nm->m.store, contact, group_name, &group_name_len) == FZN_CONTACT_OK
+			    && find_own(nm, contact, id, own, shared))
+				memcpy(id, own, FZN_MESSAGE_ID_LEN);
+		}
 		/* READ WHERE IT WAS READ, sec 1084, fuzzypickles': `ok unchanged`, which
 		 * the daemon publishes nothing for -- no change happened. */
 		if (fzn_messages_read_position(&nm->m, contact, held)

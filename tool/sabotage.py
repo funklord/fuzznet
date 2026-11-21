@@ -10486,6 +10486,13 @@ SABOTAGES = [
 		"a setting with bytes past its signature is opened -- secs 540, 1342",
 	),
 	(
+		"read-own-group-line-by-listed-id",
+		"node/messages.c",
+		"\t\t\t    && find_own(nm, contact, id, own, shared))\n\t\t\t\tmemcpy(id, own, FZN_MESSAGE_ID_LEN);\n",
+		"\t\t\t    && find_own(nm, contact, id, own, shared))\n\t\t\t\t;\n",
+		"a read at this user's own group line by its listed id sets a position no count reaches, and read lines come back unread -- sec 1354",
+	),
+	(
 		"setting-signs-its-whole-body",
 		"state/setting.c",
 		"\tif (!sign->sign(sign->ctx, out + wrote - FZN_SIG_LEN, out, wrote - FZN_SIG_LEN))\n",

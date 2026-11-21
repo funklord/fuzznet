@@ -1896,6 +1896,32 @@ static void test_a_line_taken_back_across(void)
 		CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("ok")
 		              && state_of_line(&S, group, 0x91, FZN_MESSAGE_OUT, &found) == FZN_MESSAGE_UNSENT,
 		      "this user's group line was not taken back by its shared id");
+		/* READ AT THIS USER'S OWN NEWEST LINE BY ITS LISTED ID, sec 1354:
+		 * a member's line in, then this user's; read up to the listed
+		 * newest, nothing is unread -- kept as given, the shared id named
+		 * no line the count reaches, and the member's came back unread. */
+		{
+			uint8_t in_id[FZN_MESSAGE_ID_LEN], newest_shared[FZN_MESSAGE_ID_LEN], held[FZN_MESSAGE_ID_LEN];
+			size_t unread = 99;
+			int more_unread = 0;
+
+			memset(in_id, 0x92, sizeof(in_id));
+			memset(id, 0x93, sizeof(id));
+			CHECK(fzn_messages_write(&S.nm.m, group, FZN_MESSAGE_IN, in_id, clock_ms + 1000u, "hi", 2u)
+			                      == FZN_MESSAGES_OK
+			              && fzn_messages_write(&S.nm.m, group, FZN_MESSAGE_OUT, id, clock_ms + 2000u, "yo", 2u)
+			                         == FZN_MESSAGES_OK
+			              && fzn_group_lines_filed_id(&HASH, S.pub, id, newest_shared),
+			      "fixture: a member's line, then this user's newest");
+			for (i = 0; i < FZN_MESSAGE_ID_LEN; i++)
+				(void)snprintf(shared_hex + 2u * i, 3u, "%02x", newest_shared[i]);
+			snprintf(line, sizeof(line), "set message @crew read %s", shared_hex);
+			CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("ok")
+			              && fzn_messages_read_position(&S.nm.m, group, held)
+			              && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0
+			              && fzn_messages_unread(&S.nm.m, group, &unread, &more_unread) == FZN_MESSAGES_OK && unread == 0u,
+			      "a read at this user's own newest group line by its listed id left lines unread");
+		}
 	}
 }
 

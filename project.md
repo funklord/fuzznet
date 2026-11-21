@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1353
+The newest work is at the end of this file. **Read secs 1287 to 1354
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95478,9 +95478,33 @@ round's start, so the grants step found nothing new and **the push
 stopped happening**. Now the start remembers what it paired
 (`paired_at_start`), and the grants step pushes for either.
 
+**Its commit, 2036e0c8, quotes the fixed commit wrongly** in its `Fixes:`
+trailer, `e24f4d90a65a`: the fixed commit is **e24f4d90edbc**, sec 1348's.
+The hash was typed rather than read from git; it is pushed, so it stands
+corrected here.
+
 **Tests:** `live_many_notes` passes (all 2500 texts in 9 s) and
 `live_lamp` with it; the gates and the full `livecheck`. **The lesson,
 for the next round change**: a step whose side effect is conditional on
 another step finding work has a consumer that step never names -- move
 the work and the consumer goes quiet.
+
+
+## 1354. A read at this user's own group line, by the id the listing gives, 2026-11-21
+
+From fuzzypickles (fuzznet inbox 20261121T1023Z, its window suite at
+635ad578). Since sec 1285 a group's listing gives this user's own lines
+their **shared** id, and `remove message` maps it back (`find_own`); `WHO
+read ID` did not -- it stored the id as given, and the unread count walks
+the index, where this user's line sits under its **own** id, so it never
+reached the position. **Reading a group at its newest line, when that
+line was this user's, made every line read come back unread, on every
+host of the user** -- anyone reading "up to the newest" in a group they
+last wrote in. The read verb now maps an id naming one of this user's own
+group lines, shared or own, to the own one before storing it; a line that
+came in is filed under the shared id already and is kept as given.
+
+**Tests:** messages_test (301): a member's line, then this user's newest;
+read at the newest's listed id, nothing is unread -- failing with the
+mapping taken out. Sabotage `read-own-group-line-by-listed-id`.
 
