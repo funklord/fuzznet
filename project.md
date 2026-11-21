@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1345
+The newest work is at the end of this file. **Read secs 1287 to 1346
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95266,3 +95266,52 @@ bss +967 KB), mostly node, search, contacts and members -- about 10% more
 flash on its OpenWrt routers. **Open**: whether that code is reachable
 only through paths an embedded node never takes, for the embedded profile
 (sec 922) to leave out.
+
+## 1346. The one search a switch of its own, off in the embedded profile, 2026-11-21
+
+From netcfgd's figure (sec 1345): measured by source file, the embedded
+build (`make embedded`, sec 922) had grown from 789,540 bytes of text to
+1,008,146, and the largest piece with no switch was **the one search** --
+`search/remote.c`, its two generated units, `node/search.c`, the facet
+codec. **`FZN_SEARCH`**, a consumer service in sec 856's sense (1, the
+default, or 0), off under `PRESET=embedded-device` and in `make lean`:
+a build without it answers a search `unsupported` -- "this node searches
+nothing", here and to a host that asks -- as one with nothing wired
+already did, and sec 860's linker drops the rest. It stands on the
+messages' store, so it is on only where messages are too (a build without
+messages wired no search anyway, and carried its code). **Embedded text
+1,008,146 -> 942,706 (-65 kB)**, more than search's own files, as code
+only search reached goes with it. `tells_read`, unused without messages
+and warned of in every embedded build, is under the messages switch.
+
+**Tests:** `livecheck-lean` holds `fetch search heron` and `get search`
+to `unsupported` in the lean build, beside the other four services, and
+its kept half still passes; the full, embedded and messages-off builds
+compile without a warning.
+
+**Found on the way, open: `live_lamp` fails, since 046debc9** (sec 1259,
+2026-11-18), in `livecheck-embedded` and against the full fuzznetd alike:
+step b, the device's button switching the lamp off at R, never reaches A
+(`get object lamp` stays `on` past 20 s). Not this change's: it fails with
+it stashed, at c20c1a66~1 and at e33b7b7a. **Bisected** from fa26de5 (the
+last full livecheck recorded passing) by building and running
+`live_lamp` at each step: 046debc9 is the first bad commit, 85d24f2b
+before it passes. **Why, as far as measured** (both runs' logs kept and
+compared): before 046debc9 a start in place lost its socket for a moment,
+and the script's wait across A's join ran about a minute, so by the
+device's write R had indexed A's membership grant and A's `net/address`;
+R's round then had A as a sibling (`a sibling in this round's turn`) and
+pushed the value. Now the start in place is quick, the device writes 2-4 s
+after the join, and R's round runs with **0 peers**: R took A's records at
+33.1 s but **indexed A's grant at 35.43 s, after the round the device's
+change started at 35.42 s**, and a sibling whose grant this host has not
+indexed is left out of a round (`fzn_node_apply_holds`, sec 976). So a
+member is unreachable to its root's pushes until the root's apply pass
+after the member's records arrive; a change in that gap goes to nobody
+there and waits for the member's next timed round, up to 60 s -- longer
+than the lamp's 20. **Tried and not it**: starting a round when a setting
+is written here (A's `net/address`) -- the lamp still failed, so it was
+taken out rather than committed unproven. **Next**: apply what a round
+brought before the next round builds its targets, or index a grant on
+arrival; then `live_lamp` is the test.
+

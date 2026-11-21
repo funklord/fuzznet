@@ -482,8 +482,14 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 /* THE USER'S STICKERS, sec 681: packs as files, saved as settings. */
 static fzn_node_stickers_t node_stickers;
 #endif
-/* THE ONE SEARCH'S STORES HERE, sec 1287: filled as each comes up. */
+/* THE ONE SEARCH'S STORES HERE, sec 1287: filled as each comes up. A
+ * consumer service, left out with FZN_SEARCH=0 (sec 1346): a host built
+ * without it says it searches nothing, here and to a host that asks. It
+ * stands on the messages' store, so a build without messages has none. */
+#if defined(FZN_SEARCH_ON) && defined(FZN_MESSAGES_ON)
+#define FZND_SEARCH 1
 static fzn_node_search_t node_search;
+#endif
 /* WHAT CROSSES THE REMOTE HOP, sec 685: fzpd's transfer list. */
 static fzn_meter_t traffic;
 /* THE SETTINGS DECLARED, sec 686: fuzznet's, and the extension's. */
@@ -645,8 +651,10 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
 #endif
+#ifdef FZND_SEARCH
 	if (!n && node_search.messages)
 		n = fzn_node_search_local(&node_search, origin, request, reply, reply_cap);
+#endif
 	if (!n)
 		n = offer_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -4939,6 +4947,7 @@ static int choice_of(const char *key)
 	return -1;
 }
 
+#ifdef FZN_MESSAGES_ON
 /* WHETHER THIS USER TELLS `contact` IT READ THEIR LINES, sec 1269: the
  * conversation's own choice, `message/read/HEX`, where it has one; else
  * `message/read-marks`; off unless chosen, as the holder decided. */
@@ -4956,6 +4965,7 @@ static int tells_read(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 		return v;
 	return choice_of("message/read-marks") == 1;
 }
+#endif
 
 /* WHETHER THIS USER HAS UNSEND ON, sec 1284: `message/unsend`, off unless
  * chosen, as the holder decided. */
@@ -19064,10 +19074,16 @@ static int local_search(int fd, fzn_origin_t origin, const uint8_t *msg, size_t 
 {
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a search is this node's own user's"), 0;
+#ifdef FZND_SEARCH
 	if (!node_search.messages)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node searches nothing"), 0;
 	(void)fzn_node_search_binary(&node_search, msg, len, local_put, &fd);
 	return 0;
+#else
+	(void)msg;
+	(void)len;
+	return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node searches nothing"), 0;
+#endif
 }
 
 #ifdef FZND_STICKERS
@@ -22314,6 +22330,7 @@ static size_t relay_session_remote(const uint8_t *sender, const uint8_t *request
 #define SEARCH_ANSWERS_A_SECOND 8u
 /* HOW LONG AN ASKED HOST HAS TO ANSWER. */
 #define SEARCH_ASK_WAIT_MS 3000u
+#ifdef FZND_SEARCH
 
 /* ONE HOST ASKED: its own socket, as a session's ask has (sec 1031). */
 static struct search_asking {
@@ -22426,6 +22443,7 @@ static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const 
 	    n, outside, quiet, nowhere);
 	return n;
 }
+#endif
 
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
@@ -22477,9 +22495,14 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		}
 		if (++answered > SEARCH_ANSWERS_A_SECOND)
 			return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "too many searches this second");
+#ifdef FZND_SEARCH
 		n = fzn_node_search_remote(&node_search, asker.member ? NULL : asker.owner, request, request_len, reply,
 		                           reply_cap);
 		return n ? n : fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "the search would not run");
+#else
+		(void)n;
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_UNSUPPORTED, "this host searches nothing");
+#endif
 	}
 	/* A CALL OF A NAMED PROCEDURE, sec 853. */
 	if (request_len >= 3u && request[0] == FZN_CMD_RRPC
@@ -26921,6 +26944,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                           &hash_ops, estate_ms)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
+#ifdef FZND_SEARCH
 					node_search.messages = &node_messages;
 					node_search.user = &node_apply.root;
 #ifdef FZN_CATALOG_ON
@@ -26929,6 +26953,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 					node_search.ask_hosts = search_ask_hosts;
 					node_search.contacts = node_messages.m.store;
+#endif
 					node_messages.keeps = keeps_here;
 					node_messages.m.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
@@ -27212,7 +27237,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #ifdef FZN_MESSAGES_ON
 					node_stickers.recent = stickers_recent;
 #endif
+#ifdef FZND_SEARCH
 					node_search.extra[0] = (fzn_search_store_t){ "stickers", fzn_node_stickers_search, &node_stickers };
+#endif
 #endif
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
@@ -27284,7 +27311,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					admin.notes_local = fzn_node_notes_local;
 					/* AND THE NOTES' STORE OF THE ONE SEARCH, sec 1287
 					 * step 4: a consumer's reading, as the verbs are. */
+#ifdef FZND_SEARCH
 					node_search.extra[1] = (fzn_search_store_t){ "notes", fzn_node_notes_search, &node_notes };
+#endif
 #endif
 					admin.notes_remote = notes_remote_said;
 					admin.notes_ctx = &node_notes;

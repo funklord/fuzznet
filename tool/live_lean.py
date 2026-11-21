@@ -71,6 +71,7 @@ GONE = {
 	"notes": ["list note top", "add note top hello", "list history " + "00" * 16,
 	          "list shared"],
 	"groups": ["list group", "add group friends", "get group " + "00" * 32],
+	"search": ["fetch search heron", "get search"],
 }
 # AND WHAT THE MINIMAL CONFIGURATION LEAVES OUT BESIDE THEM.
 GONE_MINIMAL = {
