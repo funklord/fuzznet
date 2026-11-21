@@ -5,6 +5,7 @@
 #include "messages.h"
 #include "../wire/generated/deliver_wire.h"
 #include "../wire/generated/deliver_wire_build.h"
+#include "../wire/generated/keys_wire.h"
 
 #include "../contact/contact.h"
 #include "../messages/attachment.h"
@@ -608,26 +609,35 @@ void fzn_node_messages_pushed(fzn_node_messages_t *nm, const uint8_t contact[FZN
 
 /* ---- keys between members ------------------------------------------------ */
 
-static void put_place(uint8_t *at, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch)
-{
-	memcpy(at, contact, FZN_PUBKEY_LEN);
-	fzn_put_be32(at + FZN_PUBKEY_LEN, epoch);
-}
+/* THE FOUR KEYS MESSAGES ARE WRITTEN AND READ BY THE CODE situ GENERATES
+ * from `messages/keys_wire.situ` (sec 1378): a writer through the edit
+ * layer -- the count through its counter, each entry through `keys_at` --
+ * and a reader through `required`, the view and `validate` before any
+ * entry is read. */
 
 /* ONE WANT's request: `n` places asked for. Its length. */
 static size_t want_request(const fzn_node_message_key_t *asked, size_t n, uint8_t *request)
 {
-	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, j;
+	const size_t len = FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_ENTRY_LEN;
+	situ_msg_t m;
+	situ_view_t v, e;
+	size_t j;
 
-	request[0] = FZN_CMD_MESSAGES;
-	request[1] = FZN_NODE_MESSAGES_WANT;
-	request[2] = (uint8_t)n;
+	memset(request, 0, len);
+	situ_msg_init(&m, request, (uint32_t)len);
+	if (fzn_keys_wire_fzn_message_keys_want_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_keys_wire_fzn_message_keys_want_version_set(v, FZN_CMD_MESSAGES);
+	fzn_keys_wire_fzn_message_keys_want_type_set(v, FZN_NODE_MESSAGES_WANT);
+	fzn_keys_wire_fzn_message_keys_want_count_set(&m, v, (uint8_t)n);
 	for (j = 0; j < n; j++) {
-		put_place(request + at, asked[j].contact, asked[j].epoch);
-		memcpy(request + at + FZN_PUBKEY_LEN + 4u, asked[j].device, FZN_PUBKEY_LEN);
-		at += FZN_NODE_MESSAGES_ENTRY_LEN;
+		if (fzn_keys_wire_fzn_message_keys_want_keys_at(v, (uint32_t)j, &e) != SITU_OK)
+			return 0;
+		memcpy(fzn_keys_wire_fzn_message_key_wanted_contact_ptr(e), asked[j].contact, FZN_PUBKEY_LEN);
+		fzn_keys_wire_fzn_message_key_wanted_epoch_set(e, asked[j].epoch);
+		memcpy(fzn_keys_wire_fzn_message_key_wanted_device_ptr(e), asked[j].device, FZN_PUBKEY_LEN);
 	}
-	return at;
+	return len;
 }
 
 /* ITS ANSWER: each key it carries taken only for a place among the `n`
@@ -635,23 +645,38 @@ static size_t want_request(const fzn_node_message_key_t *asked, size_t n, uint8_
 static int want_take(fzn_node_messages_t *nm, const fzn_node_message_key_t *asked, size_t n,
                      const uint8_t *reply, size_t reply_len, fzn_node_messages_tally_t *tally)
 {
-	size_t j, k;
+	size_t j, k, count;
+	situ_msg_t m;
+	situ_view_t v, held;
+	uint32_t need = 0;
 
-	if (!reply || reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply[0] != FZN_CMD_MESSAGES
-	    || reply[1] != FZN_NODE_MESSAGES_KEYS || reply[2] > n
-	    || reply_len != FZN_NODE_MESSAGES_HEAD_LEN
-	                            + (size_t)reply[2] * FZN_NODE_MESSAGES_HELD_LEN)
+	/* THE ANSWER READ WHOLE FIRST, sec 1378: version, type, at most eight
+	 * keys and nothing after the last the generated code's; no more keys
+	 * than were asked for the codec's. */
+	if (!reply || reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply_len > UINT32_MAX
+	    || fzn_keys_wire_fzn_message_keys_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+	    || need != reply_len)
 		return 0;
-	for (k = 0; k < reply[2]; k++) {
-		const uint8_t *e = reply + FZN_NODE_MESSAGES_HEAD_LEN + (k * FZN_NODE_MESSAGES_HELD_LEN);
-		uint32_t epoch = fzn_get_be32(e + FZN_PUBKEY_LEN);
-		const uint8_t *device = e + FZN_PUBKEY_LEN + 4u;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_keys_wire_fzn_message_keys_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+	    || fzn_keys_wire_fzn_message_keys_validate(v) != SITU_OK
+	    || (count = fzn_keys_wire_fzn_message_keys_count_get(v)) > n)
+		return 0;
+	for (k = 0; k < count; k++) {
+		const uint8_t *e, *device;
+		uint32_t epoch;
 		int was_asked = 0;
+
+		if (fzn_keys_wire_fzn_message_keys_keys_at(v, (uint32_t)k, &held) != SITU_OK)
+			return 0;
+		e = fzn_keys_wire_fzn_message_key_held_contact_ptr(held);
+		epoch = fzn_keys_wire_fzn_message_key_held_epoch_get(held);
+		device = fzn_keys_wire_fzn_message_key_held_device_ptr(held);
 
 		for (j = 0; j < n && !was_asked; j++)
 			was_asked = key_place_is(&asked[j], e, epoch, device);
 		if (was_asked
-		    && fzn_messages_key_take(&nm->m, e, epoch, device, e + FZN_NODE_MESSAGES_ENTRY_LEN)
+		    && fzn_messages_key_take(&nm->m, e, epoch, device, fzn_keys_wire_fzn_message_key_held_key_ptr(held))
 		               == FZN_MESSAGES_OK) {
 			drop_key(nm->lacks, &nm->n_lacks, e, epoch, device);
 			tally->taken++;
@@ -664,23 +689,33 @@ static int want_take(fzn_node_messages_t *nm, const fzn_node_message_key_t *aske
  * length; the keys in it are the caller's to wipe. */
 static size_t give_request(fzn_node_messages_t *nm, size_t n, uint8_t *request)
 {
-	uint8_t key[FZN_CONVERSATION_KEY_LEN];
-	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, i;
+	const size_t len = FZN_NODE_MESSAGES_HEAD_LEN + n * (FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN);
+	situ_msg_t m;
+	situ_view_t v, e;
+	size_t i;
 
-	request[0] = FZN_CMD_MESSAGES;
-	request[1] = FZN_NODE_MESSAGES_GIVE;
+	memset(request, 0, len);
+	situ_msg_init(&m, request, (uint32_t)len);
+	if (fzn_keys_wire_fzn_message_keys_give_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_keys_wire_fzn_message_keys_give_version_set(v, FZN_CMD_MESSAGES);
+	fzn_keys_wire_fzn_message_keys_give_type_set(v, FZN_NODE_MESSAGES_GIVE);
+	fzn_keys_wire_fzn_message_keys_give_count_set(&m, v, (uint8_t)n);
 	for (i = 0; i < n; i++) {
 		const fzn_node_message_key_t *g = &nm->gives[nm->n_gives - 1u - i];
 
-		if (!fzn_messages_key_get(&nm->m, g->contact, g->epoch, g->device, key))
-			memset(key, 0, sizeof(key));
-		put_place(request + at, g->contact, g->epoch);
-		memcpy(request + at + FZN_PUBKEY_LEN + 4u, key, sizeof(key));
-		at += FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN;
+		if (fzn_keys_wire_fzn_message_keys_give_keys_at(v, (uint32_t)i, &e) != SITU_OK) {
+			memset(request, 0, len);
+			return 0;
+		}
+		memcpy(fzn_keys_wire_fzn_message_key_given_contact_ptr(e), g->contact, FZN_PUBKEY_LEN);
+		fzn_keys_wire_fzn_message_key_given_epoch_set(e, g->epoch);
+		/* A KEY NO LONGER HELD goes as zeros, as before. */
+		if (!fzn_messages_key_get(&nm->m, g->contact, g->epoch, g->device,
+		                          fzn_keys_wire_fzn_message_key_given_key_ptr(e)))
+			memset(fzn_keys_wire_fzn_message_key_given_key_ptr(e), 0, FZN_CONVERSATION_KEY_LEN);
 	}
-	request[2] = (uint8_t)n;
-	memset(key, 0, sizeof(key));
-	return at;
+	return len;
 }
 
 /* ---- the round with a member as steps, sec 636 ---------------------------- */
@@ -759,12 +794,24 @@ int fzn_node_messages_round_step(fzn_node_messages_rounding_t *r, const uint8_t 
 	if (r->phase == KEYS_GIVE) {
 		/* A GIVE'S KEYS, wiped once it is answered or is not. */
 		memset(request, 0, r->sent);
-		if (!reply || reply_len != FZN_NODE_MESSAGES_GIVEN_LEN
-		    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_GIVEN
-		    || (size_t)reply[2] + reply[3] > r->n)
+		situ_msg_t m;
+		situ_view_t v;
+		uint8_t taken, refused;
+
+		/* READ AS THE SCHEMA SAYS, sec 1378; no more answered than given
+		 * the codec's. */
+		if (!reply || reply_len != FZN_NODE_MESSAGES_GIVEN_LEN)
 			return keys_end(r, done, 0);
-		r->tally.given += reply[2];
-		r->tally.refused += reply[3];
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+		if (fzn_keys_wire_fzn_message_keys_given_view(&m, 0u, &v) != SITU_OK
+		    || fzn_keys_wire_fzn_message_keys_given_validate(v) != SITU_OK)
+			return keys_end(r, done, 0);
+		taken = fzn_keys_wire_fzn_message_keys_given_taken_get(v);
+		refused = fzn_keys_wire_fzn_message_keys_given_refused_get(v);
+		if ((size_t)taken + refused > r->n)
+			return keys_end(r, done, 0);
+		r->tally.given += taken;
+		r->tally.refused += refused;
 		r->nm->n_gives -= r->n;
 		return keys_next(r, request, request_len, done);
 	}
@@ -806,56 +853,103 @@ int fzn_node_messages_round(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask
 static size_t answer_give(fzn_node_messages_t *nm, const uint8_t *sender, const uint8_t *request,
                           size_t request_len, uint8_t *reply, size_t reply_cap)
 {
-	size_t n = request[2], i, taken = 0, refused = 0;
+	size_t n, i, taken = 0, refused = 0;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint32_t need = 0;
 
-	if (n == 0u || n > FZN_NODE_MESSAGES_PER
-	    || request_len != FZN_NODE_MESSAGES_HEAD_LEN
-	                              + n * (FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN)
-	    || reply_cap < FZN_NODE_MESSAGES_GIVEN_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1378: one to eight keys and nothing
+	 * after the last. */
+	if (reply_cap < FZN_NODE_MESSAGES_GIVEN_LEN || request_len > UINT32_MAX
+	    || fzn_keys_wire_fzn_message_keys_give_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_keys_wire_fzn_message_keys_give_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_keys_wire_fzn_message_keys_give_validate(v) != SITU_OK)
+		return 0;
+	n = fzn_keys_wire_fzn_message_keys_give_count_get(v);
 	/* AS THE GIVER'S OWN: a member gives the keys it drew, so the device a
 	 * key is kept under is the sender, whatever else it might claim. */
 	for (i = 0; i < n; i++) {
-		const uint8_t *e = request + FZN_NODE_MESSAGES_HEAD_LEN
-		                   + i * (FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN);
-
-		if (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,
-		                          e + FZN_PUBKEY_LEN + 4u)
-		    == FZN_MESSAGES_OK)
+		if (fzn_keys_wire_fzn_message_keys_give_keys_at(v, (uint32_t)i, &e) == SITU_OK
+		    && fzn_messages_key_take(&nm->m, fzn_keys_wire_fzn_message_key_given_contact_ptr(e),
+		                             fzn_keys_wire_fzn_message_key_given_epoch_get(e), sender,
+		                             fzn_keys_wire_fzn_message_key_given_key_ptr(e))
+		               == FZN_MESSAGES_OK)
 			taken++;
 		else
 			refused++;
 	}
-	reply[0] = FZN_CMD_MESSAGES;
-	reply[1] = FZN_NODE_MESSAGES_GIVEN;
-	reply[2] = (uint8_t)taken;
-	reply[3] = (uint8_t)refused;
+	situ_msg_init(&m, reply, FZN_NODE_MESSAGES_GIVEN_LEN);
+	if (fzn_keys_wire_fzn_message_keys_given_view(&m, 0u, &v) != SITU_OK)
+		return 0;
+	fzn_keys_wire_fzn_message_keys_given_version_set(v, FZN_CMD_MESSAGES);
+	fzn_keys_wire_fzn_message_keys_given_type_set(v, FZN_NODE_MESSAGES_GIVEN);
+	fzn_keys_wire_fzn_message_keys_given_taken_set(v, (uint8_t)taken);
+	fzn_keys_wire_fzn_message_keys_given_refused_set(v, (uint8_t)refused);
 	return FZN_NODE_MESSAGES_GIVEN_LEN;
 }
 
 static size_t answer_want(fzn_node_messages_t *nm, const uint8_t *request, size_t request_len,
                           uint8_t *reply, size_t reply_cap)
 {
-	size_t n = request[2], i, held = 0, at = FZN_NODE_MESSAGES_HEAD_LEN;
+	uint8_t key[FZN_CONVERSATION_KEY_LEN], is_held[FZN_NODE_MESSAGES_PER];
+	size_t n, i, held = 0, k = 0, len;
+	situ_msg_t m, out;
+	situ_view_t v, e, r, h;
+	uint32_t need = 0;
 
-	if (n == 0u || n > FZN_NODE_MESSAGES_PER
-	    || request_len != FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_ENTRY_LEN
-	    || reply_cap < FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_HELD_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1378: one to eight places and nothing
+	 * after the last. */
+	if (request_len > UINT32_MAX
+	    || fzn_keys_wire_fzn_message_keys_want_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_keys_wire_fzn_message_keys_want_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_keys_wire_fzn_message_keys_want_validate(v) != SITU_OK)
+		return 0;
+	n = fzn_keys_wire_fzn_message_keys_want_count_get(v);
+	if (n > FZN_NODE_MESSAGES_PER || reply_cap < FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_HELD_LEN)
+		return 0;
+	/* WHICH ARE HELD, first, so the answer's count is written before its
+	 * keys; each key looked up wiped at once. */
 	for (i = 0; i < n; i++) {
-		const uint8_t *e = request + FZN_NODE_MESSAGES_HEAD_LEN + i * FZN_NODE_MESSAGES_ENTRY_LEN;
-
-		if (!fzn_messages_key_get(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN),
-		                          e + FZN_PUBKEY_LEN + 4u, reply + at + FZN_NODE_MESSAGES_ENTRY_LEN))
-			continue;
-		memcpy(reply + at, e, FZN_NODE_MESSAGES_ENTRY_LEN);
-		at += FZN_NODE_MESSAGES_HELD_LEN;
-		held++;
+		is_held[i] = fzn_keys_wire_fzn_message_keys_want_keys_at(v, (uint32_t)i, &e) == SITU_OK
+		             && fzn_messages_key_get(&nm->m, fzn_keys_wire_fzn_message_key_wanted_contact_ptr(e),
+		                                     fzn_keys_wire_fzn_message_key_wanted_epoch_get(e),
+		                                     fzn_keys_wire_fzn_message_key_wanted_device_ptr(e), key);
+		held += is_held[i];
 	}
-	reply[0] = FZN_CMD_MESSAGES;
-	reply[1] = FZN_NODE_MESSAGES_KEYS;
-	reply[2] = (uint8_t)held;
-	return at;
+	memset(key, 0, sizeof(key));
+	len = FZN_NODE_MESSAGES_HEAD_LEN + held * FZN_NODE_MESSAGES_HELD_LEN;
+	memset(reply, 0, len);
+	situ_msg_init(&out, reply, (uint32_t)len);
+	if (fzn_keys_wire_fzn_message_keys_view(&out, 0u, (uint32_t)len, &r) != SITU_OK)
+		return 0;
+	fzn_keys_wire_fzn_message_keys_version_set(r, FZN_CMD_MESSAGES);
+	fzn_keys_wire_fzn_message_keys_type_set(r, FZN_NODE_MESSAGES_KEYS);
+	fzn_keys_wire_fzn_message_keys_count_set(&out, r, (uint8_t)held);
+	for (i = 0; i < n; i++) {
+		if (!is_held[i])
+			continue;
+		if (fzn_keys_wire_fzn_message_keys_want_keys_at(v, (uint32_t)i, &e) != SITU_OK
+		    || fzn_keys_wire_fzn_message_keys_keys_at(r, (uint32_t)k++, &h) != SITU_OK
+		    || !fzn_messages_key_get(&nm->m, fzn_keys_wire_fzn_message_key_wanted_contact_ptr(e),
+		                             fzn_keys_wire_fzn_message_key_wanted_epoch_get(e),
+		                             fzn_keys_wire_fzn_message_key_wanted_device_ptr(e),
+		                             fzn_keys_wire_fzn_message_key_held_key_ptr(h))) {
+			memset(reply, 0, len);
+			return 0;
+		}
+		memcpy(fzn_keys_wire_fzn_message_key_held_contact_ptr(h),
+		       fzn_keys_wire_fzn_message_key_wanted_contact_ptr(e), FZN_PUBKEY_LEN);
+		fzn_keys_wire_fzn_message_key_held_epoch_set(h, fzn_keys_wire_fzn_message_key_wanted_epoch_get(e));
+		memcpy(fzn_keys_wire_fzn_message_key_held_device_ptr(h),
+		       fzn_keys_wire_fzn_message_key_wanted_device_ptr(e), FZN_PUBKEY_LEN);
+	}
+	return len;
 }
 
 static size_t answer_holds(fzn_node_messages_t *nm, const uint8_t *request, size_t request_len,

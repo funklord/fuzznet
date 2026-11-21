@@ -13,7 +13,7 @@
  * is asked for, and one this node drew is given.
  *
  * KEYS TRAVEL MEMBER TO MEMBER, over the authenticated remote hop, in the
- * four messages of `messages/keys.situ`: GIVE (a device's own keys, which is
+ * four messages of `messages/keys_wire.situ`: GIVE (a device's own keys, which is
  * how a hub that pulls from nobody comes by them), GIVEN, WANT (keys for
  * lines this node holds and cannot open) and KEYS. A key given is taken only
  * as the giver's own; the first key held stands. A contact's request never
@@ -56,7 +56,7 @@
 #include "../messages/messages.h"
 #include "buckets.h"
 
-/* `messages/keys.situ`: notes-sync's version byte, types after notes' 22. */
+/* `messages/keys_wire.situ`: notes-sync's version byte, types after notes' 22. */
 #define FZN_NODE_MESSAGES_GIVE 23u
 #define FZN_NODE_MESSAGES_GIVEN 24u
 #define FZN_NODE_MESSAGES_WANT 25u

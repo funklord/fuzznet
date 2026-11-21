@@ -10976,8 +10976,8 @@ SABOTAGES = [
 	(
 		'node-messages-give-as-the-giver',
 		'node/messages.c',
-		'\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,',
-		'\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), nm->m.issuer,',
+		'\t\t                             fzn_keys_wire_fzn_message_key_given_epoch_get(e), sender,',
+		'\t\t                             fzn_keys_wire_fzn_message_key_given_epoch_get(e), nm->m.issuer,',
 		"a member's gift is filed under this host's own device, so its lines open under the giver's key; keys_fuzz's property 1 -- sec 731",
 	),
 	(
@@ -10990,22 +10990,22 @@ SABOTAGES = [
 	(
 		'node-messages-want-length-exact',
 		'node/messages.c',
-		'\t    || request_len != FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_ENTRY_LEN\n',
-		'\t    || request_len < FZN_NODE_MESSAGES_HEAD_LEN + n * FZN_NODE_MESSAGES_ENTRY_LEN\n',
+		'\t    || need != request_len)\n\t\treturn 0;\n\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);\n\tif (fzn_keys_wire_fzn_message_keys_want_view(',
+		'\t    || need > request_len)\n\t\treturn 0;\n\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);\n\tif (fzn_keys_wire_fzn_message_keys_want_view(',
 		"a WANT with bytes past its entries is answered; keys_fuzz's property 4 -- sec 731",
 	),
 	(
 		'node-messages-want-only-held',
 		'node/messages.c',
-		'\t\tif (!fzn_messages_key_get(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN),\n\t\t                          e + FZN_PUBKEY_LEN + 4u, reply + at + FZN_NODE_MESSAGES_ENTRY_LEN))\n\t\t\tcontinue;',
-		'\t\t(void)fzn_messages_key_get(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN),\n\t\t                          e + FZN_PUBKEY_LEN + 4u, reply + at + FZN_NODE_MESSAGES_ENTRY_LEN);',
+		'\t\tis_held[i] = fzn_keys_wire_fzn_message_keys_want_keys_at(v, (uint32_t)i, &e) == SITU_OK\n\t\t             && fzn_messages_key_get(',
+		'\t\tis_held[i] = fzn_keys_wire_fzn_message_keys_want_keys_at(v, (uint32_t)i, &e) == SITU_OK\n\t\t             || fzn_messages_key_get(',
 		"a WANT is answered for keys not held, with whatever the reply held before; keys_fuzz's property 3 -- sec 731",
 	),
 	(
 		'node-messages-give-at-most-per',
 		'node/messages.c',
-		'\tsize_t n = request[2], i, taken = 0, refused = 0;\n\n\tif (n == 0u || n > FZN_NODE_MESSAGES_PER\n',
-		'\tsize_t n = request[2], i, taken = 0, refused = 0;\n\n\tif (n == 0u\n',
+		'\t    || fzn_keys_wire_fzn_message_keys_give_validate(v) != SITU_OK)\n',
+		'\t    || 0)\n',
 		"a GIVE of more entries than a batch holds is taken; keys_fuzz's property 4 -- sec 731",
 	),
 	(
@@ -13192,8 +13192,8 @@ SABOTAGES = [
 	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
-		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",
-		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), nm->m.issuer,",
+		"\t\t                             fzn_keys_wire_fzn_message_key_given_epoch_get(e), sender,",
+		"\t\t                             fzn_keys_wire_fzn_message_key_given_epoch_get(e), nm->m.issuer,",
 		"a key a member gives is kept as the taker's own, under a device that never drew it -- sec 527",
 	),
 	(
@@ -13206,8 +13206,8 @@ SABOTAGES = [
 	(
 		"node-messages-answer-no-more-than-asked",
 		"node/messages.c",
-		"\t    || reply[1] != FZN_NODE_MESSAGES_KEYS || reply[2] > n",
-		"\t    || reply[1] != FZN_NODE_MESSAGES_KEYS",
+		"\t    || (count = fzn_keys_wire_fzn_message_keys_count_get(v)) > n)",
+		"\t    || (count = fzn_keys_wire_fzn_message_keys_count_get(v)) > 8u)",
 		"an answer carrying more keys than were asked is read -- sec 527",
 	),
 	(

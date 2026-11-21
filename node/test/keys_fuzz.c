@@ -412,7 +412,7 @@ static size_t bend(uint8_t *b, size_t len)
 	}
 }
 
-/* What the layout admits, `messages/keys.situ` and `deliver.situ`: the
+/* What the layout admits, `messages/keys_wire.situ` and `deliver.situ`: the
  * type and its length. */
 static int admitted(const uint8_t *b, size_t len)
 {

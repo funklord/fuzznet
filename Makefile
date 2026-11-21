@@ -261,7 +261,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/tree_row.c wire/generated/revocation_record.c wire/generated/manifest_record.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
-             wire/generated/note_row.c wire/generated/deliver_wire.c \
+             wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -288,7 +288,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/chain_wire_vectors.c wire/generated/roster_record_vectors.c \
                  wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c \
                  wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c \
-                 wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c
+                 wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c \
+                 wire/generated/keys_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -784,6 +785,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/gather_wire_vectors \
              $(BUILD_DIR)/wire/test/note_row_vectors \
              $(BUILD_DIR)/wire/test/deliver_wire_vectors \
+             $(BUILD_DIR)/wire/test/keys_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -4687,6 +4689,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# CONVERSATION KEYS BETWEEN MEMBERS, generated, sec 1378.
+$(BUILD_DIR)/wire/test/keys_wire_vectors: wire/generated/keys_wire_vectors.c \
+                                         wire/generated/keys_wire.c wire/generated/situ.c \
+                                         $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # DELIVERY TO A CONTACT AND SETTLEMENT, generated, sec 1377.
 $(BUILD_DIR)/wire/test/deliver_wire_vectors: wire/generated/deliver_wire_vectors.c \
                                             wire/generated/deliver_wire.c wire/generated/situ.c \
@@ -5421,7 +5430,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 # A node's conversations, sec 527: the verbs, absorbing, and keys carried
 # between three devices, a hub among them.
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/wire/generated/messages_local.o \
                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
@@ -5521,7 +5530,7 @@ $(BUILD_DIR)/messages/test/line_fuzz: $(BUILD_DIR)/messages/test/line_fuzz.o \
 # Keys carried between the user's devices through a lying member, sec
 # 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5547,7 +5556,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
 
 # A contact's delivery through a lying contact, sec 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5764,7 +5773,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
-              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
+              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
               $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
               $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
@@ -7881,7 +7890,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note_row.situ node/opjournal_row.situ messages/line.situ \
-              messages/keys.situ messages/deliver_wire.situ state/setting_record.situ \
+              messages/keys_wire.situ messages/deliver_wire.situ state/setting_record.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry_record.situ log/cause_wire.situ log/gather_wire.situ chunk/piece_wire.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices.situ \
@@ -8645,6 +8654,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_keys_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new messages/keys_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_keys_wire \
+	         --out $(BUILD_DIR)/.gen.new messages/keys_wire.situ messages/keys_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_deliver_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new messages/deliver_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_deliver_wire \
@@ -8850,6 +8863,7 @@ schema:
 	          gather_wire.c gather_wire.h gather_wire_build.h gather_wire_edit.h gather_wire_vectors.c \
 	          note_row.c note_row.h note_row_build.h note_row_edit.h note_row_vectors.c \
 	          deliver_wire.c deliver_wire.h deliver_wire_build.h deliver_wire_edit.h deliver_wire_vectors.c \
+	          keys_wire.c keys_wire.h keys_wire_build.h keys_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

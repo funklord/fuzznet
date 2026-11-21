@@ -1,6 +1,7 @@
 // Conversation keys between one user's devices: the four messages, as situ
-// schemas. The hand-written codec is node/messages.c, and these are its
-// checked contract. project.md sec 527.
+// schemas. node/messages.c writes and reads all four through the code situ
+// generates from this (sec 1378); `_wire`, so the generated file's name
+// meets no source's. project.md sec 527.
 //
 // CMD MESSAGES (10, wire/cmd.h; notes-sync's family 2 until sec 1085),
 // SUBCMDs 23 to 26, after notes' 22. Only a member asks or is answered: a contact's

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1377
+The newest work is at the end of this file. **Read secs 1287 to 1378
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -59612,7 +59612,7 @@ trims a line.
 
   No verb removes a line.
 
-### Keys between devices, `messages/keys.situ`
+### Keys between devices, `messages/keys_wire.situ`
 
 Four member-only messages in notes-sync's version-2 type space, 23 to 26,
 after notes' 22. They reach the node only below `node/admin`'s contact
@@ -86519,7 +86519,7 @@ local verb `call NAME` is still the procedure call's; its rename to `rrpc` is th
 128 and 129 keep their numbers. **The meter** reads one family per CMD, with the same family per
 message as before, where `shared_family` kept hand-written ranges of family 2.
 
-**Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys.situ` and
+**Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys_wire.situ` and
 `deliver.situ` to 10, `node/contact_devices.situ`'s twelve messages to 11, `node/address.situ`
 to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line.situ`
 and `node/buckets.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
@@ -96063,3 +96063,33 @@ delivery_fuzz (3000 cases), keys_fuzz (3000). Sabotage
 `messages-delivered-names-the-line`, `messages-delivered-exact-length`,
 `messages-contact-text-exact` and `messages-contact-answers-settled`
 retargeted onto the new code.
+
+## 1378. Conversation keys between members through situ's code, 2026-11-22
+
+The twenty-ninth of the 40 layouts: `messages/keys.situ` is
+`messages/keys_wire.situ` (sec 527). The four messages carry runs of
+structs, which situ makes no builder for, so in `node/messages.c` each
+writer goes through the edit layer -- the count through its counter,
+each entry through `keys_at` -- and each reader through `required`, the
+view and `validate` before any entry is read:
+
+- **GIVE** (`give_request`, `answer_give`): one to eight keys and
+  nothing after the last; a key no longer held still goes as zeros, and
+  a gift is still kept as the sender's own, whatever it claims.
+- **GIVEN** (the step reading it): taken and refused each at most eight
+  by the schema, and their sum at most what was given by the codec.
+- **WANT** (`want_request`, `answer_want`): the answer's count is
+  written before its keys, so which places are held is decided first,
+  each key looked up wiped at once, and the keys written in a second
+  pass straight into the answer.
+- **KEYS** (`want_take`): at most eight by the schema, at most as many
+  as were asked by the codec.
+
+**The seeded fuzzer agrees case for case**: keys_fuzz reads 1159 keys
+taken, 1534 refused, 476 WANTs answered and 450 bent admitted, the same
+counts as before the move. **Tests:** keys_wire_vectors (4, one of
+each); messages_test (301), delivery_fuzz (3000). Sabotage
+`node-messages-give-as-the-giver` and `node-messages-give-as-sender`
+(one site), `node-messages-want-length-exact`,
+`node-messages-want-only-held`, `node-messages-give-at-most-per` and
+`node-messages-answer-no-more-than-asked` retargeted.
