@@ -1435,16 +1435,23 @@ SABOTAGES = [
 	(
 		"CONTROL-delegable",
 		"chain/chain.c",
-		"\tout[FZN_HOP_OFF_DELEGABLE] = delegable ? 1u : 0u;\n",
-		"\tout[FZN_HOP_OFF_DELEGABLE] = delegable ? 0u : 1u;\n",
+		"\tfzn_hop_record_fzn_chain_hop_delegable_set(&m, v, delegable ? 1u : 0u);\n",
+		"\tfzn_hop_record_fzn_chain_hop_delegable_set(&m, v, delegable ? 0u : 1u);\n",
 		"inverts delegable -- MUST be caught by the suite",
 	),
 	(
 		"hop-sig-zero",
 		"chain/chain.c",
-		"\tmemset(out + FZN_HOP_OFF_SIGNATURE, 0, FZN_SIG_LEN);\n",
-		"\t/* sabotage */\n",
+		"\tmemset(out, 0, FZN_HOP_LEN);\n\tsitu_msg_init(&m, out, FZN_HOP_LEN);\n",
+		"\t/* sabotage */\n\tsitu_msg_init(&m, out, FZN_HOP_LEN);\n",
 		"the encoder zeroes the signature field before signing",
+	),
+	(
+		"hop-open-unvalidated",
+		"chain/chain.c",
+		"\t    || fzn_hop_record_fzn_chain_hop_validate(v) != SITU_OK)\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		")\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		"a hop of another version or object, or delegable 2, opened: one grant with 255 spellings, each its own signature -- secs 4.2, 1359",
 	),
 	(
 		"hop-refused-clear",

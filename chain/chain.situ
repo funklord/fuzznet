@@ -3,7 +3,7 @@
 // than re-declaring the hop, so the two cannot drift). Measured against
 // FZN_CHAIN_HEADER_LEN and the pack loop in chain/chain.c.
 
-import "hop.situ";
+import "hop_record.situ";
 
 target buffer;
 endian big;

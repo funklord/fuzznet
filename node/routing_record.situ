@@ -24,7 +24,7 @@
 target buffer;
 endian big;
 
-import "../chain/hop.situ";
+import "../chain/hop_record.situ";
 
 struct fzn_routing_entry {
 	u8   address_len [min = 1, max = 253];

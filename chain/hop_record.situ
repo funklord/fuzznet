@@ -1,7 +1,8 @@
 // The capability hop as a situ schema -- the first fuzznet layout converted
-// from hand-written C (chain/chain.h) to a schema. Measured against the
-// committed FZN_HOP_OFF_* offsets before anything is generated, the way sec 6
-// measured the frame.
+// from hand-written C (chain/chain.h) to a schema, and since sec 1359 opened
+// and written through the code situ generates from it (`chain/chain.c`):
+// the view and validate, and the edit layer, the signature left for the
+// signer. `_record`, so the generated file's name meets no source's.
 //
 // This is the CAPABILITY hop (a grantor grants a grantee a capability), NOT
 // the frame's relay hop (wire/frame.situ's fzn_hop, which is hops_left /

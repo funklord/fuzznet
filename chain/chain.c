@@ -13,10 +13,15 @@
  * host knows it is behind about a grantor in the chain. */
 #include "manifest.h"
 
+#include "../wire/generated/hop_record.h"
+
 #include <string.h>
 
 fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!bytes || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 
@@ -27,20 +32,15 @@ fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *
 	if (len != FZN_HOP_LEN)
 		return FZN_CHAIN_ERR_SHAPE;
 
-	/* Both bytes are INSIDE the signed range, which is what makes them
-	 * worth checking -- see wire/bytes.h. A tag written outside it
-	 * separates nothing, because an attacker rewrites it and the signature
-	 * still checks. */
-	if (bytes[FZN_HOP_OFF_VERSION] != FZN_SIGNED_VERSION)
-		return FZN_CHAIN_ERR_SHAPE;
-	if (bytes[FZN_HOP_OFF_OBJECT] != (uint8_t)FZN_OBJECT_HOP)
-		return FZN_CHAIN_ERR_SHAPE;
-
-	/* One encoding per value. Reading any nonzero byte as true would give
-	 * 255 spellings of a delegable hop, each with its own signature, and
-	 * the first implementation to canonicalise differently would produce
-	 * grants this one rejects. */
-	if (bytes[FZN_HOP_OFF_DELEGABLE] > 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1359: `chain/hop_record.situ`'s
+	 * generated validate refuses a version or object byte not a hop's --
+	 * both INSIDE the signed range, which is what makes them worth
+	 * checking (wire/bytes.h): a tag written outside it separates nothing
+	 * -- and a delegable byte past 1, ONE ENCODING PER VALUE, so no
+	 * implementation canonicalising differently grants what this refuses. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_hop_record_fzn_chain_hop_view(&m, 0u, &v) != SITU_OK
+	    || fzn_hop_record_fzn_chain_hop_validate(v) != SITU_OK)
 		return FZN_CHAIN_ERR_SHAPE;
 
 	out->base = bytes;
@@ -52,27 +52,33 @@ fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LE
                                const fzn_cap_id_t *capability, uint64_t issued_at,
                                uint64_t expires_at, int delegable)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!out || !grantor || !grantee || !capability)
 		return FZN_CHAIN_ERR_MALFORMED;
 
-	out[FZN_HOP_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_HOP_OFF_OBJECT] = (uint8_t)FZN_OBJECT_HOP;
-	memcpy(out + FZN_HOP_OFF_GRANTOR, grantor, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_HOP_OFF_GRANTEE, grantee, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_HOP_OFF_CAPABILITY, capability, FZN_CAP_ID_LEN);
-	fzn_put_be64(out + FZN_HOP_OFF_ISSUED_AT, issued_at);
-	fzn_put_be64(out + FZN_HOP_OFF_EXPIRES_AT, expires_at);
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1359: situ makes no builder
+	 * for a hop, its signature being Ed25519, extern and keyed. The
+	 * signature is the signer's to fill and is zeroed rather than left as
+	 * whatever the caller's buffer held: a hop that failed to be signed
+	 * must not carry a stale signature from the last one that was. */
+	memset(out, 0, FZN_HOP_LEN);
+	situ_msg_init(&m, out, FZN_HOP_LEN);
+	if (fzn_hop_record_fzn_chain_hop_view(&m, 0u, &v) != SITU_OK)
+		return FZN_CHAIN_ERR_MALFORMED;
+	memcpy(fzn_hop_record_fzn_chain_hop_grantor_ptr(v), grantor, FZN_PUBKEY_LEN);
+	memcpy(fzn_hop_record_fzn_chain_hop_grantee_ptr(v), grantee, FZN_PUBKEY_LEN);
+	memcpy(fzn_hop_record_fzn_chain_hop_capability_ptr(v), capability, FZN_CAP_ID_LEN);
+	fzn_hop_record_fzn_chain_hop_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_hop_record_fzn_chain_hop_object_set(&m, v, (uint8_t)FZN_OBJECT_HOP);
+	fzn_hop_record_fzn_chain_hop_issued_at_set(&m, v, issued_at);
+	fzn_hop_record_fzn_chain_hop_expires_at_set(&m, v, expires_at);
 	/* Normalised here, so that the encoder cannot produce bytes its own
 	 * parser would refuse -- a caller passing 2 for "true" gets the
 	 * canonical 1 rather than a hop nobody can open. */
-	out[FZN_HOP_OFF_DELEGABLE] = delegable ? 1u : 0u;
-
-	/* The signature is the signer's to fill and is zeroed rather than left
-	 * as whatever the caller's buffer held: a hop that failed to be signed
-	 * must not carry a stale signature from the last one that was. */
-	memset(out + FZN_HOP_OFF_SIGNATURE, 0, FZN_SIG_LEN);
-
-	return FZN_CHAIN_OK;
+	fzn_hop_record_fzn_chain_hop_delegable_set(&m, v, delegable ? 1u : 0u);
+	return fzn_hop_record_fzn_chain_hop_validate(v) == SITU_OK ? FZN_CHAIN_OK : FZN_CHAIN_ERR_MALFORMED;
 }
 
 fzn_chain_err_t fzn_chain_open(const uint8_t *bytes, size_t len,

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1358
+The newest work is at the end of this file. **Read secs 1287 to 1359
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95589,3 +95589,37 @@ Windows command-line client waits on: `local/client.c`,
 Windows as it stands. **Open** until Windows is taken up: the client half
 first, as fuzzypickles' command line needs only that.
 
+
+## 1359. A capability hop opened and written through situ's code, 2026-11-21
+
+The thirteenth of the 40 layouts, and the first one fuzznet ever
+converted: `chain/hop.situ` is `chain/hop_record.situ`, its three
+importers (`chain/chain.situ`, `provision/provision.situ`,
+`node/routing_record.situ`) following the rename, their contracts
+unchanged. Like the prekey (sec 1340) a hop's signature is Ed25519,
+extern and keyed, so situ makes no builder: `fzn_hop_encode` writes
+through the **edit layer** -- the keys and capability through their
+pointers, the rest through setters, `delegable` normalised to 0 or 1, the
+signature zeroed for the signer -- and answers MALFORMED unless the result
+validates; `fzn_hop_open` reads through the generated view and `validate`,
+which refuse a version or object byte not a hop's and a delegable past 1.
+The generated object rides beside `chain/chain.o` in every link (53), and
+situ's runtime joins the 29 rules that lacked it, variable-named ones
+(`$(MONO_*)`) included this time.
+
+**Not moved, and why**: `record/store_file.situ`'s slot is written in two
+ordered I/O steps -- the record, then its length, so a process dying
+between them leaves an absent slot, `record/store_file.c`'s own rule --
+which a
+buffer builder cannot express; reading its two-byte length through
+generated code would gain nothing. It stays a contract.
+
+**Open, waiting on situ**: sec 1341's asks-table adoption needs a match by
+key value -- `_on_key_from`, the twin of `_track_key_from` -- since fuzznet
+matches after it has verified and reassembled a reply, when no frame view
+is left to hand over (situ inbox 20261121T1530Z).
+
+**Tests:** hop_record_vectors (1); chain_test (314), authz_test (40),
+hop_kat_test (8), chain_fuzz (20000 cases) over the generated code.
+Sabotage `CONTROL-delegable` and `hop-sig-zero` retargeted,
+`hop-open-unvalidated` new.

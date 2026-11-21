@@ -11,7 +11,7 @@
 // crashed situc until situ 74739d7 (project.md sec 308); a hop or prekey byte
 // is therefore covered twice, by its own signature and by the card's.
 
-import "../chain/hop.situ";
+import "../chain/hop_record.situ";
 import "../prekey/prekey_record.situ";
 import "../chain/root_act.situ";
 
