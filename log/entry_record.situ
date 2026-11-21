@@ -1,7 +1,7 @@
 // The performant log record: one entry as fixed binary fields, cheap to
 // write and fast to scan. sec 457, the second of sec 428's three formats;
-// log/entry.c encodes and decodes it by hand and this is the contract it is
-// measured against.
+// log/entry.c builds and reads it through the code situ generates from this
+// (sec 1361); `_record`, so the generated file's name meets no source's.
 //
 // THE SAME RECORD AS THE CLASSIC LINE (log/entry.h), converted without
 // loss: nothing here is formatted -- no time as text, no escaping -- which
@@ -31,9 +31,9 @@ enum fzn_entry_level : u8 {
 struct fzn_entry_name_record {
 	u8   machine[16];                    // /etc/machine-id's 128 bits
 	u8   user_len    [min = 1, max = 64];
-	u8   user[user_len];
+	u8   user[user_len]         [chars = "a-zA-Z0-9_.+$-"];
 	u8   program_len [min = 1, max = 64];
-	u8   program[program_len];
+	u8   program[program_len]   [chars = "a-zA-Z0-9_.+$-"];
 	u32  pid;
 	u64  start_ms;                       // the process's start, ms since the epoch
 	u64  position;                       // its place in the instance's entries
@@ -45,7 +45,7 @@ struct fzn_entry_record {
 	u64                    time_us;      // UTC, since the epoch
 	fzn_entry_name_record  name;
 	u8                     subsystem_len [min = 1, max = 64];
-	u8                     subsystem[subsystem_len];
+	u8                     subsystem[subsystem_len] [chars = "a-zA-Z0-9_.+$/-"];
 	// 0, or 2: the cause and then the origin. One alone is refused, as a
 	// classic line with half a cause is.
 	u8                     cause_count   [max = 2];
@@ -53,3 +53,9 @@ struct fzn_entry_record {
 	u16                    text_len      [max = 4096];
 	u8                     text[text_len];
 }
+
+// HALF A CAUSE IS NONE: a cause without its origin is refused, as a classic
+// line with half a cause is.
+when fzn_entry_record.cause_count == 1
+	refuse half_a_cause
+	"a cause without its origin";

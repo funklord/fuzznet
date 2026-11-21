@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1360
+The newest work is at the end of this file. **Read secs 1287 to 1361
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95642,3 +95642,30 @@ situ compares runs.
 **Tests:** succession_record_vectors (1); succession_test (26). Sabotage
 `succession-a-key-is-not-its-own-successor` retargeted,
 `succession-open-unvalidated` and `succession-signs-what-situ-covers` new.
+
+## 1361. A log entry built and read through situ's code, 2026-11-21
+
+The fifteenth of the 40 layouts, the record the flight recorder holds
+(sec 457): `log/entry.situ` is `log/entry_record.situ`, and says what
+only the codec said -- a user's and a program's letters and a
+subsystem's (`[chars]`), and **half a cause** (a cause without its
+origin) as a `when` on `cause_count`. `log/cause.situ` follows the rename;
+its contract only tightened with the entry's (`wire --check`: compatible).
+`fzn_entry_pack` builds the names with the generated name builder and the
+record with the record's; `fzn_entry_unpack` reads through `required`
+(exactly its length), the view, `validate`, the name's sub-view and the
+causes run. A subsystem's slashes (none first, doubled or last) stay
+`is_subsystem`'s, and every word is still copied through `copy_word`,
+which gives the C strings the struct holds. `fzn_entry_name_pack` and
+`_unpack`, which the cause envelope uses, are the name's builder and
+reader.
+
+**Next with it**: the cause envelope (`log/cause.situ`) imports the entry,
+so moving it is a `--linked` build against this unit (sec 1345).
+
+**Tests:** entry_record_vectors (2: plain, and with a cause and origin);
+entry_test (38), cause_test (7), gather_test (17), log_test (181),
+ring_test (13), logger_test (45), pack_test (80), entries_view_test (10),
+log_fuzz (20000 cases). Sabotage `entry-record-uses-every-byte` and
+`entry-record-carries-its-cause` retargeted, `entry-record-unvalidated`
+new.

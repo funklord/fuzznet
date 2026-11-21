@@ -6629,15 +6629,22 @@ SABOTAGES = [
 	(
 		"entry-record-uses-every-byte",
 		"log/entry.c",
-		"\tif (text_len > FZN_ENTRY_TEXT_MAX || (size_t)(end - at) != text_len)\n",
-		"\tif (text_len > FZN_ENTRY_TEXT_MAX || (size_t)(end - at) < text_len)\n",
+		" || fzn_entry_record_fzn_entry_record_required(in, (uint32_t)len, &need) != SITU_OK || need != len)\n",
+		" || fzn_entry_record_fzn_entry_record_required(in, (uint32_t)len, &need) != SITU_OK || need > len)\n",
 		"a record with bytes past its text unpacks, so two records run together read as one -- sec 457",
+	),
+	(
+		"entry-record-unvalidated",
+		"log/entry.c",
+		"\t    || fzn_entry_record_fzn_entry_record_validate(v) != SITU_OK\n\t    || fzn_entry_record_fzn_entry_record_name_view(v, &nv)",
+		"\t    || fzn_entry_record_fzn_entry_record_name_view(v, &nv)",
+		"a record of another version or level, or with half a cause, unpacks -- secs 457, 1361",
 	),
 	(
 		"entry-record-carries-its-cause",
 		"log/entry.c",
-		"\t*at++ = entry->caused ? 2u : 0u;\n",
-		"\t*at++ = 0u;\n",
+		"\tif (entry->caused) {\n\t\tif (!(one = put_name(causes, sizeof(causes), &entry->cause))",
+		"\tif (0) {\n\t\tif (!(one = put_name(causes, sizeof(causes), &entry->cause))",
 		"a record says it has no cause while carrying two names, and the work it belongs to is lost in the ring -- sec 457",
 	),
 	(

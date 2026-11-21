@@ -1,0 +1,7 @@
+# Golden vectors for log/entry_record.situ, written by hand from its layout:
+# an info entry from funk's fuzznetd on subsystem notes/sync saying "hi",
+# with no cause, and the same caused by an entry of fzp's whose work began
+# in netcfgd's.
+
+fzn_entry_record plain 01 05 00 06 0A 24 18 1E 40 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 04 66 75 6E 6B 08 66 75 7A 7A 6E 65 74 64 00 00 00 2A 00 00 01 8B CF E5 68 00 00 00 00 00 00 00 00 07 0A 6E 6F 74 65 73 2F 73 79 6E 63 00 00 02 68 69
+fzn_entry_record caused 01 05 00 06 0A 24 18 1E 40 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 04 66 75 6E 6B 08 66 75 7A 7A 6E 65 74 64 00 00 00 2A 00 00 01 8B CF E5 68 00 00 00 00 00 00 00 00 07 0A 6E 6F 74 65 73 2F 73 79 6E 63 02 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 04 66 75 6E 6B 03 66 7A 70 00 00 00 09 00 00 01 8B CF E5 64 18 00 00 00 00 00 00 00 03 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 04 72 6F 6F 74 07 6E 65 74 63 66 67 64 00 00 00 01 00 00 01 8B CF E5 40 F0 00 00 00 00 00 00 00 01 00 02 68 69

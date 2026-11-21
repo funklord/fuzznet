@@ -257,7 +257,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/fix_row.c wire/generated/opjournal_row.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
              wire/generated/setting_record.c wire/generated/record_row.c wire/generated/hop_record.c \
-             wire/generated/succession_record.c \
+             wire/generated/succession_record.c wire/generated/entry_record.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -278,7 +278,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/opjournal_row_vectors.c wire/generated/contact_request_record_vectors.c \
                  wire/generated/prekey_record_vectors.c wire/generated/setting_record_vectors.c \
                  wire/generated/record_row_vectors.c wire/generated/hop_record_vectors.c \
-                 wire/generated/succession_record_vectors.c
+                 wire/generated/succession_record_vectors.c wire/generated/entry_record_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -364,7 +364,7 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
-                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o \
@@ -761,6 +761,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/record_row_vectors \
              $(BUILD_DIR)/wire/test/hop_record_vectors \
              $(BUILD_DIR)/wire/test/succession_record_vectors \
+             $(BUILD_DIR)/wire/test/entry_record_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2414,7 +2415,7 @@ $(BUILD_DIR)/log/test/capture_test: $(BUILD_DIR)/log/test/capture_test.o \
 # One entry, its name and the classic line; the text escaped as a tool's
 # line is. sec 456.
 $(BUILD_DIR)/log/test/entry_test: $(BUILD_DIR)/log/test/entry_test.o \
-                                  $(BUILD_DIR)/log/entry.o \
+                                  $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2422,7 +2423,7 @@ $(BUILD_DIR)/log/test/entry_test: $(BUILD_DIR)/log/test/entry_test.o \
 # The flight recorder: eviction, the crash dump and its reading back. sec 457.
 $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
                                  $(BUILD_DIR)/log/ring.o \
-                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                  $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2431,7 +2432,7 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
 $(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
                                  $(BUILD_DIR)/log/pack.o \
                                  $(BUILD_DIR)/log/retain.o \
-                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                  $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
@@ -2439,7 +2440,7 @@ $(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
 # Causes on the wire: the envelope round a request. sec 462.
 $(BUILD_DIR)/log/test/cause_test: $(BUILD_DIR)/log/test/cause_test.o \
                                   $(BUILD_DIR)/log/cause.o \
-                                  $(BUILD_DIR)/log/entry.o \
+                                  $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2449,7 +2450,7 @@ $(BUILD_DIR)/log/test/cause_test: $(BUILD_DIR)/log/test/cause_test.o \
 $(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
                                    $(BUILD_DIR)/log/gather.o \
                                    $(BUILD_DIR)/log/ring.o \
-                                   $(BUILD_DIR)/log/entry.o \
+                                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/log/capture.o \
                                    $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
                                      $(BUILD_DIR)/log/retain.o)
@@ -2459,7 +2460,7 @@ $(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
 # The shortened view of a run of entries. sec 467.
 $(BUILD_DIR)/log/test/view_test: $(BUILD_DIR)/log/test/view_test.o \
                                  $(BUILD_DIR)/log/view.o \
-                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                  $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2488,7 +2489,7 @@ $(BUILD_DIR)/log/test/logger_test: $(BUILD_DIR)/log/test/logger_test.o \
                                    $(BUILD_DIR)/log/logger.o \
                                    $(BUILD_DIR)/log/retain.o \
                                    $(BUILD_DIR)/log/ring.o \
-                                   $(BUILD_DIR)/log/entry.o \
+                                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3926,7 +3927,7 @@ $(BUILD_DIR)/gui/test/entries_view_test: $(BUILD_DIR)/gui/test/entries_view_test
                                      $(BUILD_DIR)/log/gather.o \
                                      $(BUILD_DIR)/log/ring.o \
                                      $(BUILD_DIR)/log/view.o \
-                                     $(BUILD_DIR)/log/entry.o \
+                                     $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -o $@
@@ -4664,6 +4665,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# A LOG ENTRY, its words' letters and half a cause the schema's, generated, sec 1361.
+$(BUILD_DIR)/wire/test/entry_record_vectors: wire/generated/entry_record_vectors.c \
+                                            wire/generated/entry_record.c wire/generated/situ.c \
+                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A KEY'S SUCCESSION, opened and written through the edit layer, generated, sec 1360.
 $(BUILD_DIR)/wire/test/succession_record_vectors: wire/generated/succession_record_vectors.c \
                                                  wire/generated/succession_record.c wire/generated/situ.c \
@@ -5121,7 +5129,7 @@ $(BUILD_DIR)/node/test/remote_test.o: node/test/remote_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
-              $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/node/node.o \
+              $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/node/node.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/chain/authz.o \
               $(BUILD_DIR)/frame/freshness.o \
@@ -5177,7 +5185,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
-              $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+              $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5230,7 +5238,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/contacts_binary.o $(BUILD_DIR)/wire/generated/contacts_local.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
-              $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+              $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5348,7 +5356,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
                    $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
                    $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
-                   $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                   $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/contact/contact.o \
                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5365,7 +5373,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
-                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
@@ -5459,7 +5467,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
 # The estate's members and its reconciliation through a lying peer, sec
 # 689's estate journey.
 $(BUILD_DIR)/node/test/members_fuzz: $(BUILD_DIR)/node/test/members_fuzz.o \
-                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                                      $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5491,7 +5499,7 @@ $(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
                                      $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
-                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
+                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
                                      $(BUILD_DIR)/log/capture.o \
                                      $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/local/peer.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
@@ -5534,7 +5542,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
-                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
+                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
                                      $(BUILD_DIR)/log/capture.o \
                                      $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/local/peer.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
@@ -5547,7 +5555,7 @@ $(BUILD_DIR)/node/test/votes_test: $(BUILD_DIR)/node/test/votes_test.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
-                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
+                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
                                      $(BUILD_DIR)/log/capture.o \
                                      $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/local/peer.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
@@ -5657,7 +5665,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
-              $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
+              $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/node/meter_binary.o $(BUILD_DIR)/node/sync_load.o $(BUILD_DIR)/fault/fault.o \
               $(BUILD_DIR)/log/view.o $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/node/clocks_binary.o \
               $(if $(LOG_FILE_ON),,$(BUILD_DIR)/log/ring.o) \
@@ -5762,7 +5770,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
-              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/vocabulary.o \
@@ -5869,7 +5877,7 @@ $(BUILD_DIR)/node/test/attachments_test: $(BUILD_DIR)/node/test/attachments_test
                                          $(BUILD_DIR)/node/file_holds.o \
                                          $(BUILD_DIR)/messages/attachment.o \
                                          $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
-                                         $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                                         $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/log/capture.o \
                                          $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5914,7 +5922,7 @@ $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
                                    $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                    $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/log/cause.o \
-                                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o
+                                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5927,7 +5935,7 @@ $(BUILD_DIR)/node/test/sync_load_test: $(BUILD_DIR)/node/test/sync_load_test.o \
 # `list log`, a daemon's flight recorder read newest first, sec 711.
 $(BUILD_DIR)/node/test/log_list_test: $(BUILD_DIR)/node/test/log_list_test.o \
                                       $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/log/ring.o \
-                                      $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                                      $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/log/capture.o \
                                       $(BUILD_DIR)/local/escape.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -6016,7 +6024,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/log/rules.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
-                                      $(BUILD_DIR)/log/entry.o \
+                                      $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
                                       $(BUILD_DIR)/log/ring.o \
                                       $(BUILD_DIR)/log/retain.o \
                                       $(BUILD_DIR)/log/cause.o \
@@ -7768,7 +7776,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation.situ chain/manifest.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting_record.situ \
               node/reconcile.situ node/buckets.situ \
-              log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
+              log/entry_record.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
               node/settings_registry.situ node/group_line_wire.situ location/fix_row.situ sticker/pack.situ node/objects.situ \
@@ -8262,7 +8270,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/notes/note.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
-qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(THORVG_OBJS)) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o))
+qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(THORVG_OBJS)) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o))
 	@if [ -z "$(QTTY_DIR)" ]; then \
 		echo "qtty: QTTY_DIR is empty, so the widgets were NOT rendered."; \
 		exit 1; \
@@ -8366,7 +8374,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
-	         $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o \
+	         $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
 	         $(BUILD_DIR)/log/capture.o) \
 	       $(QTTY_RENDER_OBJS) \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) $(LDFLAGS_GC) -lm \
@@ -8530,6 +8538,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_entry_record --layer edit \
+	         --out $(BUILD_DIR)/.gen.new log/entry_record.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_entry_record \
+	         --out $(BUILD_DIR)/.gen.new log/entry_record.situ log/entry_record.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_succession_record --layer edit \
 	         --out $(BUILD_DIR)/.gen.new chain/succession_record.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_succession_record \
@@ -8664,6 +8676,7 @@ schema:
 	          record_row.c record_row.h record_row_edit.h record_row_vectors.c \
 	          hop_record.c hop_record.h hop_record_vectors.c \
 	          succession_record.c succession_record.h succession_record_vectors.c \
+	          entry_record.c entry_record.h entry_record_build.h entry_record_edit.h entry_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: entry.situ
+# schema: entry_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -24,9 +24,9 @@ enum fzn_entry_level : u8 unknown=error
 struct fzn_entry_name_record size=40..166
   @0x0000   16        u8         machine  big
   @0x0010   1         u8         user_len  min=1 max=64
-  @0x0011   1..64     u8         user  sized-by=user_len
+  @0x0011   1..64     u8         user  sized-by=user_len chars="$+\x2D.0-9A-Z_a-z"
   ~         1         u8         program_len  min=1 max=64
-  ~         1..64     u8         program  sized-by=program_len
+  ~         1..64     u8         program  sized-by=program_len chars="$+\x2D.0-9A-Z_a-z"
   ~         4         u32        pid  big
   ~         8         u64        start_ms  big
   ~         8         u64        position  big
@@ -37,8 +37,9 @@ struct fzn_entry_record size=55..4672
   @0x0002   8         u64        time_us  big
   @0x000a   40..166   fzn_entry_name_record name  big
   ~         1         u8         subsystem_len  min=1 max=64
-  ~         1..64     u8         subsystem  sized-by=subsystem_len
+  ~         1..64     u8         subsystem  sized-by=subsystem_len chars="$+\x2D-9A-Z_a-z"
   ~         1         u8         cause_count  max=2
   ~         0..332    fzn_entry_name_record causes  sized-by=cause_count
   ~         2         u16        text_len  big max=4096
   ~         0..4096   u8         text  sized-by=text_len
+  fzn_entry_record refuses: half_a_cause when fzn_entry_record.cause_count == 1

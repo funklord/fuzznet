@@ -16,7 +16,7 @@
 target buffer;
 endian big;
 
-import "entry.situ";
+import "entry_record.situ";
 
 struct fzn_cause_envelope {
 	u8                     version   [must_eq = 3];
