@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1361
+The newest work is at the end of this file. **Read secs 1287 to 1362
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95669,3 +95669,26 @@ ring_test (13), logger_test (45), pack_test (80), entries_view_test (10),
 log_fuzz (20000 cases). Sabotage `entry-record-uses-every-byte` and
 `entry-record-carries-its-cause` retargeted, `entry-record-unvalidated`
 new.
+
+## 1362. The cause envelope built and read through situ's code; `--linked` lost its builder, 2026-11-21
+
+The sixteenth of the 40 layouts: `log/cause.situ`, the envelope sec 462
+puts around a remote-hop payload naming the log entries it was made for,
+is `log/cause_wire.situ` (it is carried on the wire). `fzn_cause_wrap`
+packs the two names with the entry codec (sec 1361) and builds the
+envelope with the generated builder, whose copies are `memmove`s, so a
+request already sitting in `out`'s tail may still be wrapped;
+`fzn_cause_unwrap` reads through `required` (every byte accounted for),
+the view and `validate`, and the names through the entry codec, which
+gives the C strings.
+
+**Built unlinked, for now**: with `--linked entry_record.situ=
+fzn_entry_record` situ emitted no builder -- "the nested name does not
+state its extent" -- though the entry's own unit has that name's
+`_required`; without `--linked` it does. Reported (situ inbox
+20261121T1820Z). The unlinked unit carries the name's checker again:
+2115 bytes of text. It moves to `--linked` once situ fixes it.
+
+**Tests:** cause_wire_vectors (1); cause_test (7), and every target
+linking the envelope (29). Sabotage `cause-envelope-uses-every-byte` and
+`cause-envelope-is-version-3` retargeted.

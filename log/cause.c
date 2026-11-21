@@ -3,6 +3,8 @@
 #include "cause.h"
 
 #include "../wire/bytes.h"
+#include "../wire/generated/cause_wire.h"
+#include "../wire/generated/cause_wire_build.h"
 
 #include <string.h>
 
@@ -26,23 +28,27 @@ fzn_cause_err_t fzn_cause_wrap(const fzn_entry_name_t *cause, const fzn_entry_na
                                size_t *len)
 {
 	uint8_t c[FZN_ENTRY_NAME_RECORD_MAX], o[FZN_ENTRY_NAME_RECORD_MAX];
-	size_t cl = 0, ol = 0, need;
+	size_t cl = 0, ol = 0;
+	uint32_t wrote = 0;
+	situ_err_t err;
 
 	if (!cause || !origin || !inner || inner_len == 0u || inner_len > 0xffffu || !out || !len
 	    || fzn_entry_name_pack(cause, c, sizeof(c), &cl) != FZN_ENTRY_OK
 	    || fzn_entry_name_pack(origin, o, sizeof(o), &ol) != FZN_ENTRY_OK)
 		return FZN_CAUSE_ERR_MALFORMED;
-	need = 1u + cl + ol + 2u + inner_len;
-	if (need > cap)
+	if (1u + cl + ol + 2u + inner_len > cap)
 		return FZN_CAUSE_ERR_ROOM;
-	out[0] = FZN_CMD_CAUSE;
-	memcpy(out + 1, c, cl);
-	memcpy(out + 1 + cl, o, ol);
-	fzn_put_be16(out + 1 + cl + ol, (uint16_t)inner_len);
-	/* memmove: a caller may wrap a request already sitting in `out`'s
-	 * tail. */
-	memmove(out + 3 + cl + ol, inner, inner_len);
-	*len = need;
+	/* BUILT BY THE CODE situ GENERATES from `log/cause_wire.situ`, sec
+	 * 1362. Its copies are memmove's, so a caller may still wrap a request
+	 * already sitting in `out`'s tail. */
+	err = fzn_cause_wire_fzn_cause_envelope_build(out, cap > UINT32_MAX ? UINT32_MAX : (uint32_t)cap,
+	                                              FZN_CMD_CAUSE, c, (uint32_t)cl, o, (uint32_t)ol, inner,
+	                                              (uint32_t)inner_len, &wrote);
+	if (err == SITU_ERR_BOUNDS)
+		return FZN_CAUSE_ERR_ROOM;
+	if (err != SITU_OK)
+		return FZN_CAUSE_ERR_MALFORMED;
+	*len = wrote;
 	return FZN_CAUSE_OK;
 }
 
@@ -50,27 +56,31 @@ fzn_cause_err_t fzn_cause_unwrap(const uint8_t *payload, size_t len, fzn_entry_n
                                  fzn_entry_name_t *origin, const uint8_t **inner,
                                  size_t *inner_len)
 {
-	size_t at = 1, used = 0, n;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0, at;
+	size_t used = 0;
 
 	if (!payload || !cause || !origin || !inner || !inner_len)
 		return FZN_CAUSE_ERR_MALFORMED;
 	if (len == 0u || payload[0] != FZN_CMD_CAUSE)
 		return FZN_CAUSE_NONE;
-	if (fzn_entry_name_unpack(payload + at, len - at, cause, &used) != FZN_ENTRY_OK)
+	/* READ AS THE SCHEMA SAYS, sec 1362: EVERY BYTE ACCOUNTED FOR -- a
+	 * request's length that disagrees with the frame is no envelope of
+	 * ours -- and the names' layouts the generated validate's; the names
+	 * themselves the entry codec's, which gives the C strings. */
+	if (len > UINT32_MAX || fzn_cause_wire_fzn_cause_envelope_required(payload, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_CAUSE_ERR_MALFORMED;
-	at += used;
-	if (fzn_entry_name_unpack(payload + at, len - at, origin, &used) != FZN_ENTRY_OK)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)payload, (uint32_t)len);
+	if (fzn_cause_wire_fzn_cause_envelope_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_cause_wire_fzn_cause_envelope_validate(v) != SITU_OK
+	    || fzn_entry_name_unpack(payload + 1, len - 1u, cause, &used) != FZN_ENTRY_OK)
 		return FZN_CAUSE_ERR_MALFORMED;
-	at += used;
-	if (len - at < 2u)
+	at = fzn_cause_wire_fzn_cause_envelope_origin_offset(v);
+	if (at > len || fzn_entry_name_unpack(payload + at, len - at, origin, &used) != FZN_ENTRY_OK)
 		return FZN_CAUSE_ERR_MALFORMED;
-	n = fzn_get_be16(payload + at);
-	at += 2u;
-	/* EVERY BYTE ACCOUNTED FOR: a request's length that disagrees with
-	 * the frame is no envelope of ours. */
-	if (n == 0u || len - at != n)
-		return FZN_CAUSE_ERR_MALFORMED;
-	*inner = payload + at;
-	*inner_len = n;
+	*inner = fzn_cause_wire_fzn_cause_envelope_inner_ptr(v);
+	*inner_len = fzn_cause_wire_fzn_cause_envelope_inner_len_get(v);
 	return FZN_CAUSE_OK;
 }

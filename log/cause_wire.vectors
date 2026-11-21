@@ -1,0 +1,5 @@
+# Golden vectors for log/cause_wire.situ, written by hand from its layout:
+# the envelope, a cause from fzp's entry and an origin in netcfgd's, around
+# the request "list note".
+
+fzn_cause_envelope wrapped 03 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 04 66 75 6E 6B 03 66 7A 70 00 00 00 09 00 00 01 8B CF E5 64 18 00 00 00 00 00 00 00 03 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 04 72 6F 6F 74 07 6E 65 74 63 66 67 64 00 00 00 01 00 00 01 8B CF E5 40 F0 00 00 00 00 00 00 00 01 00 09 6C 69 73 74 20 6E 6F 74 65

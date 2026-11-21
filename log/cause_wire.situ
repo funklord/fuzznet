@@ -1,7 +1,8 @@
 // A request carrying the names of the log entries it was made for: the
 // envelope sec 462 puts around any remote-hop payload, so the host that
 // answers can log its work as caused by the host that asked. log/cause.c
-// wraps and unwraps it by hand; this is the contract.
+// wraps and unwraps it through the code situ generates from this (sec
+// 1362); `_wire`, so the generated file's name meets no source's.
 //
 // THE VERSION IS 3, AND THAT IS THE DISPATCH, as notes/sync.situ's 2 and
 // spool/message's 1 are: a payload's first byte says which family it is,

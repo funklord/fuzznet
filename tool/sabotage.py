@@ -6279,15 +6279,15 @@ SABOTAGES = [
 	(
 		"cause-envelope-uses-every-byte",
 		"log/cause.c",
-		"\tif (n == 0u || len - at != n)\n",
-		"\tif (n == 0u || len - at < n)\n",
+		"\t    || need != len)\n\t\treturn FZN_CAUSE_ERR_MALFORMED;",
+		"\t    || need > len)\n\t\treturn FZN_CAUSE_ERR_MALFORMED;",
 		"an envelope with bytes past its request is taken, so what the frame carried and what was handled differ -- sec 462",
 	),
 	(
 		"cause-envelope-is-version-3",
 		"log/cause.c",
-		"\tout[0] = FZN_CMD_CAUSE;\n",
-		"\tout[0] = FZN_CMD_NOTES;\n",
+		"                                              FZN_CMD_CAUSE, c, (uint32_t)cl, o, (uint32_t)ol, inner,",
+		"                                              FZN_CMD_NOTES, c, (uint32_t)cl, o, (uint32_t)ol, inner,",
 		"a request with its causes goes out under the notes sync CMD and is answered as a notes message -- sec 462",
 	),
 	(
