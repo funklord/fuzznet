@@ -1,0 +1,9 @@
+# Golden vectors for log/gather_wire.situ, written by hand from its
+# layouts: a query for program "app" from time 1 to 2, from the start,
+# every line; a page of one line "abc", done; a ring query from the
+# oldest; and a ring page of one 55-byte record of zeros, done.
+
+fzn_gather_query app 04 01 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 61 70 70 00
+fzn_gather_lines one 04 02 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 03 61 62 63
+fzn_gather_ring_query oldest 04 03 00 00 00 00 00 00 00 00 00
+fzn_gather_ring one 04 04 01 00 01 00 37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00

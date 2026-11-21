@@ -3,6 +3,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "gather.h"
+#include "../wire/generated/gather_wire.h"
+#include "../wire/generated/gather_wire_build.h"
 
 #include "../wire/bytes.h"
 #include "../wire/status.h"
@@ -73,50 +75,57 @@ static int word_ok(const char *w, size_t max)
 fzn_gather_err_t fzn_gather_query_encode(const fzn_gather_query_t *q, uint8_t *out, size_t cap,
                                          size_t *len)
 {
-	size_t p, m, at;
+	size_t p, m;
+	uint32_t wrote = 0;
 
 	if (!q || !out || !len || !word_ok(q->program, FZN_ENTRY_WORD_MAX)
 	    || memchr(q->match, '\0', sizeof(q->match)) == NULL)
 		return FZN_GATHER_ERR_MALFORMED;
 	p = strlen(q->program);
 	m = strlen(q->match);
-	if (cap < 2u + 32u + 1u + p + 1u + m)
+	/* BUILT BY THE CODE situ GENERATES from `log/gather_wire.situ`, sec
+	 * 1372: a buffer too small, or a match past its bound, the builder's
+	 * to refuse. */
+	if (fzn_gather_wire_fzn_gather_query_build(
+	            out, cap > UINT32_MAX ? UINT32_MAX : (uint32_t)cap, (uint8_t)FZN_CMD_GATHER,
+	            FZN_GATHER_WIRE_FZN_GATHER_TYPE_QUERY, q->since_us, q->until_us, q->cursor_key,
+	            q->cursor_off, (const uint8_t *)q->program, (uint32_t)p, (const uint8_t *)q->match,
+	            (uint32_t)m, &wrote)
+	    != SITU_OK)
 		return FZN_GATHER_ERR_MALFORMED;
-	out[0] = FZN_CMD_GATHER;
-	out[1] = FZN_GATHER_QUERY;
-	fzn_put_be64(out + 2, q->since_us);
-	fzn_put_be64(out + 10, q->until_us);
-	fzn_put_be64(out + 18, q->cursor_key);
-	fzn_put_be64(out + 26, q->cursor_off);
-	at = 34;
-	out[at++] = (uint8_t)p;
-	memcpy(out + at, q->program, p);
-	at += p;
-	out[at++] = (uint8_t)m;
-	memcpy(out + at, q->match, m);
-	*len = at + m;
+	*len = wrote;
 	return FZN_GATHER_OK;
 }
 
 static int query_decode(const uint8_t *in, size_t len, fzn_gather_query_t *q)
 {
+	situ_msg_t msg;
+	situ_view_t v;
+	uint32_t need = 0;
 	size_t p, m;
 
 	memset(q, 0, sizeof(*q));
-	if (len < 36u || in[0] != FZN_CMD_GATHER || in[1] != FZN_GATHER_QUERY)
+	/* READ AS THE SCHEMA SAYS, sec 1372: version, type, a program of 1 to
+	 * 64 bytes, a match of at most 64 and every byte accounted for the
+	 * generated code's. */
+	if (len > UINT32_MAX
+	    || fzn_gather_wire_fzn_gather_query_required(in, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return 0;
-	q->since_us = fzn_get_be64(in + 2);
-	q->until_us = fzn_get_be64(in + 10);
-	q->cursor_key = fzn_get_be64(in + 18);
-	q->cursor_off = fzn_get_be64(in + 26);
-	p = in[34];
-	if (p == 0u || p > FZN_ENTRY_WORD_MAX || len < 35u + p + 1u)
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)in, (uint32_t)len);
+	if (fzn_gather_wire_fzn_gather_query_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_gather_wire_fzn_gather_query_validate(v) != SITU_OK)
 		return 0;
-	memcpy(q->program, in + 35, p);
-	m = in[35 + p];
-	if (m > FZN_GATHER_MATCH_MAX || len != 36u + p + m)
+	q->since_us = fzn_gather_wire_fzn_gather_query_since_us_get(v);
+	q->until_us = fzn_gather_wire_fzn_gather_query_until_us_get(v);
+	q->cursor_key = fzn_gather_wire_fzn_gather_query_cursor_key_get(v);
+	q->cursor_off = fzn_gather_wire_fzn_gather_query_cursor_off_get(v);
+	p = fzn_gather_wire_fzn_gather_query_program_len_get(v);
+	m = fzn_gather_wire_fzn_gather_query_match_len_get(v);
+	if (p > FZN_ENTRY_WORD_MAX || m > FZN_GATHER_MATCH_MAX)
 		return 0;
-	memcpy(q->match, in + 36 + p, m);
+	memcpy(q->program, fzn_gather_wire_fzn_gather_query_program_ptr(v), p);
+	memcpy(q->match, fzn_gather_wire_fzn_gather_query_match_ptr(v), m);
 	/* NO NUL INSIDE: a match is compared as a string. */
 	return word_ok(q->program, FZN_ENTRY_WORD_MAX) && strlen(q->match) == m;
 }
@@ -400,7 +409,10 @@ fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
 	*lines = 0;
 	at = *q;
 	for (pages = 0; pages < pages_max; pages++) {
-		size_t req_len = 0, reply_len = 0, k, pos;
+		size_t req_len = 0, reply_len = 0, k;
+		situ_msg_t msg;
+		situ_view_t v, one;
+		uint32_t need = 0;
 		unsigned count;
 
 		if (fzn_gather_query_encode(&at, request, sizeof(request), &req_len) != FZN_GATHER_OK)
@@ -409,31 +421,37 @@ fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
 			return FZN_GATHER_ERR_NO_ANSWER;
 		if (denied(reply, reply_len))
 			return FZN_GATHER_ERR_DENIED;
-		if (reply_len < FZN_GATHER_LINES_HEAD || reply[0] != FZN_CMD_GATHER
-		    || reply[1] != FZN_GATHER_LINES || reply[2] > 1u)
+		/* THE PAGE READ WHOLE BEFORE ANY LINE IS HANDED ON, sec 1372: its
+		 * version, type, done flag, every line of at least one byte and
+		 * nothing after the last the generated code's -- so a malformed
+		 * page gives its caller no line rather than the lines before the
+		 * fault. */
+		if (reply_len < FZN_GATHER_LINES_HEAD || reply_len > sizeof(reply)
+		    || fzn_gather_wire_fzn_gather_lines_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
 			return FZN_GATHER_ERR_REFUSED;
-		count = fzn_get_be16(reply + 19);
-		pos = FZN_GATHER_LINES_HEAD;
+		situ_msg_init(&msg, reply, (uint32_t)reply_len);
+		if (fzn_gather_wire_fzn_gather_lines_view(&msg, 0u, (uint32_t)reply_len, &v) != SITU_OK
+		    || fzn_gather_wire_fzn_gather_lines_validate(v) != SITU_OK)
+			return FZN_GATHER_ERR_REFUSED;
+		count = fzn_gather_wire_fzn_gather_lines_lines_count(v);
 		for (k = 0; k < count; k++) {
 			size_t len;
 
-			if (reply_len - pos < 2u)
+			if (fzn_gather_wire_fzn_gather_lines_lines_at(v, (uint32_t)k, &one) != SITU_OK)
 				return FZN_GATHER_ERR_REFUSED;
-			len = fzn_get_be16(reply + pos);
-			if (len == 0u || reply_len - pos - 2u < len || len >= sizeof(line))
+			len = fzn_gather_wire_fzn_gather_line_len_get(one);
+			if (len >= sizeof(line))
 				return FZN_GATHER_ERR_REFUSED;
-			memcpy(line, reply + pos + 2, len);
+			memcpy(line, fzn_gather_wire_fzn_gather_line_line_ptr(one), len);
 			line[len] = '\0';
 			each(each_ctx, line, len);
 			(*lines)++;
-			pos += 2u + len;
 		}
-		if (pos != reply_len)
-			return FZN_GATHER_ERR_REFUSED;
-		if (reply[2])
+		if (fzn_gather_wire_fzn_gather_lines_done_get(v))
 			return FZN_GATHER_OK;
-		at.cursor_key = fzn_get_be64(reply + 3);
-		at.cursor_off = fzn_get_be64(reply + 11);
+		at.cursor_key = fzn_gather_wire_fzn_gather_lines_cursor_key_get(v);
+		at.cursor_off = fzn_gather_wire_fzn_gather_lines_cursor_off_get(v);
 	}
 	return FZN_GATHER_OK;
 }
@@ -475,16 +493,24 @@ size_t fzn_gather_ring_answer(const fzn_ring_t *ring, const uint8_t *request,
                               size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	struct ring_page p;
+	situ_msg_t msg;
+	situ_view_t v;
 
 	if (!request || request_len < 2u || request[0] != FZN_CMD_GATHER
 	    || request[1] != FZN_GATHER_RING_QUERY)
 		return 0;
 	if (!ring || !reply || reply_cap < FZN_GATHER_RING_HEAD + 2u + FZN_ENTRY_RECORD_MAX
-	    || request_len != FZN_GATHER_RING_QUERY_LEN || request[2] > 1u)
+	    || request_len != FZN_GATHER_RING_QUERY_LEN)
+		return 0;
+	/* READ AS THE SCHEMA SAYS, sec 1372: version, type and a started flag
+	 * of 0 or 1 the generated validate's. */
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_gather_wire_fzn_gather_ring_query_view(&msg, 0u, &v) != SITU_OK
+	    || fzn_gather_wire_fzn_gather_ring_query_validate(v) != SITU_OK)
 		return 0;
 	memset(&p, 0, sizeof(p));
-	p.started = request[2];
-	p.after = fzn_get_be64(request + 3);
+	p.started = fzn_gather_wire_fzn_gather_ring_query_started_get(v);
+	p.after = fzn_gather_wire_fzn_gather_ring_query_after_get(v);
 	p.reply = reply;
 	p.cap = reply_cap;
 	p.used = FZN_GATHER_RING_HEAD;
@@ -510,42 +536,51 @@ fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size
 		return FZN_GATHER_ERR_MALFORMED;
 	*entries = 0;
 	for (pages = 0; pages < pages_max; pages++) {
-		size_t reply_len = 0, pos = FZN_GATHER_RING_HEAD, k;
+		size_t reply_len = 0, k;
+		situ_msg_t msg;
+		situ_view_t v, one;
+		uint32_t need = 0, wrote = 0;
 		unsigned count;
 
-		request[0] = FZN_CMD_GATHER;
-		request[1] = FZN_GATHER_RING_QUERY;
-		request[2] = (uint8_t)started;
-		fzn_put_be64(request + 3, after);
+		if (fzn_gather_wire_fzn_gather_ring_query_build(request, (uint32_t)sizeof(request),
+		                                               (uint8_t)FZN_CMD_GATHER,
+		                                               FZN_GATHER_WIRE_FZN_GATHER_TYPE_RING_QUERY,
+		                                               (uint8_t)started, after, &wrote)
+		    != SITU_OK)
+			return FZN_GATHER_ERR_MALFORMED;
 		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
 			return FZN_GATHER_ERR_NO_ANSWER;
 		if (denied(reply, reply_len))
 			return FZN_GATHER_ERR_DENIED;
-		if (reply_len < FZN_GATHER_RING_HEAD || reply[0] != FZN_CMD_GATHER
-		    || reply[1] != FZN_GATHER_RING || reply[2] > 1u)
+		/* THE PAGE READ WHOLE FIRST, sec 1372: version, type, done flag,
+		 * every record 55 to 4672 bytes and nothing after the last the
+		 * generated code's. Each record is then unpacked as before, and
+		 * one that will not unpack refuses the page there. */
+		if (reply_len < FZN_GATHER_RING_HEAD || reply_len > sizeof(reply)
+		    || fzn_gather_wire_fzn_gather_ring_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
 			return FZN_GATHER_ERR_REFUSED;
-		count = fzn_get_be16(reply + 3);
+		situ_msg_init(&msg, reply, (uint32_t)reply_len);
+		if (fzn_gather_wire_fzn_gather_ring_view(&msg, 0u, (uint32_t)reply_len, &v) != SITU_OK
+		    || fzn_gather_wire_fzn_gather_ring_validate(v) != SITU_OK)
+			return FZN_GATHER_ERR_REFUSED;
+		count = fzn_gather_wire_fzn_gather_ring_records_count(v);
 		for (k = 0; k < count; k++) {
 			fzn_entry_t e;
-			size_t len;
 
-			if (reply_len - pos < 2u)
-				return FZN_GATHER_ERR_REFUSED;
-			len = fzn_get_be16(reply + pos);
-			if (reply_len - pos - 2u < len
-			    || fzn_entry_unpack(reply + pos + 2, len, &e) != FZN_ENTRY_OK)
+			if (fzn_gather_wire_fzn_gather_ring_records_at(v, (uint32_t)k, &one) != SITU_OK
+			    || fzn_entry_unpack(fzn_gather_wire_fzn_gather_record_record_ptr(one),
+			                        fzn_gather_wire_fzn_gather_record_len_get(one), &e)
+			               != FZN_ENTRY_OK)
 				return FZN_GATHER_ERR_REFUSED;
 			each(each_ctx, &e);
 			(*entries)++;
 			after = e.name.position;
 			started = 1;
-			pos += 2u + len;
 		}
-		if (pos != reply_len)
-			return FZN_GATHER_ERR_REFUSED;
 		/* DONE, OR A PAGE THAT BROUGHT NOTHING: a host whose ring holds
 		 * one record too large for its reply would be asked for ever. */
-		if (reply[2] || count == 0u)
+		if (fzn_gather_wire_fzn_gather_ring_done_get(v) || count == 0u)
 			return FZN_GATHER_OK;
 	}
 	return FZN_GATHER_OK;

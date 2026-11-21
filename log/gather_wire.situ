@@ -1,7 +1,10 @@
 // Gathering a host's log: a troubleshooter asks for a program's lines in
 // a time window, or those matching a name, a page at a time. sec 463, the
-// last step of sec 456's order; log/gather.c encodes and decodes it by
-// hand and this is the contract.
+// last step of sec 456's order. log/gather.c builds the queries and reads
+// every message through the code situ generates from this (sec 1372); the
+// two page writers fill a page line by line and write its head last, so
+// they keep their own offsets. `_wire`, so the generated file's name meets
+// no source's.
 //
 // THE VERSION IS 4, AND THAT IS THE DISPATCH, beside the spool's 1, notes
 // sync's 2 and the causes envelope's 3.

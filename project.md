@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1372
+The newest work is at the end of this file. **Read secs 1287 to 1373
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95930,3 +95930,33 @@ All three CAUGHT on a second run, with the earlier six of secs 1366-1369
 `manifest-state-byte-validated`, `manifest-encoder-refuses-a-third-state`,
 `roster-add-carries-no-body`, `roster-bundle-length-is-exact`) CAUGHT on
 the first.
+
+## 1373. Gathering a host's log through situ's code, 2026-11-21
+
+The twenty-sixth of the 40 layouts: `log/gather.situ` is
+`log/gather_wire.situ` (secs 463, 464). `log/gather.c` builds the line
+query and the ring query with the generated builders and reads the line
+query, the ring query and both kinds of page through the generated view,
+`validate` and `required`.
+
+- **A page is read whole before any line or record is handed on.** Before,
+  `fzn_gather_fetch` gave its caller each line as it walked the page and
+  refused only at the end, so a page with a byte after its last line
+  delivered its lines and then failed. Now a page that does not read as
+  the schema says gives no line at all; gather_test holds it, with a page
+  a byte too long and one whose done flag is 2.
+- **Not moved**: the two page writers, `fzn_gather_answer` and
+  `fzn_gather_ring_answer`, fill a page line by line from a directory or
+  the ring and write its head last; a builder wants every line in hand
+  first, so they keep their offsets.
+
+**A broken commit, said here so it is found.** The rename of the schema
+was staged with `git mv` while preparing this, and rode into 3469d97f,
+the tests commit of sec 1372, pushed: at that commit alone the Makefile
+names `log/gather.situ`, which is gone, so `make schema` there fails.
+This commit puts it right; history is not rewritten, being pushed.
+
+**Tests:** gather_wire_vectors (4: a query, a page of one line, a ring
+query, a ring page of one record); gather_test (19), entries_view_test,
+err_str_test. Sabotage `gather-page-exact-length` and
+`gather-page-validated` new.

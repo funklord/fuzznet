@@ -4,7 +4,7 @@
  * host wrote them. POSIX, built with FZN_LOG_FILE; packed segments are read
  * when FZN_LOG_PACK is built too.
  *
- * THE MESSAGES are `log/gather.situ`'s, version 4: a QUERY naming the
+ * THE MESSAGES are `log/gather_wire.situ`'s, version 4: a QUERY naming the
  * program, the window, an optional substring and a cursor, and a page of
  * LINES with the cursor to go on from.
  *

@@ -90,6 +90,20 @@ SABOTAGES = [
 		"F24: a negative term incomplete on this host makes the subtraction over-include, which could drive a deletion, so evaluate refuses. Returning OK proceeds with a wrong set. facet_test's incomplete-N case catches it.",
 	),
 	(
+		"gather-page-exact-length",
+		"log/gather.c",
+		"\t\t    || fzn_gather_wire_fzn_gather_lines_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t\t    || need != reply_len)\n",
+		"\t\t    || fzn_gather_wire_fzn_gather_lines_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t\t    || need > reply_len)\n",
+		"a page with bytes after its last line taken, one page with two readings -- sec 1372",
+	),
+	(
+		"gather-page-validated",
+		"log/gather.c",
+		"\t\t    || fzn_gather_wire_fzn_gather_lines_validate(v) != SITU_OK)\n",
+		"\t\t    || 0)\n",
+		"a page whose done flag is neither 0 nor 1 taken -- sec 1372",
+	),
+	(
 		"catalogue-refuses-a-mixed-attribute-set",
 		"catalog/catalog.c",
 		"\t\t\treturn FZN_CATALOG_ERR_NOT_ONE_ATTRIBUTE;\n",

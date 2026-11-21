@@ -52,6 +52,16 @@ static int host(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 	(void)ctx;
 	/* 1, A REPLY THAT IS NO PAGE; 2, A HOST'S REFUSAL, as a host-private
 	 * log is answered (sec 735). */
+	/* 3, A PAGE WITH A BYTE TOO MANY; 4, A PAGE WHOSE DONE FLAG IS 2. */
+	if (answer_garbage >= 3) {
+		*reply_len = fzn_gather_answer(top, request, request_len, reply,
+		                               cap < reply_cap ? cap : reply_cap);
+		if (answer_garbage == 3 && *reply_len)
+			reply[(*reply_len)++] = 0x41u;
+		else if (*reply_len)
+			reply[2] = 2u;
+		return *reply_len > 0u;
+	}
 	if (answer_garbage) {
 		static const char NOT_A_PAGE[] = "ok and nothing";
 		/* A STATUS DENIED, sec 1078, written by hand from wire/status.h's layout. */
@@ -314,6 +324,18 @@ int main(void)
 	answer_garbage = 2;
 	CHECK(fzn_gather_fetch(host, NULL, &q, 64u, note, NULL, &lines) == FZN_GATHER_ERR_DENIED,
 	      "a host's refusal is not told apart from a reply that is not a page");
+	/* A PAGE OF LINES WITH A BYTE AFTER THE LAST, sec 1372: refused whole,
+	 * and no line before the fault handed on. */
+	answer_garbage = 3;
+	n_seen = 0;
+	CHECK(fzn_gather_fetch(host, NULL, &q, 64u, note, NULL, &lines) == FZN_GATHER_ERR_REFUSED
+	              && n_seen == 0u,
+	      "a page with a byte after its last line was taken, or its lines handed on first");
+	answer_garbage = 4;
+	n_seen = 0;
+	CHECK(fzn_gather_fetch(host, NULL, &q, 64u, note, NULL, &lines) == FZN_GATHER_ERR_REFUSED
+	              && n_seen == 0u,
+	      "a page whose done flag is 2 was taken");
 	answer_garbage = 0;
 	reply_cap = 60u;
 	n_seen = 0;
