@@ -4126,6 +4126,13 @@ SABOTAGES = [
 		"a root that must find k - 1 others to retire a contact cannot act for the estate from a lone surviving host -- sec 403",
 	),
 	(
+		"root-set-admit-unvalidated",
+		"chain/root_log.c",
+		"\t\t    && fzn_root_act_record_fzn_root_add_validate(v) == SITU_OK)\n",
+		"\t\t    )\n",
+		"a root add of another version admitted to the root set -- secs 405, 1369",
+	),
+	(
 		"root-set-removed-acts-need-the-cut",
 		"chain/root_log.c",
 		"\t\tif (!acts || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)\n\t\t    || !acts->stands(acts->ctx, root, c->cut, act))\n\t\t\treturn 0;\n",
@@ -7005,9 +7012,9 @@ SABOTAGES = [
 	(
 		"rootlog-quorum-zero-refused",
 		"chain/root_log.c",
-		"\t    || bytes[1] != (uint8_t)FZN_OBJECT_QUORUM_SET || bytes[FZN_QUORUM_SET_OFF_K] == 0u)\n",
-		"\t    || bytes[1] != (uint8_t)FZN_OBJECT_QUORUM_SET)\n",
-		"a signed k of 0 would read as a quorum nobody can meet, or as 1 where the store reads 0 as 1 -- sec 418",
+		"\t\t    || fzn_root_act_record_fzn_quorum_set_validate(v) != SITU_OK)\n",
+		"\t\t    )\n",
+		"a signed k of 0 would read as a quorum nobody can meet, or as 1 where the store reads 0 as 1 -- secs 418, 1369",
 	),
 	(
 		"node-roots-quorum-names-what-it-replaces",

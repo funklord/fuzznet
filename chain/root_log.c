@@ -1,6 +1,7 @@
 /* See root_log.h. */
 
 #include "root_log.h"
+#include "../wire/generated/root_act_record.h"
 #include "revocation.h"
 
 #include "../constant_time/constant_time.h"
@@ -42,26 +43,52 @@ static int all_zero(const uint8_t *p, size_t n)
 _Static_assert(FZN_ROOT_ADD_LEN == 130u, "root-add layout: a record is not 130 bytes");
 _Static_assert(FZN_ROOT_REMOVE_LEN == 162u, "root-remove layout: a record is not 162 bytes");
 
-/* Lay out and sign a root-set record: `body` bytes then the signature. */
+/* LAID OUT AND SIGNED THROUGH situ's EDIT LAYER, sec 1369: a root-set
+ * record written by the code situ generates from `chain/root_act_record.situ`,
+ * signed over the range situ says the signature covers. No half-made record:
+ * a refused signing leaves zeros. */
 static fzn_root_log_err_t sign_change(uint8_t object, const uint8_t signer[FZN_PUBKEY_LEN],
                                       const uint8_t subject[FZN_PUBKEY_LEN],
                                       const uint8_t *cut, size_t body,
                                       const fzn_sign_ops_t *sign, uint8_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+	const size_t len = body + (size_t)FZN_SIG_LEN;
+	int signed_ok;
+
 	if (!signer || !subject || !sign || !sign->sign || !out)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = object;
-	memcpy(out + FZN_ROOT_SET_OFF_SIGNER, signer, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_ROOT_SET_OFF_SUBJECT, subject, FZN_PUBKEY_LEN);
+	memset(out, 0, len);
+	situ_msg_init(&m, out, (uint32_t)len);
 	if (object == (uint8_t)FZN_OBJECT_ROOT_REMOVE) {
+		if (fzn_root_act_record_fzn_root_remove_view(&m, 0u, &v) != SITU_OK)
+			return FZN_ROOT_LOG_ERR_MALFORMED;
+		memcpy(fzn_root_act_record_fzn_root_remove_remover_ptr(v), signer, FZN_PUBKEY_LEN);
+		memcpy(fzn_root_act_record_fzn_root_remove_removed_ptr(v), subject, FZN_PUBKEY_LEN);
 		if (cut)
-			memcpy(out + FZN_ROOT_SET_OFF_CUT, cut, FZN_ROOT_ACT_ID_LEN);
-		else
-			memset(out + FZN_ROOT_SET_OFF_CUT, 0, FZN_ROOT_ACT_ID_LEN);
+			memcpy(fzn_root_act_record_fzn_root_remove_cut_ptr(v), cut, FZN_ROOT_ACT_ID_LEN);
+		fzn_root_act_record_fzn_root_remove_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+		fzn_root_act_record_fzn_root_remove_object_set(&m, v, object);
+		signed_ok = fzn_root_act_record_fzn_root_remove_signature_covered(v, &at, &n) == SITU_OK
+		            && sign->sign(sign->ctx, fzn_root_act_record_fzn_root_remove_signature_ptr(v), out + at, n);
+		if (signed_ok)
+			fzn_root_act_record_fzn_root_remove_signature_finalize(&m);
+	} else {
+		if (fzn_root_act_record_fzn_root_add_view(&m, 0u, &v) != SITU_OK)
+			return FZN_ROOT_LOG_ERR_MALFORMED;
+		memcpy(fzn_root_act_record_fzn_root_add_adder_ptr(v), signer, FZN_PUBKEY_LEN);
+		memcpy(fzn_root_act_record_fzn_root_add_added_ptr(v), subject, FZN_PUBKEY_LEN);
+		fzn_root_act_record_fzn_root_add_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+		fzn_root_act_record_fzn_root_add_object_set(&m, v, object);
+		signed_ok = fzn_root_act_record_fzn_root_add_signature_covered(v, &at, &n) == SITU_OK
+		            && sign->sign(sign->ctx, fzn_root_act_record_fzn_root_add_signature_ptr(v), out + at, n);
+		if (signed_ok)
+			fzn_root_act_record_fzn_root_add_signature_finalize(&m);
 	}
-	if (!sign->sign(sign->ctx, out + body, out, body)) {
-		memset(out, 0, body + (size_t)FZN_SIG_LEN);
+	if (!signed_ok) {
+		memset(out, 0, len);
 		return FZN_ROOT_LOG_ERR_CRYPTO;
 	}
 	return FZN_ROOT_LOG_OK;
@@ -109,16 +136,26 @@ fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes,
 
 	if (!set_sound(set) || !bytes || !sign || !sign->verify || !hash || !hash->hash)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	if (len < 2u || bytes[0] != (uint8_t)FZN_SIGNED_VERSION)
+	/* READ AS THE SCHEMA SAYS, sec 1369: the version and object the
+	 * generated validate's, each kind exactly its length. */
+	if (len < 2u)
 		return FZN_ROOT_LOG_ERR_SHAPE;
-	if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_ADD)
-		body = FZN_ROOT_ADD_BODY_LEN;
-	else if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_REMOVE)
-		body = FZN_ROOT_REMOVE_BODY_LEN;
-	else
-		return FZN_ROOT_LOG_ERR_SHAPE;
-	if (len != body + (size_t)FZN_SIG_LEN)
-		return FZN_ROOT_LOG_ERR_SHAPE;
+	{
+		situ_msg_t m;
+		situ_view_t v;
+
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, len > UINT32_MAX ? 0u : (uint32_t)len);
+		if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_ADD && len == FZN_ROOT_ADD_LEN
+		    && fzn_root_act_record_fzn_root_add_view(&m, 0u, &v) == SITU_OK
+		    && fzn_root_act_record_fzn_root_add_validate(v) == SITU_OK)
+			body = FZN_ROOT_ADD_BODY_LEN;
+		else if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_REMOVE && len == FZN_ROOT_REMOVE_LEN
+		         && fzn_root_act_record_fzn_root_remove_view(&m, 0u, &v) == SITU_OK
+		         && fzn_root_act_record_fzn_root_remove_validate(v) == SITU_OK)
+			body = FZN_ROOT_REMOVE_BODY_LEN;
+		else
+			return FZN_ROOT_LOG_ERR_SHAPE;
+	}
 	if (!sign->verify(sign->ctx, bytes + FZN_ROOT_SET_OFF_SIGNER, bytes, body, bytes + body))
 		return FZN_ROOT_LOG_ERR_SIGNATURE;
 	memset(&c, 0, sizeof(c));
@@ -367,18 +404,28 @@ fzn_root_log_err_t fzn_quorum_set_issue(const uint8_t setter[FZN_PUBKEY_LEN], ui
                                         const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
                                         const fzn_sign_ops_t *sign, uint8_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+
 	if (!setter || k == 0u || !sign || !sign->sign || !out)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_QUORUM_SET;
-	memcpy(out + FZN_QUORUM_SET_OFF_SETTER, setter, FZN_PUBKEY_LEN);
+	/* THROUGH THE EDIT LAYER, sec 1369, signed over what situ says the
+	 * signature covers; a k of 0 the schema's to refuse as well. */
+	memset(out, 0, FZN_QUORUM_SET_LEN);
+	situ_msg_init(&m, out, FZN_QUORUM_SET_LEN);
+	if (fzn_root_act_record_fzn_quorum_set_view(&m, 0u, &v) != SITU_OK)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	memcpy(fzn_root_act_record_fzn_quorum_set_setter_ptr(v), setter, FZN_PUBKEY_LEN);
 	if (replaces)
-		memcpy(out + FZN_QUORUM_SET_OFF_REPLACES, replaces, FZN_ROOT_ACT_ID_LEN);
-	else
-		memset(out + FZN_QUORUM_SET_OFF_REPLACES, 0, FZN_ROOT_ACT_ID_LEN);
-	out[FZN_QUORUM_SET_OFF_K] = k;
-	if (!sign->sign(sign->ctx, out + FZN_QUORUM_SET_BODY_LEN, out, FZN_QUORUM_SET_BODY_LEN))
+		memcpy(fzn_root_act_record_fzn_quorum_set_replaces_ptr(v), replaces, FZN_ROOT_ACT_ID_LEN);
+	fzn_root_act_record_fzn_quorum_set_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_root_act_record_fzn_quorum_set_object_set(&m, v, (uint8_t)FZN_OBJECT_QUORUM_SET);
+	fzn_root_act_record_fzn_quorum_set_k_set(&m, v, k);
+	if (fzn_root_act_record_fzn_quorum_set_signature_covered(v, &at, &n) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_root_act_record_fzn_quorum_set_signature_ptr(v), out + at, n))
 		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	fzn_root_act_record_fzn_quorum_set_signature_finalize(&m);
 	return FZN_ROOT_LOG_OK;
 }
 
@@ -387,9 +434,19 @@ fzn_root_log_err_t fzn_quorum_set_check(const uint8_t *bytes, size_t len,
 {
 	if (!bytes || !sign || !sign->verify)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	if (len != FZN_QUORUM_SET_LEN || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_QUORUM_SET || bytes[FZN_QUORUM_SET_OFF_K] == 0u)
-		return FZN_ROOT_LOG_ERR_SHAPE;
+	/* READ AS THE SCHEMA SAYS, sec 1369: version, object and a k of at
+	 * least 1 the generated validate's. */
+	{
+		situ_msg_t m;
+		situ_view_t v;
+
+		if (len != FZN_QUORUM_SET_LEN)
+			return FZN_ROOT_LOG_ERR_SHAPE;
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+		if (fzn_root_act_record_fzn_quorum_set_view(&m, 0u, &v) != SITU_OK
+		    || fzn_root_act_record_fzn_quorum_set_validate(v) != SITU_OK)
+			return FZN_ROOT_LOG_ERR_SHAPE;
+	}
 	if (!sign->verify(sign->ctx, bytes + FZN_QUORUM_SET_OFF_SETTER, bytes,
 	                  FZN_QUORUM_SET_BODY_LEN, bytes + FZN_QUORUM_SET_BODY_LEN))
 		return FZN_ROOT_LOG_ERR_SIGNATURE;
@@ -487,6 +544,9 @@ fzn_root_log_err_t fzn_retention_set_issue(const uint8_t setter[FZN_PUBKEY_LEN],
                                            const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
                                            const fzn_sign_ops_t *sign, uint8_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
 	size_t i;
 
 	if (!setter || (!text && len) || len >= FZN_RETENTION_SET_TEXT_MAX || (!len && !replaces)
@@ -495,19 +555,23 @@ fzn_root_log_err_t fzn_retention_set_issue(const uint8_t setter[FZN_PUBKEY_LEN],
 	for (i = 0; i < len; i++)
 		if ((unsigned char)text[i] < 0x20u || (unsigned char)text[i] > 0x7eu)
 			return FZN_ROOT_LOG_ERR_MALFORMED;
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_RETENTION_SET;
-	memcpy(out + FZN_RETENTION_SET_OFF_SETTER, setter, FZN_PUBKEY_LEN);
+	/* THROUGH THE EDIT LAYER, sec 1369, the text NUL-padded to its field,
+	 * signed over what situ says the signature covers. */
+	memset(out, 0, FZN_RETENTION_SET_LEN);
+	situ_msg_init(&m, out, FZN_RETENTION_SET_LEN);
+	if (fzn_root_act_record_fzn_retention_set_view(&m, 0u, &v) != SITU_OK)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	memcpy(fzn_root_act_record_fzn_retention_set_setter_ptr(v), setter, FZN_PUBKEY_LEN);
 	if (replaces)
-		memcpy(out + FZN_RETENTION_SET_OFF_REPLACES, replaces, FZN_ROOT_ACT_ID_LEN);
-	else
-		memset(out + FZN_RETENTION_SET_OFF_REPLACES, 0, FZN_ROOT_ACT_ID_LEN);
-	memset(out + FZN_RETENTION_SET_OFF_TEXT, 0, FZN_RETENTION_SET_TEXT_MAX);
+		memcpy(fzn_root_act_record_fzn_retention_set_replaces_ptr(v), replaces, FZN_ROOT_ACT_ID_LEN);
 	if (len)
-		memcpy(out + FZN_RETENTION_SET_OFF_TEXT, text, len);
-	if (!sign->sign(sign->ctx, out + FZN_RETENTION_SET_BODY_LEN, out,
-	                FZN_RETENTION_SET_BODY_LEN))
+		memcpy(fzn_root_act_record_fzn_retention_set_text_ptr(v), text, len);
+	fzn_root_act_record_fzn_retention_set_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_root_act_record_fzn_retention_set_object_set(&m, v, (uint8_t)FZN_OBJECT_RETENTION_SET);
+	if (fzn_root_act_record_fzn_retention_set_signature_covered(v, &at, &n) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_root_act_record_fzn_retention_set_signature_ptr(v), out + at, n))
 		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	fzn_root_act_record_fzn_retention_set_signature_finalize(&m);
 	return FZN_ROOT_LOG_OK;
 }
 
@@ -533,9 +597,19 @@ fzn_root_log_err_t fzn_retention_set_check(const uint8_t *bytes, size_t len,
 
 	if (!bytes || !sign || !sign->verify)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	if (len != FZN_RETENTION_SET_LEN || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_RETENTION_SET)
-		return FZN_ROOT_LOG_ERR_SHAPE;
+	/* READ AS THE SCHEMA SAYS, sec 1369: version and object the generated
+	 * validate's; the text's rules the codec's below. */
+	{
+		situ_msg_t m;
+		situ_view_t v;
+
+		if (len != FZN_RETENTION_SET_LEN)
+			return FZN_ROOT_LOG_ERR_SHAPE;
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+		if (fzn_root_act_record_fzn_retention_set_view(&m, 0u, &v) != SITU_OK
+		    || fzn_root_act_record_fzn_retention_set_validate(v) != SITU_OK)
+			return FZN_ROOT_LOG_ERR_SHAPE;
+	}
 	n = retention_text_len(bytes + FZN_RETENTION_SET_OFF_TEXT);
 	/* A REMOVAL NAMES WHAT IT REMOVES: a record with no text replacing
 	 * nothing would be a rule of nothing. */

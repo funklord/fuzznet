@@ -161,7 +161,7 @@ struct fzn_persist_vote_body {
 }
 
 // A root-add and a root-remove, as node/roots.c keeps them (sec 407): each
-// the signed record whole, opaque here, laid out in chain/root_act.situ.
+// the signed record whole, opaque here, laid out in chain/root_act_record.situ.
 struct fzn_persist_root_add_body {
 	u8  record[130];
 }

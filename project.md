@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1368
+The newest work is at the end of this file. **Read secs 1287 to 1369
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -57982,7 +57982,7 @@ the act log is the journal, and a cut is a record id.
 |---|---|
 | the 171-byte root-log entry (`fzn_root_act_*`, `FZN_ROOT_ACT_LEN` and its offsets) | `chain/root_log.h` |
 | the log that kept them (`fzn_root_log_t`, `_init`, `_admit`, `_stands`, `_forked`, `_acts`) | `chain/root_log.c` |
-| the entry's schema and its kinds enum | `chain/root_act.situ` |
+| the entry's schema and its kinds enum | `chain/root_act_record.situ` |
 | object tag 139, `FZN_OBJECT_ROOT_ACT`, kept as an enumerator marked retired, as CARD_V2's 138 is | `wire/bytes.h` |
 | persist slots 10 (learned revocations, sec 384) and 12 (root-log entries), and blob tag 10, left as numbers never to reuse | `persist/persist.h`, `persist.situ` |
 | their printers | `cli/persist_print.c`, `gui/persist_view.cpp` |
@@ -95826,3 +95826,24 @@ note.
 **Tests:** roster_record_vectors (2); roster_test (103), admin_test (377),
 and every target linking the roster. Sabotage
 `roster-bundle-length-is-exact` retargeted.
+
+## 1369. The root set's four records through situ's code, 2026-11-21
+
+The twenty-third of the 40 layouts: `chain/root_act.situ` is
+`chain/root_act_record.situ` -- a root added, a root removed, the
+estate's k set, a retention rule set (secs 405, 418, 476). All four are
+signed by an extern keyed signature, so each is written through situ's
+edit layer and signed over what situ says the signature covers, and read
+through the generated view and `validate` before the signature is
+checked: `fzn_root_add_issue` and `_remove_issue` (one `sign_change`,
+each kind through its own view), `fzn_root_set_admit`,
+`fzn_quorum_set_issue` and `_check` (a k of 0 the schema's to refuse),
+`fzn_retention_set_issue` and `_check`. The retention text's own rules --
+printable, NUL-ended in its field, and a removal naming what it removes --
+stay the codec's. `provision.situ`'s import and `persist.situ`'s comment
+follow the rename.
+
+**Tests:** root_act_record_vectors (4, one of each); root_log_test (184),
+admin_test (377), provision_test (179), and the 33 targets linking the
+root log. Sabotage `rootlog-quorum-zero-refused` retargeted onto
+`validate`, `root-set-admit-unvalidated` new.

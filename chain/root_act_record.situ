@@ -1,6 +1,7 @@
-// The root records as situ schemas: the hand-written codec is
-// chain/root_log.c, and this is its checked contract, the way
-// chain/revocation_record.situ is revocation.c's. project.md secs 405, 418, 476.
+// The root records as situ schemas: chain/root_log.c reads and writes them
+// through the code situ generates from this (sec 1369), each through its edit
+// layer and signed over what situ says the signature covers; `_record`, so
+// the generated file's name meets no source's. project.md secs 405, 418, 476.
 //
 // The body of each is `authenticated` and the signature a
 // `checksum ... covers(body)`; Ed25519 is extern, so no codec.

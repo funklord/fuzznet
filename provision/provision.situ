@@ -13,7 +13,7 @@
 
 import "../chain/hop_record.situ";
 import "../prekey/prekey_record.situ";
-import "../chain/root_act.situ";
+import "../chain/root_act_record.situ";
 
 target buffer;
 endian big;
