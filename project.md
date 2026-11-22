@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1382
+The newest work is at the end of this file. **Read secs 1287 to 1383
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -42093,7 +42093,7 @@ The two layouts sec 305 held back -- the chain (a header and N hops) and the
 provisioning card (which carries a hop and a prekey record) -- are converted
 now, because situ's `import` answers the question they raised. A schema imports
 another by relative path and references its structs, so `chain/chain.situ`
-imports `chain/hop.situ` and `provision/provision.situ` imports both the hop and
+imports `chain/hop.situ` and `provision/provision_record.situ` imports both the hop and
 the prekey record rather than re-declaring either. There is one encoding of a
 hop and one of a prekey, and a card or a chain cannot drift from it.
 
@@ -47197,7 +47197,7 @@ situ fixed that in 74739d7, and `make schema` extracts `0fedeb3`, which
 contains it. Re-probed before binding rather than trusting the 2026-09-19
 report.
 
-`provision/provision.situ` wraps version through `expires_at` in
+`provision/provision_record.situ` wraps version through `expires_at` in
 `authenticated body` and declares `checksum u8 signature[64]
 covers(body)`. That is exactly the range the C signs:
 `fzn_provision_sign` and `fzn_provision_verify` both pass bytes
@@ -67490,7 +67490,7 @@ address; B's `add join PATH` with that card is refused and joins
 nothing. A then sets its `net/address`, and phase b joins with the next
 card alone, no HOST PORT. **Control**: the build before this section
 fails phase a, answering `malformed add join CARD|PATH HOST PORT`.
-`situc wire --check` classifies `provision/provision.situ` as "3 breaking,
+`situc wire --check` classifies `provision/provision_record.situ` as "3 breaking,
 3 compatible": the tag, the signature moved and its coverage, and three
 appended fields. The contract and map were regenerated against situ
 83c9b7b; it solves the card at 428..2324 bytes, the sizes asserted by
@@ -95594,7 +95594,7 @@ first, as fuzzypickles' command line needs only that.
 
 The thirteenth of the 40 layouts, and the first one fuzznet ever
 converted: `chain/hop.situ` is `chain/hop_record.situ`, its three
-importers (`chain/chain.situ`, `provision/provision.situ`,
+importers (`chain/chain.situ`, `provision/provision_record.situ`,
 `node/routing_record.situ`) following the rename, their contracts
 unchanged. Like the prekey (sec 1340) a hop's signature is Ed25519,
 extern and keyed, so situ makes no builder: `fzn_hop_encode` writes
@@ -96218,3 +96218,37 @@ above, and the readers take any mark but 1 as not indexed. Every check
 `validate` makes on an item row is held twice, so the entry is removed as
 an equivalent mutant, as sec 1379's was; the empty-row test stays, holding
 the view's refusal.
+
+## 1383. The provisioning card through situ's code, linked to what it carries, 2026-11-22
+
+The thirty-second of the 40 layouts: `provision/provision.situ` is
+`provision/provision_record.situ` (secs 308, 411). It imports the hop,
+the prekey record and the root add, and is built `--linked` to all three
+units, so its code calls theirs rather than carrying copies.
+
+- **`fzn_provision_pack_at`** writes through situ's edit layer, as the
+  other signed records do: the whole card sized first, every field in
+  order with each count before its run, the hops, the proof and the
+  prekey copied whole into their places (`situ_base` of each element's
+  view, the prekey at its offset), and the card signed over what situ
+  says the signature covers.
+- **`fzn_provision_open`** reads through `required` (exactly its length,
+  which the counts fix) and the view, then **`check`, mapped**: a refusal
+  at the card's own members -- version, object, the counts, the host's
+  length -- is a shape error, while one inside a hop, a proof or the
+  prekey is left to `fzn_provision_verify`, which checks each under its
+  signature. That keeps provision_test's bent-byte sweep exact: only the
+  bytes that fix the card's shape may refuse it at opening. The counts'
+  bounds and the host's characters stay checked after, whatever `check`
+  stopped at.
+
+**The vector is built from the nested parts' own**: the first hop of
+`chain/hop_record.vectors` and the first prekey of
+`prekey/prekey_record.vectors`, in a card of the least size, 428 bytes.
+**The seeded fuzzer agrees case for case**: provision_fuzz gives the
+counts it gave before. **Tests:** provision_record_vectors (1);
+provision_test, provision_fuzz, provision_print_test,
+provision_view_test, and the 49 targets linking the card, four of which
+now link the root add's code too. Sabotage `provision-tag-is-not-a-hop`
+(onto the `check` mapping) and `provision-host-shape-checked`
+retargeted.

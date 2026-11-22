@@ -2,6 +2,9 @@
 // across modules: it imports the hop (chain) and the prekey record (prekey)
 // and references them, so a card carries exactly one encoding of each.
 // Measured against the FZN_PROVISION_OFF_* macros in provision/provision.h.
+// provision/provision.c writes and reads the card through the code situ
+// generates from this, built --linked to the three units it imports (sec
+// 1383); `_record`, so the generated file's name meets no source's.
 //
 // A sponsor's signed statement handing a device a root to pin, a capability
 // (the hop), and the sponsor's prekey to agree a session with. The signature

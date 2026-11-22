@@ -82,7 +82,7 @@
 /* THE CARD LAYOUT. Big-endian, no padding, fixed fields first -- `wire/bytes.h`'s
  * rule, and for its reason: two implementations that agree on this table
  * cannot produce different bytes for the same card, which is what a signature
- * over them requires. `provision/provision.situ` states it too.
+ * over them requires. `provision/provision_record.situ` states it too.
  *
  *     offset             size   field
  *          0                1   version     (= FZN_SIGNED_VERSION)

@@ -4673,9 +4673,9 @@ SABOTAGES = [
 	(
 		"provision-tag-is-not-a-hop",
 		"provision/provision.c",
-		"\tif (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_CARD)\n"
-		"\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
-		"",
+		"\t    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_CHAIN_CHECK\n",
+		"\t    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_OBJECT_CHECK\n"
+		"\t    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_CHAIN_CHECK\n",
 		"a card's body opens with fields shared by other objects, so without the tag one signature could be read as more than one of them",
 	),
 	(
@@ -19850,7 +19850,7 @@ SABOTAGES = [
 	(
 		"provision-host-shape-checked",
 		"provision/provision.c",
-		"\tif (!host_ok(bytes + FZN_PROVISION_OFF_HOST(n, p), a, port))\n\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
+		"\tif (!host_ok(fzn_provision_record_fzn_provision_card_host_ptr(v), a, port))\n\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
 		"",
 		"sec 671: a card's host is read into a join's root address, so a card whose host is not a host's shape must not open; provision_test's space-in-host and port-0 checks catch it",
 	),

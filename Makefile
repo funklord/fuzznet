@@ -262,7 +262,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
-             wire/generated/line_record.c wire/generated/buckets_row.c \
+             wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -291,7 +291,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c \
                  wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c \
                  wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c \
-                 wire/generated/buckets_row_vectors.c
+                 wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -790,6 +790,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/keys_wire_vectors \
              $(BUILD_DIR)/wire/test/line_record_vectors \
              $(BUILD_DIR)/wire/test/buckets_row_vectors \
+             $(BUILD_DIR)/wire/test/provision_record_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2864,7 +2865,7 @@ $(BUILD_DIR)/record/test/journal_test: $(BUILD_DIR)/record/test/journal_test.o \
 # links nearly everything and the list is the point: a module absent here is a
 # module the integration test cannot exercise.
 $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
-                                    $(BUILD_DIR)/provision/provision.o \
+                                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                     $(BUILD_DIR)/local/peer.o \
                                     $(BUILD_DIR)/local/vocabulary.o \
                                     $(BUILD_DIR)/record/ledger.o \
@@ -3207,7 +3208,7 @@ $(BUILD_DIR)/disclose/test/disclose_test: $(BUILD_DIR)/disclose/test/disclose_te
 # to do with the bytes the module read.
 $(BUILD_DIR)/provision/test/provision_fuzz: \
                                        $(BUILD_DIR)/provision/test/provision_fuzz.o \
-                                       $(BUILD_DIR)/provision/provision.o \
+                                       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                        $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                        $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                        $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
@@ -3346,7 +3347,7 @@ $(BUILD_DIR)/prekey/test/prekey_test: $(BUILD_DIR)/prekey/test/prekey_test.o \
 # shape rather than this suite's need.
 $(BUILD_DIR)/provision/test/provision_test: \
                                        $(BUILD_DIR)/provision/test/provision_test.o \
-                                       $(BUILD_DIR)/provision/provision.o \
+                                       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                        $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                        $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                        $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
@@ -3587,7 +3588,7 @@ $(BUILD_DIR)/cli/test/trust_print_test: $(BUILD_DIR)/cli/test/trust_print_test.o
 $(BUILD_DIR)/cli/test/provision_print_test: \
                                      $(BUILD_DIR)/cli/test/provision_print_test.o \
                                      $(BUILD_DIR)/cli/provision_print.o \
-                                     $(BUILD_DIR)/provision/provision.o \
+                                     $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                      $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
@@ -3726,7 +3727,7 @@ $(BUILD_DIR)/local/test/call_sound_test: $(BUILD_DIR)/local/test/call_sound_test
                                   $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
-                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                   $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
@@ -3738,7 +3739,7 @@ $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS)
                                   $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
-                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                   $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
@@ -3769,7 +3770,7 @@ $(RPC_PROBE): $(BUILD_DIR)/tool/rpc_probe.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
-                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                   $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
@@ -3969,7 +3970,7 @@ RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/mes
                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
                  $(BUILD_DIR)/local/peer_linux.o \
                  $(BUILD_DIR)/constant_time/constant_time.o \
-                 $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                 $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                  $(BUILD_DIR)/hex/hex.o
 $(BUILD_DIR)/gui/test/settings_view_test: $(BUILD_DIR)/gui/test/settings_view_test.o \
@@ -4242,7 +4243,7 @@ $(BUILD_DIR)/gui/test/provision_view_test: \
                                      $(BUILD_DIR)/gui/provision_view.o \
                                      $(BUILD_DIR)/cli/provision_print.o \
                                      $(BUILD_DIR)/gui/qr_view.o \
-                                     $(BUILD_DIR)/provision/provision.o \
+                                     $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/qr/qr.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
@@ -4690,6 +4691,15 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE PROVISIONING CARD, generated and linked to the hop, the prekey and the
+# root add it carries, sec 1383.
+$(BUILD_DIR)/wire/test/provision_record_vectors: wire/generated/provision_record_vectors.c \
+                                                wire/generated/provision_record.c wire/generated/hop_record.c \
+                                                wire/generated/prekey_record.c wire/generated/root_act_record.c \
+                                                wire/generated/situ.c $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5341,7 +5351,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/version/version.o \
-              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
+              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -5398,7 +5408,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/node/local.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/version/version.o \
-              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
+              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -5514,7 +5524,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
                    $(BUILD_DIR)/version/version.o \
-                   $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
+                   $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/chain/service.o \
                    $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
                    $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
                    $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -5782,7 +5792,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/node/received.o \
               $(BUILD_DIR)/node/members.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
               $(BUILD_DIR)/session/agree_monocypher.o \
@@ -5910,7 +5920,7 @@ $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/vocabulary.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/net/udp.o \
-              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o \
+              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
               $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
@@ -6223,7 +6233,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/chain/memo.o \
                                       $(BUILD_DIR)/chain/chain_store.o \
                                       $(BUILD_DIR)/qr/qr.o \
-                                      $(BUILD_DIR)/provision/provision.o \
+                                      $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                       $(BUILD_DIR)/disclose/disclose.o \
                                       $(BUILD_DIR)/blob/blob.o \
                                       $(BUILD_DIR)/spool/message.o \
@@ -7903,7 +7913,7 @@ SITU_DIR ?=
 SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_record.situ \
               prekey/prekey_record.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
-              chain/chain_wire.situ provision/provision.situ \
+              chain/chain_wire.situ provision/provision_record.situ \
               record/store_file.situ catalog/attribute_row.situ \
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
@@ -8389,7 +8399,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/persist_print.o \
                     $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/socket.o \
                     $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer_linux.o \
-                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
+                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                     $(BUILD_DIR)/local/vocabulary.o \
                     $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
                     $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
@@ -8672,6 +8682,14 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_provision_record --layer edit \
+	         --linked ../chain/hop_record.situ=fzn_hop_record \
+	         --linked ../prekey/prekey_record.situ=fzn_prekey_record \
+	         --linked ../chain/root_act_record.situ=fzn_root_act_record \
+	         --out $(BUILD_DIR)/.gen.new provision/provision_record.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_provision_record \
+	         --out $(BUILD_DIR)/.gen.new provision/provision_record.situ \
+	         provision/provision_record.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_buckets_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/buckets_row.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_buckets_row \
@@ -8892,6 +8910,7 @@ schema:
 	          keys_wire.c keys_wire.h keys_wire_build.h keys_wire_vectors.c \
 	          line_record.c line_record.h line_record_build.h line_record_edit.h line_record_vectors.c \
 	          buckets_row.c buckets_row.h buckets_row_build.h buckets_row_edit.h buckets_row_vectors.c \
+	          provision_record.c provision_record.h provision_record_edit.h provision_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

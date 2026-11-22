@@ -190,7 +190,7 @@ static void test_the_layout_is_what_the_header_says(void)
 {
 	fixture_t f;
 
-	/* The offsets provision.situ states, as literals, at one hop and at
+	/* The offsets provision_record.situ states, as literals, at one hop and at
 	 * the most. */
 	CHECK(FZN_PROVISION_OFF_ROOT == 2u, "root is not where the table says");
 	CHECK(FZN_PROVISION_OFF_HOP_COUNT == 34u, "hop_count is not where the table says");
@@ -204,7 +204,7 @@ static void test_the_layout_is_what_the_header_says(void)
 	CHECK(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 364u, "signature is not where the table says");
 	CHECK(FZN_PROVISION_BODY_LEN(1, 0) == 364u, "the signed body changed size");
 	CHECK(FZN_PROVISION_MIN_LEN == 428u && FZN_PROVISION_MAX_LEN == 2324u,
-	      "the card's size range is not provision.situ's 428..2324");
+	      "the card's size range is not provision_record.situ's 428..2324");
 
 	REQUIRE(build(&f), "the fixture did not build");
 	CHECK(f.card_len == 428u, "pack reported %zu bytes", f.card_len);

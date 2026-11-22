@@ -1,6 +1,7 @@
 /* See provision.h. */
 
 #include "provision.h"
+#include "../wire/generated/provision_record.h"
 
 #include "../wire/bytes.h"
 #include "../chain/root_log.h"
@@ -71,7 +72,10 @@ fzn_provision_err_t fzn_provision_pack_at(const uint8_t root[FZN_PUBKEY_LEN],
                                           const fzn_sign_ops_t *sign, uint8_t *out,
                                           size_t out_cap, size_t *out_len)
 {
-	size_t i, n = hop_count, p = proof_count, a = host_len;
+	size_t i, n = hop_count, p = proof_count, a = host_len, len;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint32_t at = 0, covered = 0;
 
 	if (!root || !chain || !prekey || !out || !out_len || (p && !proof) || (a && !host))
 		return FZN_PROVISION_ERR_MALFORMED;
@@ -83,31 +87,48 @@ fzn_provision_err_t fzn_provision_pack_at(const uint8_t root[FZN_PUBKEY_LEN],
 	if (!sign || !sign->sign)
 		return FZN_PROVISION_ERR_SIGNER;
 
-	out[FZN_PROVISION_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_PROVISION_OFF_OBJECT] = (uint8_t)FZN_OBJECT_CARD;
-	memcpy(out + FZN_PROVISION_OFF_ROOT, root, FZN_PUBKEY_LEN);
-	out[FZN_PROVISION_OFF_HOP_COUNT] = (uint8_t)hop_count;
-	for (i = 0; i < n; i++)
-		memcpy(out + FZN_PROVISION_OFF_CHAIN + i * FZN_HOP_LEN, chain[i], FZN_HOP_LEN);
-	out[FZN_PROVISION_OFF_PROOF_COUNT(n)] = (uint8_t)p;
-	for (i = 0; i < p; i++)
-		memcpy(out + FZN_PROVISION_OFF_PROOF(n) + i * FZN_PROVISION_PROOF_ITEM_LEN, proof[i],
-		       FZN_PROVISION_PROOF_ITEM_LEN);
-	memcpy(out + FZN_PROVISION_OFF_PREKEY(n, p), prekey, FZN_PREKEY_LEN_TOTAL);
-	fzn_put_be64(out + FZN_PROVISION_OFF_EXPIRES_AT(n, p), expires_at);
-	out[FZN_PROVISION_OFF_HOST_LEN(n, p)] = (uint8_t)a;
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1383, from the code it
+	 * generates from `provision/provision_record.situ`: the whole card
+	 * sized first, then every field in order -- each count before its run,
+	 * so the edit layer finds every place after it -- the hops, the proof
+	 * and the prekey copied whole into their places, and the card signed
+	 * over what situ says the signature covers. */
+	len = FZN_PROVISION_LEN_AT(n, p, a);
+	memset(out, 0, len);
+	situ_msg_init(&m, out, (uint32_t)len);
+	if (fzn_provision_record_fzn_provision_card_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return FZN_PROVISION_ERR_MALFORMED;
+	fzn_provision_record_fzn_provision_card_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_provision_record_fzn_provision_card_object_set(&m, v, (uint8_t)FZN_OBJECT_CARD);
+	memcpy(fzn_provision_record_fzn_provision_card_root_ptr(v), root, FZN_PUBKEY_LEN);
+	fzn_provision_record_fzn_provision_card_hop_count_set(&m, v, (uint8_t)n);
+	for (i = 0; i < n; i++) {
+		if (fzn_provision_record_fzn_provision_card_chain_at(v, (uint32_t)i, &e) != SITU_OK)
+			return FZN_PROVISION_ERR_MALFORMED;
+		memcpy(situ_base(e), chain[i], FZN_HOP_LEN);
+	}
+	fzn_provision_record_fzn_provision_card_proof_count_set(&m, v, (uint8_t)p);
+	for (i = 0; i < p; i++) {
+		if (fzn_provision_record_fzn_provision_card_proof_at(v, (uint32_t)i, &e) != SITU_OK)
+			return FZN_PROVISION_ERR_MALFORMED;
+		memcpy(situ_base(e), proof[i], FZN_PROVISION_PROOF_ITEM_LEN);
+	}
+	memcpy(situ_base(v) + fzn_provision_record_fzn_provision_card_prekey_offset(v), prekey, FZN_PREKEY_LEN_TOTAL);
+	fzn_provision_record_fzn_provision_card_expires_at_set(&m, v, expires_at);
+	fzn_provision_record_fzn_provision_card_host_len_set(&m, v, (uint8_t)a);
 	if (a)
-		memcpy(out + FZN_PROVISION_OFF_HOST(n, p), host, a);
-	fzn_put_be16(out + FZN_PROVISION_OFF_PORT_AT(n, p, a), port);
+		memcpy(fzn_provision_record_fzn_provision_card_host_ptr(v), host, a);
+	fzn_provision_record_fzn_provision_card_port_set(&m, v, port);
 
 	/* NONZERO IS SUCCESS, which is `chain.h`'s convention for this seam and
 	 * not C's usual one for an int return. Written the other way round
 	 * first, and it would have inverted every signature in the file. */
-	if (!sign->sign(sign->ctx, out + FZN_PROVISION_OFF_SIGNATURE_AT(n, p, a), out,
-	                FZN_PROVISION_BODY_LEN_AT(n, p, a)))
+	if (fzn_provision_record_fzn_provision_card_signature_covered(v, &at, &covered) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_provision_record_fzn_provision_card_signature_ptr(v), out + at, covered))
 		return FZN_PROVISION_ERR_SIGNER;
+	fzn_provision_record_fzn_provision_card_signature_finalize(&m);
 
-	*out_len = FZN_PROVISION_LEN_AT(n, p, a);
+	*out_len = len;
 	return FZN_PROVISION_OK;
 }
 
@@ -116,33 +137,45 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 {
 	size_t n, p, a;
 	uint16_t port;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0, which = 0;
 
 	if (!bytes || !out)
 		return FZN_PROVISION_ERR_MALFORMED;
 
 	memset(out, 0, sizeof(*out));
 
-	if (len < FZN_PROVISION_MIN_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1383. EXACTLY, not at least: the
+	 * counts fix the length, so a longer buffer is not a card with
+	 * something after it -- it is a caller who has lost track of what they
+	 * hold, and the trailing bytes would be outside everything the
+	 * signature covers. `required` takes that; `check` names the member it
+	 * refused at, and only the card's own -- version, object, the counts,
+	 * the host's length -- are its shape. A hop, a proof or a prekey of no
+	 * shape is left to `fzn_provision_verify`, which checks each under its
+	 * signature: opening a card judges the card, not what it carries. */
+	if (len < FZN_PROVISION_MIN_LEN || len > FZN_PROVISION_MAX_LEN
+	    || fzn_provision_record_fzn_provision_card_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_PROVISION_ERR_SHAPE;
-	if (bytes[FZN_PROVISION_OFF_VERSION] != (uint8_t)FZN_SIGNED_VERSION)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_provision_record_fzn_provision_card_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
 		return FZN_PROVISION_ERR_SHAPE;
-	if (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_CARD)
+	if (fzn_provision_record_fzn_provision_card_check(v, &which) != SITU_OK
+	    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_CHAIN_CHECK
+	    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_PROOF_CHECK
+	    && which != FZN_PROVISION_RECORD_FZN_PROVISION_CARD_PREKEY_CHECK)
 		return FZN_PROVISION_ERR_SHAPE;
-	n = bytes[FZN_PROVISION_OFF_HOP_COUNT];
-	/* EXACTLY, not at least. The hop count fixes the length, so a longer
-	 * buffer is not a card with something after it -- it is a caller who has
-	 * lost track of what they hold, and the trailing bytes would be outside
-	 * everything the signature covers. */
-	if (n == 0u || n > FZN_CHAIN_MAX_HOPS || len < FZN_PROVISION_LEN(n, 0))
+	n = fzn_provision_record_fzn_provision_card_hop_count_get(v);
+	p = fzn_provision_record_fzn_provision_card_proof_count_get(v);
+	a = fzn_provision_record_fzn_provision_card_host_len_get(v);
+	/* THE COUNTS IN BOUNDS, whatever `check` stopped at: one past a
+	 * carried part it did not read on to. */
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS || p > FZN_PROVISION_PROOF_MAX)
 		return FZN_PROVISION_ERR_SHAPE;
-	p = bytes[FZN_PROVISION_OFF_PROOF_COUNT(n)];
-	if (p > FZN_PROVISION_PROOF_MAX || len < FZN_PROVISION_LEN(n, p))
-		return FZN_PROVISION_ERR_SHAPE;
-	a = bytes[FZN_PROVISION_OFF_HOST_LEN(n, p)];
-	if (len != FZN_PROVISION_LEN_AT(n, p, a))
-		return FZN_PROVISION_ERR_SHAPE;
-	port = fzn_get_be16(bytes + FZN_PROVISION_OFF_PORT_AT(n, p, a));
-	if (!host_ok(bytes + FZN_PROVISION_OFF_HOST(n, p), a, port))
+	port = fzn_provision_record_fzn_provision_card_port_get(v);
+	if (!host_ok(fzn_provision_record_fzn_provision_card_host_ptr(v), a, port))
 		return FZN_PROVISION_ERR_SHAPE;
 
 	out->base = bytes;
