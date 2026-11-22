@@ -3,6 +3,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "files.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 #include "../fault/fault.h"
 
 #include "../blob/levels.h"
@@ -1688,14 +1690,20 @@ static int share_read(const fzn_node_files_t *files, const uint8_t key[FZN_PUBKE
 {
 	uint8_t blob[SHARE_BLOB], again[FZN_PUBKEY_LEN];
 	size_t len = 0;
+	situ_msg_t m;
+	situ_view_t b;
 
+	/* THE BODY READ THROUGH ITS VIEW, sec 1398. */
 	if (!files->store->load(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob),
 	                        &len)
 	    || fzn_persist_head_check(blob, len, SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
 	               != FZN_PERSIST_OK)
 		return 0;
-	memcpy(root, blob + FZN_PERSIST_HEAD_LEN, FZN_BLOB_HASH_LEN);
-	memcpy(grantee, blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, FZN_PUBKEY_LEN);
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_file_share_body_view(&m, FZN_PERSIST_HEAD_LEN, &b) != SITU_OK)
+		return 0;
+	memcpy(root, fzn_persist_wire_fzn_persist_file_share_body_root_ptr(b), FZN_BLOB_HASH_LEN);
+	memcpy(grantee, fzn_persist_wire_fzn_persist_file_share_body_grantee_ptr(b), FZN_PUBKEY_LEN);
 	return share_key(files, root, grantee, again) && memcmp(again, key, FZN_PUBKEY_LEN) == 0;
 }
 
@@ -1941,12 +1949,17 @@ fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
 	if (x->n >= FZN_NODE_FILES_SHARES_MAX)
 		return FZN_NODE_FILES_ERR_FULL;
 #endif
-	if (fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
-	    != FZN_PERSIST_OK)
-		return FZN_NODE_FILES_ERR_STORE;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN, root, FZN_BLOB_HASH_LEN);
-	memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, grantee, FZN_PUBKEY_LEN);
-	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN, now_ms);
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
+		if (fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
+		            != FZN_PERSIST_OK
+		    || fzn_persist_wire_fzn_persist_file_share_body_build(blob + FZN_PERSIST_HEAD_LEN, SHARE_BODY, root, grantee, now_ms,
+		                                              &wrote)
+		               != SITU_OK)
+			return FZN_NODE_FILES_ERR_STORE;
+	}
 	if (!files->store->save(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob)))
 		return FZN_NODE_FILES_ERR_STORE;
 	if (!index_add(x, root, grantee))
@@ -2001,8 +2014,16 @@ static int group_reaches(const fzn_node_files_t *files, const uint8_t root[FZN_B
 	    || fzn_persist_head_check(blob, len, SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
 	               != FZN_PERSIST_OK)
 		return 0;
-	return fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN)
-	       >= fzn_node_group_joined_ms(files->store, files->hash, id, &held, sender);
+	{
+		situ_msg_t m;
+		situ_view_t b;
+
+		situ_msg_init(&m, blob, (uint32_t)len);
+		if (fzn_persist_wire_fzn_persist_file_share_body_view(&m, FZN_PERSIST_HEAD_LEN, &b) != SITU_OK)
+			return 0;
+		return fzn_persist_wire_fzn_persist_file_share_body_shared_at_ms_get(b)
+		       >= fzn_node_group_joined_ms(files->store, files->hash, id, &held, sender);
+	}
 }
 
 /* THE ROWS THAT COULD LET `sender` HAVE `root`, each read by its key: the

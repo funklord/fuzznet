@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1397
+The newest work is at the end of this file. **Read secs 1287 to 1398
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96694,3 +96694,49 @@ reachability_fuzz, members_fuzz and reconcile_fuzz give their counts of
 before. admin_test (377), pair_test (443), peer_persist_test (44),
 contact_devices_test (136), apply_test (191) and the rest of the 26 links
 pass.
+
+## 1398. The rest of the persist bodies through situ's code; stage three of persist, 2026-11-22
+
+Every structured persist body outside persist.c is now packed by its
+generated builder and opened through its view:
+
+| Body | File | Note |
+|---|---|---|
+| note purge | notes/purge.c | written through its view: each host's key and answered flag come from two arrays in the struct, so `asked_at` fills them |
+| note partner | notes/sync.c | |
+| note share | notes/share.c | one helper builds both writers' rows |
+| contact | contact/contact.c | the schema's 1..32 name, then the contact's own rule |
+| received share | node/received.c | host 1..253 and port not 0 by the schema, then the host's own rule |
+| log rule | log/rules.c | then the rule's own parse |
+| file share | node/files.c | both readers |
+| shared note | notes/received.c | `row_read` hands back the sharer, the claim and the record through the view, and its five readers take them from there |
+
+**One read stays hand-written:** a note share row from before its
+catch-up byte, one byte shorter, which the schema does not describe. It
+is read as before and gains the byte when next written.
+
+**Persist is done; the head stays hand-written, decided.** What is not
+on generated code is the head (`fzn_persist_head_write`,
+`fzn_persist_head_check`) and the bodies that are one opaque field:
+roots.c's change records and own root, notes/store.c's note, purged mark
+and wrap key, and contact_devices.c's revocation rows. Moving them was
+measured and does not pay:
+
+- The head is two byte stores and three compares. Spelling them through
+  the blob's accessors changes no byte and no refusal.
+- The blob's generated `validate` is the one thing that would add a
+  check -- every arm's own constraints, on every open -- but it refuses a
+  note share row from before the catch-up byte, which is still read for
+  migration.
+- An opaque body's builder is a memcpy, and `head_check` already holds
+  its exact length.
+
+Revisit if the version-0 share rows are ever migrated away; then
+`head_check` can call the blob's `validate` and gain every arm's
+constraints at once.
+
+**Evidence:** the seeded fuzzers that reach these rows give their counts
+of before; contact_test, rules_test, files_test, notes_store_test,
+notes_sync_test, notes_test, retention_view_test and the rest of the 32
+links pass. Sabotage `received-list-filed-under-own-key` and
+`received-forget-only-that-sharer` retargeted onto the row's parts.

@@ -1,6 +1,8 @@
 /* See rules.h. */
 
 #include "rules.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../wire/bytes.h"
 
@@ -56,21 +58,29 @@ static fzn_log_rules_err_t get(const fzn_persist_ops_t *store, const uint8_t *su
                                fzn_retain_rule_t *out, char text[FZN_RETAIN_TEXT_MAX])
 {
 	uint8_t blob[BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *rule;
 	size_t len = 0, n;
+	situ_msg_t m;
+	situ_view_t b;
+	uint32_t need = 0;
 
 	if (!store->load(store->ctx, FZN_PERSIST_LOG_RULE, subject, blob, sizeof(blob), &len))
 		return FZN_LOG_RULES_ERR_ABSENT;
-	if (len < FZN_PERSIST_HEAD_LEN + 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1398, then the rule's own parse. */
+	if (len < FZN_PERSIST_HEAD_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_log_rule_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_LOG_RULE) != FZN_PERSIST_OK)
 		return FZN_LOG_RULES_ERR_SHAPE;
-	n = body[0];
-	if (n == 0u || n >= FZN_RETAIN_TEXT_MAX
-	    || fzn_persist_head_check(blob, len, BODY_LEN(n), FZN_PERSIST_BLOB_LOG_RULE)
-	               != FZN_PERSIST_OK
-	    || fzn_retain_parse((const char *)body + 1, n, out) != FZN_RETAIN_OK)
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_log_rule_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_log_rule_body_validate(b) != SITU_OK)
+		return FZN_LOG_RULES_ERR_SHAPE;
+	n = fzn_persist_wire_fzn_persist_log_rule_body_text_len_get(b);
+	rule = fzn_persist_wire_fzn_persist_log_rule_body_text_ptr(b);
+	if (n == 0u || n >= FZN_RETAIN_TEXT_MAX || fzn_retain_parse((const char *)rule, n, out) != FZN_RETAIN_OK)
 		return FZN_LOG_RULES_ERR_SHAPE;
 	if (text) {
-		memcpy(text, body + 1, n);
+		memcpy(text, rule, n);
 		text[n] = '\0';
 	}
 	return FZN_LOG_RULES_OK;
@@ -103,12 +113,17 @@ fzn_log_rules_err_t fzn_log_rules_add(const fzn_persist_ops_t *store, const fzn_
 		return FZN_LOG_RULES_ERR_BACKEND;
 	if (count >= FZN_LOG_RULES_MAX)
 		return FZN_LOG_RULES_ERR_FULL;
-	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(len), FZN_PERSIST_BLOB_LOG_RULE)
-	    != FZN_PERSIST_OK)
-		return FZN_LOG_RULES_ERR_MALFORMED;
-	blob[FZN_PERSIST_HEAD_LEN] = (uint8_t)len;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN + 1u, text, len);
-	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN + 1u + len, now_ms);
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
+		if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(len), FZN_PERSIST_BLOB_LOG_RULE)
+		            != FZN_PERSIST_OK
+		    || fzn_persist_wire_fzn_persist_log_rule_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)BODY_LEN(len),
+		                                            (const uint8_t *)text, (uint32_t)len, now_ms, &wrote)
+		               != SITU_OK)
+			return FZN_LOG_RULES_ERR_MALFORMED;
+	}
 	if (!store->save(store->ctx, FZN_PERSIST_LOG_RULE, subject, blob,
 	                 FZN_PERSIST_HEAD_LEN + BODY_LEN(len)))
 		return FZN_LOG_RULES_ERR_BACKEND;

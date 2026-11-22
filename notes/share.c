@@ -1,6 +1,8 @@
 /* See share.h. */
 
 #include "share.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
@@ -44,6 +46,19 @@ static fzn_notes_err_t share_key(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+/* A SHARE'S ROW BUILT, sec 1398: the head, then the body by the generated
+ * builder. */
+static int share_build(uint8_t blob[BLOB_LEN], const uint8_t *subtree, const uint8_t *contact,
+                       uint64_t at_ms, uint8_t catch_up)
+{
+	uint32_t wrote = 0;
+
+	return fzn_persist_head_write(blob, BLOB_LEN, BODY_LEN, FZN_PERSIST_BLOB_NOTE_SHARE) == FZN_PERSIST_OK
+	       && fzn_persist_wire_fzn_persist_note_share_body_build(blob + FZN_PERSIST_HEAD_LEN, BODY_LEN, subtree, contact, at_ms,
+	                                                 catch_up, &wrote)
+	                  == SITU_OK;
+}
+
 static fzn_notes_err_t share_get(const fzn_notes_store_t *store,
                                  const uint8_t key[FZN_PUBKEY_LEN], fzn_notes_share_t *out)
 {
@@ -60,11 +75,27 @@ static fzn_notes_err_t share_get(const fzn_notes_store_t *store,
 	    && fzn_persist_head_check(blob, len, BODY_LEN_V0, FZN_PERSIST_BLOB_NOTE_SHARE)
 	               != FZN_PERSIST_OK)
 		return FZN_NOTES_ERR_SHAPE;
-	memcpy(out->subtree, body, FZN_TREE_ID_LEN);
-	memcpy(out->contact, body + FZN_TREE_ID_LEN, FZN_PUBKEY_LEN);
-	out->shared_at_ms = fzn_get_be64(body + FZN_TREE_ID_LEN + FZN_PUBKEY_LEN);
-	out->catch_up = len == FZN_PERSIST_HEAD_LEN + BODY_LEN ? body[BODY_LEN_V0]
-	                                                       : FZN_NOTES_SHARE_CATCH_UP_GROUP;
+	if (len == FZN_PERSIST_HEAD_LEN + BODY_LEN) {
+		situ_msg_t m;
+		situ_view_t b;
+
+		/* THE ROW READ THROUGH ITS VIEW, sec 1398. */
+		situ_msg_init(&m, blob, (uint32_t)len);
+		if (fzn_persist_wire_fzn_persist_note_share_body_view(&m, FZN_PERSIST_HEAD_LEN, &b) != SITU_OK)
+			return FZN_NOTES_ERR_SHAPE;
+		memcpy(out->subtree, fzn_persist_wire_fzn_persist_note_share_body_subtree_ptr(b), FZN_TREE_ID_LEN);
+		memcpy(out->contact, fzn_persist_wire_fzn_persist_note_share_body_contact_ptr(b), FZN_PUBKEY_LEN);
+		out->shared_at_ms = fzn_persist_wire_fzn_persist_note_share_body_shared_at_get(b);
+		out->catch_up = fzn_persist_wire_fzn_persist_note_share_body_catch_up_get(b);
+	} else {
+		/* A ROW FROM BEFORE ITS CATCH-UP BYTE, one byte shorter, which the
+		 * schema does not describe: read by hand, and following the
+		 * group's setting, as it did. Rewritten whole when next set. */
+		memcpy(out->subtree, body, FZN_TREE_ID_LEN);
+		memcpy(out->contact, body + FZN_TREE_ID_LEN, FZN_PUBKEY_LEN);
+		out->shared_at_ms = fzn_get_be64(body + FZN_TREE_ID_LEN + FZN_PUBKEY_LEN);
+		out->catch_up = FZN_NOTES_SHARE_CATCH_UP_GROUP;
+	}
 	if (out->catch_up > FZN_NOTES_SHARE_CATCH_UP_NO)
 		return FZN_NOTES_ERR_SHAPE;
 	/* FILED WHERE IT SAYS: a row under another pair's key is a share
@@ -156,7 +187,6 @@ fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now_ms)
 {
 	uint8_t key[FZN_PUBKEY_LEN], blob[BLOB_LEN];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	fzn_notes_share_t held;
 	fzn_notes_err_t err;
 
@@ -179,13 +209,8 @@ fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
 			return FZN_NOTES_ERR_FULL;
 	}
 #endif
-	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN, FZN_PERSIST_BLOB_NOTE_SHARE)
-	    != FZN_PERSIST_OK)
+	if (!share_build(blob, subtree, contact, now_ms, FZN_NOTES_SHARE_CATCH_UP_GROUP))
 		return FZN_NOTES_ERR_MALFORMED;
-	memcpy(body, subtree, FZN_TREE_ID_LEN);
-	memcpy(body + FZN_TREE_ID_LEN, contact, FZN_PUBKEY_LEN);
-	fzn_put_be64(body + FZN_TREE_ID_LEN + FZN_PUBKEY_LEN, now_ms);
-	body[BODY_LEN_V0] = FZN_NOTES_SHARE_CATCH_UP_GROUP;
 	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_SHARE, key, blob, sizeof(blob)))
 		return FZN_NOTES_ERR_BACKEND;
 	return FZN_NOTES_OK;
@@ -197,7 +222,6 @@ fzn_notes_err_t fzn_notes_share_set_catch_up(const fzn_notes_store_t *store,
                                              uint8_t catch_up)
 {
 	uint8_t key[FZN_PUBKEY_LEN], blob[BLOB_LEN];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	fzn_notes_share_t held;
 	fzn_notes_err_t err;
 
@@ -212,13 +236,8 @@ fzn_notes_err_t fzn_notes_share_set_catch_up(const fzn_notes_store_t *store,
 		return err;
 	/* REWRITTEN WHOLE, its time kept: a row of the old length gains the
 	 * byte. */
-	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN, FZN_PERSIST_BLOB_NOTE_SHARE)
-	    != FZN_PERSIST_OK)
+	if (!share_build(blob, held.subtree, held.contact, held.shared_at_ms, catch_up))
 		return FZN_NOTES_ERR_MALFORMED;
-	memcpy(body, held.subtree, FZN_TREE_ID_LEN);
-	memcpy(body + FZN_TREE_ID_LEN, held.contact, FZN_PUBKEY_LEN);
-	fzn_put_be64(body + FZN_TREE_ID_LEN + FZN_PUBKEY_LEN, held.shared_at_ms);
-	body[BODY_LEN_V0] = catch_up;
 	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_SHARE, key, blob, sizeof(blob)))
 		return FZN_NOTES_ERR_BACKEND;
 	return FZN_NOTES_OK;

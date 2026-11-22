@@ -1,6 +1,8 @@
 /* See received.h. */
 
 #include "received.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../wire/bytes.h"
 
@@ -46,26 +48,36 @@ fzn_node_received_err_t fzn_node_received_get(const fzn_persist_ops_t *store,
                                               fzn_node_received_t *out)
 {
 	uint8_t blob[BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *host;
 	size_t len = 0, n;
+	situ_msg_t m;
+	situ_view_t b;
+	uint32_t need = 0;
 
 	if (!store || !store->load || !sharer || !out)
 		return FZN_NODE_RECEIVED_ERR_MALFORMED;
 	if (!store->load(store->ctx, FZN_PERSIST_RECEIVED_SHARE, sharer, blob, sizeof(blob), &len))
 		return FZN_NODE_RECEIVED_ERR_ABSENT;
-	if (len < FZN_PERSIST_HEAD_LEN + 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1398: a host of 1 to 253 bytes and a
+	 * port not 0, then the host's own rule. */
+	if (len < FZN_PERSIST_HEAD_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_received_share_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_RECEIVED_SHARE) != FZN_PERSIST_OK)
 		return FZN_NODE_RECEIVED_ERR_SHAPE;
-	n = body[0];
-	if (fzn_persist_head_check(blob, len, BODY_LEN(n), FZN_PERSIST_BLOB_RECEIVED_SHARE)
-	            != FZN_PERSIST_OK
-	    || !fzn_node_received_host_ok((const char *)body + 1, n))
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_received_share_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_received_share_body_validate(b) != SITU_OK)
+		return FZN_NODE_RECEIVED_ERR_SHAPE;
+	n = fzn_persist_wire_fzn_persist_received_share_body_host_len_get(b);
+	host = fzn_persist_wire_fzn_persist_received_share_body_host_ptr(b);
+	if (n > FZN_NODE_RECEIVED_HOST_MAX || !fzn_node_received_host_ok((const char *)host, n))
 		return FZN_NODE_RECEIVED_ERR_SHAPE;
 	memset(out, 0, sizeof(*out));
 	memcpy(out->sharer, sharer, FZN_PUBKEY_LEN);
-	memcpy(out->host, body + 1, n);
+	memcpy(out->host, host, n);
 	out->host_len = n;
-	out->port = fzn_get_be16(body + 1 + n);
-	out->accepted_at_ms = fzn_get_be64(body + 1 + n + 2);
+	out->port = fzn_persist_wire_fzn_persist_received_share_body_port_get(b);
+	out->accepted_at_ms = fzn_persist_wire_fzn_persist_received_share_body_accepted_at_get(b);
 	if (out->port == 0u)
 		return FZN_NODE_RECEIVED_ERR_SHAPE;
 	return FZN_NODE_RECEIVED_OK;
@@ -154,20 +166,21 @@ fzn_node_received_err_t fzn_node_received_add(const fzn_persist_ops_t *store,
                                               uint64_t now_ms)
 {
 	uint8_t blob[BLOB_MAX];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	uint32_t wrote = 0;
 
 	/* AS MANY AS ARE ACCEPTED, sec 960: none counted, as none is a bound. */
 	if (!store || !store->save || !sharer || !fzn_node_received_host_ok(host, host_len)
 	    || port == 0u)
 		return FZN_NODE_RECEIVED_ERR_MALFORMED;
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(host_len),
 	                           FZN_PERSIST_BLOB_RECEIVED_SHARE)
-	    != FZN_PERSIST_OK)
+	            != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_received_share_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)BODY_LEN(host_len),
+	                                                  (const uint8_t *)host, (uint32_t)host_len, port, now_ms,
+	                                                  &wrote)
+	               != SITU_OK)
 		return FZN_NODE_RECEIVED_ERR_MALFORMED;
-	body[0] = (uint8_t)host_len;
-	memcpy(body + 1, host, host_len);
-	fzn_put_be16(body + 1 + host_len, port);
-	fzn_put_be64(body + 1 + host_len + 2, now_ms);
 	if (!store->save(store->ctx, FZN_PERSIST_RECEIVED_SHARE, sharer, blob,
 	                 FZN_PERSIST_HEAD_LEN + BODY_LEN(host_len)))
 		return FZN_NODE_RECEIVED_ERR_BACKEND;

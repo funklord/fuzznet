@@ -1,6 +1,8 @@
 /* See received.h. */
 
 #include "received.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -51,16 +53,34 @@ static int rows_room(uint8_t (**keys)[FZN_PUBKEY_LEN])
 	return *keys != NULL;
 }
 
+/* A ROW'S PARTS, read through the body's view, sec 1398: whose share,
+ * which claim, and the record it holds. */
+typedef struct {
+	const uint8_t *sharer, *claim, *record;
+	size_t record_len;
+} shared_row_t;
+
 static int row_read(const fzn_persist_ops_t *base, const uint8_t key[FZN_PUBKEY_LEN],
-                    uint8_t *row, size_t *len)
+                    uint8_t *row, size_t *len, shared_row_t *r)
 {
+	situ_msg_t m;
+	situ_view_t b;
+
 	*len = 0;
 	if (!base->load(base->ctx, FZN_PERSIST_SHARED_NOTE, key, row, ROW_MAX, len)
-	    || *len <= FZN_PERSIST_HEAD_LEN + PREFIX_LEN
+	    || *len <= FZN_PERSIST_HEAD_LEN + PREFIX_LEN || *len > ROW_MAX
 	    || fzn_persist_head_check(row, *len, *len - FZN_PERSIST_HEAD_LEN,
 	                              FZN_PERSIST_BLOB_SHARED_NOTE)
 	               != FZN_PERSIST_OK)
 		return 0;
+	situ_msg_init(&m, row, (uint32_t)*len);
+	if (fzn_persist_wire_fzn_persist_shared_note_body_view(&m, FZN_PERSIST_HEAD_LEN, (uint32_t)(*len - FZN_PERSIST_HEAD_LEN), &b)
+	    != SITU_OK)
+		return 0;
+	r->sharer = fzn_persist_wire_fzn_persist_shared_note_body_sharer_ptr(b);
+	r->claim = fzn_persist_wire_fzn_persist_shared_note_body_claim_ptr(b);
+	r->record = fzn_persist_wire_fzn_persist_shared_note_body_record_ptr(b);
+	r->record_len = fzn_persist_wire_fzn_persist_shared_note_body_record_len(b);
 	return 1;
 }
 
@@ -69,9 +89,9 @@ static int seam_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 {
 	const fzn_notes_received_t *seam = (const fzn_notes_received_t *)ctx;
 	static uint8_t row[ROW_MAX];
-	const uint8_t *prefix = row + FZN_PERSIST_HEAD_LEN;
+	shared_row_t r;
 	uint8_t key[FZN_PUBKEY_LEN];
-	size_t n = 0, record_len;
+	size_t n = 0;
 
 	/* A WRAP KEY THE SHARER GAVE, sec 520, filed apart from this node's
 	 * own under a key of the sharer and the note. */
@@ -83,17 +103,16 @@ static int seam_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	/* NOTHING BUT NOTES AND THEIR WRAP KEYS: no purge, no partner is held
 	 * in a sharer's tree, so each reads absent. */
 	if (slot != FZN_PERSIST_NOTE || !subject || !row_key(seam, subject, key)
-	    || !row_read(seam->base, key, row, &n))
+	    || !row_read(seam->base, key, row, &n, &r))
 		return 0;
 	/* THE ROW IT SAYS IT IS: this sharer's, this claim's. */
-	if (memcmp(prefix, seam->sharer, FZN_PUBKEY_LEN) != 0
-	    || memcmp(prefix + FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN) != 0)
+	if (memcmp(r.sharer, seam->sharer, FZN_PUBKEY_LEN) != 0
+	    || memcmp(r.claim, subject, FZN_PUBKEY_LEN) != 0)
 		return 0;
-	record_len = n - FZN_PERSIST_HEAD_LEN - PREFIX_LEN;
-	if (fzn_persist_head_write(out, cap, record_len, FZN_PERSIST_BLOB_NOTE) != FZN_PERSIST_OK)
+	if (fzn_persist_head_write(out, cap, r.record_len, FZN_PERSIST_BLOB_NOTE) != FZN_PERSIST_OK)
 		return 0;
-	memcpy(out + FZN_PERSIST_HEAD_LEN, prefix + PREFIX_LEN, record_len);
-	*len = FZN_PERSIST_HEAD_LEN + record_len;
+	memcpy(out + FZN_PERSIST_HEAD_LEN, r.record, r.record_len);
+	*len = FZN_PERSIST_HEAD_LEN + r.record_len;
 	return 1;
 }
 
@@ -104,6 +123,7 @@ static int seam_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	static uint8_t row[ROW_MAX];
 	uint8_t key[FZN_PUBKEY_LEN];
 	size_t record_len;
+	uint32_t wrote = 0;
 
 	if (slot == FZN_PERSIST_NOTE_WRAP) {
 		if (!subject || !bytes || !wrap_key_of(seam->hash, seam->sharer, subject, key))
@@ -117,14 +137,16 @@ static int seam_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	               != FZN_PERSIST_OK)
 		return 0;
 	record_len = len - FZN_PERSIST_HEAD_LEN;
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
 	if (fzn_persist_head_write(row, sizeof(row), PREFIX_LEN + record_len,
 	                           FZN_PERSIST_BLOB_SHARED_NOTE)
 	            != FZN_PERSIST_OK
-	    || !row_key(seam, subject, key))
+	    || !row_key(seam, subject, key)
+	    || fzn_persist_wire_fzn_persist_shared_note_body_build(row + FZN_PERSIST_HEAD_LEN, (uint32_t)(PREFIX_LEN + record_len),
+	                                               seam->sharer, subject, bytes + FZN_PERSIST_HEAD_LEN,
+	                                               (uint32_t)record_len, &wrote)
+	               != SITU_OK)
 		return 0;
-	memcpy(row + FZN_PERSIST_HEAD_LEN, seam->sharer, FZN_PUBKEY_LEN);
-	memcpy(row + FZN_PERSIST_HEAD_LEN + FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN);
-	memcpy(row + FZN_PERSIST_HEAD_LEN + PREFIX_LEN, bytes + FZN_PERSIST_HEAD_LEN, record_len);
 	rows_written++;
 	return seam->base->save(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, key, row,
 	                        FZN_PERSIST_HEAD_LEN + PREFIX_LEN + record_len);
@@ -150,21 +172,21 @@ static int seam_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	                      FZN_NOTES_RECEIVED_ROWS, &held))
 		return 0;
 	for (i = 0; i < held; i++) {
-		const uint8_t *prefix = row + FZN_PERSIST_HEAD_LEN;
+		shared_row_t r;
 
-		if (!row_read(seam->base, keys[i], row, &len)
-		    || memcmp(prefix, seam->sharer, FZN_PUBKEY_LEN) != 0)
+		if (!row_read(seam->base, keys[i], row, &len, &r)
+		    || memcmp(r.sharer, seam->sharer, FZN_PUBKEY_LEN) != 0)
 			continue;
 		/* FILED WHERE IT SAYS, or it is not listed: a row copied under
 		 * another key would otherwise name a claim twice. */
-		if (!row_key(seam, prefix + FZN_PUBKEY_LEN, check)
+		if (!row_key(seam, r.claim, check)
 		    || memcmp(check, keys[i], FZN_PUBKEY_LEN) != 0)
 			continue;
 		/* TRUNCATION IS A FAILURE, as `persist.h` asks of every list. */
 		if (n >= max)
 			return 0;
 		if (out)
-			memcpy(out + (n * FZN_PUBKEY_LEN), prefix + FZN_PUBKEY_LEN, FZN_PUBKEY_LEN);
+			memcpy(out + (n * FZN_PUBKEY_LEN), r.claim, FZN_PUBKEY_LEN);
 		n++;
 	}
 	*count = n;
@@ -264,16 +286,15 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 	for (i = 0; i < held; i++) {
 		fzn_record_t rec;
 		uint8_t wrap_row[FZN_PUBKEY_LEN];
+		shared_row_t r;
 
-		if (!row_read(base, keys[i], row, &len)
-		    || memcmp(row + FZN_PERSIST_HEAD_LEN, sharer, FZN_PUBKEY_LEN) != 0)
+		if (!row_read(base, keys[i], row, &len, &r) || memcmp(r.sharer, sharer, FZN_PUBKEY_LEN) != 0)
 			continue;
 		/* ITS NOTE'S WRAP KEY FIRST, while the row still names the note:
 		 * a key left with no row naming it could never be found again. So a
 		 * refused removal stops here, the row kept to name it, sec 746: it
 		 * was ignored, and the row went regardless. */
-		if (fzn_record_open(row + FZN_PERSIST_HEAD_LEN + PREFIX_LEN,
-		                    len - FZN_PERSIST_HEAD_LEN - PREFIX_LEN, &rec)
+		if (fzn_record_open(r.record, r.record_len, &rec)
 		            == FZN_RECORD_OK
 		    && wrap_key_of(hash, sharer, fzn_record_subject(rec), wrap_row)
 		    && !base->remove(base->ctx, FZN_PERSIST_NOTE_WRAP, wrap_row))
@@ -363,18 +384,19 @@ fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
 		return FZN_NOTES_ERR_BACKEND;
 	for (i = 0; i < held; i++) {
 		int seen = 0;
+		shared_row_t r;
 
-		if (!row_read(base, keys[i], row, &len))
+		if (!row_read(base, keys[i], row, &len, &r))
 			continue;
 		for (j = 0; j < n && !seen; j++)
-			seen = memcmp(out[j], row + FZN_PERSIST_HEAD_LEN, FZN_PUBKEY_LEN) == 0;
+			seen = memcmp(out[j], r.sharer, FZN_PUBKEY_LEN) == 0;
 		if (seen)
 			continue;
 		/* MORE SHARERS THAN ROOM is a failure, not a short answer: a
 		 * caller keeping what they name would drop the rest's texts. */
 		if (n >= cap)
 			return FZN_NOTES_ERR_FULL;
-		memcpy(out[n++], row + FZN_PERSIST_HEAD_LEN, FZN_PUBKEY_LEN);
+		memcpy(out[n++], r.sharer, FZN_PUBKEY_LEN);
 	}
 	*count = n;
 	return FZN_NOTES_OK;

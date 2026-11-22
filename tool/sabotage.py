@@ -5659,15 +5659,15 @@ SABOTAGES = [
 	(
 		"received-list-filed-under-own-key",
 		"notes/received.c",
-		"\t\tif (!row_key(seam, prefix + FZN_PUBKEY_LEN, check)\n\t\t    || memcmp(check, keys[i], FZN_PUBKEY_LEN) != 0)\n\t\t\tcontinue;\n",
+		"\t\tif (!row_key(seam, r.claim, check)\n\t\t    || memcmp(check, keys[i], FZN_PUBKEY_LEN) != 0)\n\t\t\tcontinue;\n",
 		"",
 		"a shared note's row copied under another key names its claim twice -- sec 437",
 	),
 	(
 		"received-forget-only-that-sharer",
 		"notes/received.c",
-		"\t\tif (!row_read(base, keys[i], row, &len)\n\t\t    || memcmp(row + FZN_PERSIST_HEAD_LEN, sharer, FZN_PUBKEY_LEN) != 0)\n\t\t\tcontinue;\n",
-		"\t\tif (!row_read(base, keys[i], row, &len))\n\t\t\tcontinue;\n",
+		"\t\tif (!row_read(base, keys[i], row, &len, &r) || memcmp(r.sharer, sharer, FZN_PUBKEY_LEN) != 0)\n\t\t\tcontinue;\n",
+		"\t\tif (!row_read(base, keys[i], row, &len, &r))\n\t\t\tcontinue;\n",
 		"forgetting one sharer's tree erases every sharer's -- sec 437",
 	),
 	(

@@ -1,6 +1,8 @@
 /* See contact.h. */
 
 #include "contact.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../wire/bytes.h"
 
@@ -82,25 +84,35 @@ fzn_contact_err_t fzn_contact_get(const fzn_persist_ops_t *store,
                                   const uint8_t key[FZN_PUBKEY_LEN], fzn_contact_t *out)
 {
 	uint8_t blob[BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *name;
 	size_t len = 0, n;
+	situ_msg_t m;
+	situ_view_t b;
+	uint32_t need = 0;
 
 	if (!store || !store->load || !key || !out)
 		return FZN_CONTACT_ERR_MALFORMED;
 	if (!store->load(store->ctx, FZN_PERSIST_CONTACT, key, blob, sizeof(blob), &len))
 		return FZN_CONTACT_ERR_ABSENT;
-	if (len < FZN_PERSIST_HEAD_LEN + 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1398, the name then the contact's own
+	 * rule for one. */
+	if (len < FZN_PERSIST_HEAD_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_contact_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_CONTACT) != FZN_PERSIST_OK)
 		return FZN_CONTACT_ERR_SHAPE;
-	n = body[0];
-	if (fzn_persist_head_check(blob, len, BODY_LEN(n), FZN_PERSIST_BLOB_CONTACT)
-	            != FZN_PERSIST_OK
-	    || !fzn_contact_name_ok((const char *)body + 1, n))
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_contact_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_contact_body_validate(b) != SITU_OK)
+		return FZN_CONTACT_ERR_SHAPE;
+	n = fzn_persist_wire_fzn_persist_contact_body_name_len_get(b);
+	name = fzn_persist_wire_fzn_persist_contact_body_name_ptr(b);
+	if (n > FZN_CONTACT_NAME_MAX || !fzn_contact_name_ok((const char *)name, n))
 		return FZN_CONTACT_ERR_SHAPE;
 	memset(out, 0, sizeof(*out));
 	memcpy(out->key, key, FZN_PUBKEY_LEN);
-	memcpy(out->name, body + 1, n);
+	memcpy(out->name, name, n);
 	out->name_len = n;
-	out->added_at_ms = fzn_get_be64(body + 1 + n);
+	out->added_at_ms = fzn_persist_wire_fzn_persist_contact_body_added_at_get(b);
 	return FZN_CONTACT_OK;
 }
 
@@ -297,8 +309,8 @@ fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,
 {
 	struct contacts_adding a;
 	uint8_t blob[BLOB_MAX];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	fzn_contact_err_t err;
+	uint32_t wrote = 0;
 
 	if (!store || !store->save || !key || !name)
 		return FZN_CONTACT_ERR_MALFORMED;
@@ -310,12 +322,13 @@ fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,
 	err = fzn_contact_each(store, contact_adding, &a);
 	if (err != FZN_CONTACT_OK)
 		return err;
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(name_len), FZN_PERSIST_BLOB_CONTACT)
-	    != FZN_PERSIST_OK)
+	            != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_contact_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)BODY_LEN(name_len),
+	                                           (const uint8_t *)name, (uint32_t)name_len, a.added, &wrote)
+	               != SITU_OK)
 		return FZN_CONTACT_ERR_MALFORMED;
-	body[0] = (uint8_t)name_len;
-	memcpy(body + 1, name, name_len);
-	fzn_put_be64(body + 1 + name_len, a.added);
 	if (!store->save(store->ctx, FZN_PERSIST_CONTACT, key, blob,
 	                 FZN_PERSIST_HEAD_LEN + BODY_LEN(name_len)))
 		return FZN_CONTACT_ERR_BACKEND;

@@ -1,6 +1,7 @@
 /* See purge.h. */
 
 #include "purge.h"
+#include "../wire/generated/persist_wire.h"
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
@@ -18,19 +19,30 @@
 static fzn_notes_err_t save(const fzn_notes_store_t *store, const fzn_notes_purge_t *p)
 {
 	uint8_t blob[BLOB_MAX];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	size_t i;
+	situ_msg_t m;
+	situ_view_t b, e;
 
-	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(p->asked_count),
-	                           FZN_PERSIST_BLOB_NOTE_PURGE)
-	    != FZN_PERSIST_OK)
+	/* THE BODY WRITTEN THROUGH ITS VIEW, sec 1398: sized first, then each
+	 * field, the count before its hosts, each host through `asked_at`. */
+	if (p->asked_count > FZN_NOTES_PURGE_ASK_MAX
+	    || fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(p->asked_count),
+	                              FZN_PERSIST_BLOB_NOTE_PURGE)
+	               != FZN_PERSIST_OK)
 		return FZN_NOTES_ERR_MALFORMED;
-	fzn_put_be64(body + OFF_QUEUED, p->queued_at_ms);
-	fzn_put_be64(body + OFF_PUSH, p->last_push_ms);
-	body[OFF_COUNT] = (uint8_t)p->asked_count;
+	memset(blob + FZN_PERSIST_HEAD_LEN, 0, BODY_LEN(p->asked_count));
+	situ_msg_init(&m, blob, (uint32_t)(FZN_PERSIST_HEAD_LEN + BODY_LEN(p->asked_count)));
+	if (fzn_persist_wire_fzn_persist_note_purge_body_view(&m, FZN_PERSIST_HEAD_LEN, (uint32_t)BODY_LEN(p->asked_count), &b)
+	    != SITU_OK)
+		return FZN_NOTES_ERR_MALFORMED;
+	fzn_persist_wire_fzn_persist_note_purge_body_queued_at_set(b, p->queued_at_ms);
+	fzn_persist_wire_fzn_persist_note_purge_body_last_push_set(b, p->last_push_ms);
+	fzn_persist_wire_fzn_persist_note_purge_body_asked_count_set(&m, b, (uint8_t)p->asked_count);
 	for (i = 0; i < p->asked_count; i++) {
-		memcpy(body + OFF_HOSTS + (i * HOST_LEN), p->asked[i], FZN_PUBKEY_LEN);
-		body[OFF_HOSTS + (i * HOST_LEN) + FZN_PUBKEY_LEN] = p->answered[i] ? 1u : 0u;
+		if (fzn_persist_wire_fzn_persist_note_purge_body_asked_at(b, (uint32_t)i, &e) != SITU_OK)
+			return FZN_NOTES_ERR_MALFORMED;
+		memcpy(fzn_persist_wire_fzn_persist_purge_host_host_ptr(e), p->asked[i], FZN_PUBKEY_LEN);
+		fzn_persist_wire_fzn_persist_purge_host_answered_set(e, p->answered[i] ? 1u : 0u);
 	}
 	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PURGE, p->id, blob,
 	                      FZN_PERSIST_HEAD_LEN + BODY_LEN(p->asked_count)))
@@ -44,30 +56,37 @@ fzn_notes_err_t fzn_notes_purge_get(const fzn_notes_store_t *store,
 	uint8_t blob[BLOB_MAX];
 	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	size_t len = 0, n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
 	if (!store || !store->ops || !id || !out)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_PURGE, id, blob, sizeof(blob), &len))
 		return FZN_NOTES_ERR_ABSENT;
-	if (len < FZN_PERSIST_HEAD_LEN + OFF_HOSTS)
+	/* READ AS THE SCHEMA SAYS, sec 1398: EXACTLY its hosts, each
+	 * `answered` 0 or 1 (`validate`), and at least one. */
+	if (len < FZN_PERSIST_HEAD_LEN + OFF_HOSTS
+	    || fzn_persist_wire_fzn_persist_note_purge_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_NOTE_PURGE) != FZN_PERSIST_OK)
 		return FZN_NOTES_ERR_SHAPE;
-	n = body[OFF_COUNT];
-	if (n == 0u || n > FZN_NOTES_PURGE_ASK_MAX
-	    || fzn_persist_head_check(blob, len, BODY_LEN(n), FZN_PERSIST_BLOB_NOTE_PURGE)
-	               != FZN_PERSIST_OK)
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_note_purge_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_note_purge_body_validate(b) != SITU_OK)
+		return FZN_NOTES_ERR_SHAPE;
+	n = fzn_persist_wire_fzn_persist_note_purge_body_asked_count_get(b);
+	if (n == 0u || n > FZN_NOTES_PURGE_ASK_MAX)
 		return FZN_NOTES_ERR_SHAPE;
 	memset(out, 0, sizeof(*out));
 	memcpy(out->id, id, FZN_TREE_ID_LEN);
-	out->queued_at_ms = fzn_get_be64(body + OFF_QUEUED);
-	out->last_push_ms = fzn_get_be64(body + OFF_PUSH);
+	out->queued_at_ms = fzn_persist_wire_fzn_persist_note_purge_body_queued_at_get(b);
+	out->last_push_ms = fzn_persist_wire_fzn_persist_note_purge_body_last_push_get(b);
 	out->asked_count = n;
 	for (i = 0; i < n; i++) {
-		const uint8_t *h = body + OFF_HOSTS + (i * HOST_LEN);
-
-		if (h[FZN_PUBKEY_LEN] > 1u)
+		if (fzn_persist_wire_fzn_persist_note_purge_body_asked_at(b, (uint32_t)i, &e) != SITU_OK)
 			return FZN_NOTES_ERR_SHAPE;
-		memcpy(out->asked[i], h, FZN_PUBKEY_LEN);
-		out->answered[i] = h[FZN_PUBKEY_LEN];
+		memcpy(out->asked[i], fzn_persist_wire_fzn_persist_purge_host_host_ptr(e), FZN_PUBKEY_LEN);
+		out->answered[i] = fzn_persist_wire_fzn_persist_purge_host_answered_get(e);
 	}
 	return FZN_NOTES_OK;
 }

@@ -3,6 +3,8 @@
 #include "sync.h"
 #include "../wire/generated/sync_wire.h"
 #include "../wire/generated/sync_wire_build.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
@@ -353,11 +355,13 @@ static size_t answer_purge(const fzn_notes_store_t *store, fzn_notes_policy_t po
 static void partner_seen(const fzn_notes_store_t *store, const uint8_t *key, uint64_t now_ms)
 {
 	uint8_t blob[PARTNER_BLOB];
+	uint32_t wrote = 0;
 
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1398. */
 	if (fzn_persist_head_write(blob, sizeof(blob), PARTNER_BODY, FZN_PERSIST_BLOB_NOTE_PARTNER)
-	    != FZN_PERSIST_OK)
+	            != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_note_partner_body_build(blob + FZN_PERSIST_HEAD_LEN, PARTNER_BODY, now_ms, &wrote) != SITU_OK)
 		return;
-	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN, now_ms);
 	(void)store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PARTNER, key, blob, sizeof(blob));
 }
 
@@ -379,16 +383,20 @@ fzn_notes_err_t fzn_notes_partner_seen_at(const fzn_notes_store_t *store,
 {
 	uint8_t blob[PARTNER_BLOB];
 	size_t len = 0;
+	situ_msg_t m;
+	situ_view_t b;
 
 	if (!store || !store->ops || !key || !ms)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_PARTNER, key, blob, sizeof(blob),
 	                      &len))
 		return FZN_NOTES_ERR_ABSENT;
+	situ_msg_init(&m, blob, (uint32_t)len);
 	if (fzn_persist_head_check(blob, len, PARTNER_BODY, FZN_PERSIST_BLOB_NOTE_PARTNER)
-	    != FZN_PERSIST_OK)
+	            != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_note_partner_body_view(&m, FZN_PERSIST_HEAD_LEN, &b) != SITU_OK)
 		return FZN_NOTES_ERR_SHAPE;
-	*ms = fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN);
+	*ms = fzn_persist_wire_fzn_persist_note_partner_body_last_pull_get(b);
 	return FZN_NOTES_OK;
 }
 
