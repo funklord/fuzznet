@@ -4859,6 +4859,13 @@ SABOTAGES = [
 		"an edit the index calls older than its own record is reported written, and silently lost -- sec 517",
 	),
 	(
+		"notes-within-group-passes-own-rows",
+		"node/notes.c",
+		"\tfor (r = 0; r < n_rows && !only; r++)\n",
+		"\tfor (r = 0; r < n_rows; r++)\n",
+		"a member's search within a group finds what was shared with it alone -- sec 1401",
+	),
+	(
 		"node-notes-no-journal-said",
 		"node/notes.c",
 		"\tif (!n->chain)\n\t\treturn say(",

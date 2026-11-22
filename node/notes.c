@@ -2553,7 +2553,8 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 
 /* ---- the notes store of the one search, sec 1287 step 4 ------------------ */
 
-static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender, fzn_notes_sync_scope_t *scope);
+static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *only,
+                         fzn_notes_sync_scope_t *scope);
 
 /* THE MOST NOTES ONE SEARCH OPENS, newest edited first: each is a blob
  * opened and its text scored, and a search must answer within its asker's
@@ -2711,13 +2712,9 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 	if (asker) {
 		fzn_notes_sync_scope_t scope;
 
-		/* NOT YET WITHIN A GROUP, sec 1400: what a member reads of the
-		 * notes shared with one group, from its joining on, is a scope
-		 * `shared_scope` does not draw apart from its others. The group's
-		 * lines answer it meanwhile. */
-		if (q->within)
-			return 1;
-		shared_scope(n, asker, &scope);
+		/* WITHIN A GROUP, sec 1401: what the member reads of the notes
+		 * shared with that one group, from its joining on as ever. */
+		shared_scope(n, asker, q->within, &scope);
 		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
 	}
 	/* WITHIN A GROUP, sec 1400, for this user: its own notes shared with
@@ -2727,7 +2724,7 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 	if (q->within) {
 		fzn_notes_sync_scope_t scope;
 
-		shared_scope(n, q->within, &scope);
+		shared_scope(n, q->within, NULL, &scope);
 		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
 	}
 	{
@@ -3421,7 +3418,7 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
  * joined after it was made a FLOOR: the notes it reaches are served from
  * that member's joining on. A note another share reaches without one has
  * none; one two floored shares reach has the lower. */
-static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
+static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *only,
                               fzn_notes_sync_scope_t *scope);
 
 /* THE LAST ASKER'S SCOPE KEPT, sec 995, while the notes stamp stands: a
@@ -3431,10 +3428,11 @@ static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
  * guessed the cost. What it depends on -- the share rows, the groups, the
  * notes -- is in the store the stamp counts; with no stamp, worked out each
  * time as before. `reach` is written here alone. */
-static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
+static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *only,
                          fzn_notes_sync_scope_t *scope)
 {
-	static uint8_t kept_sender[FZN_PUBKEY_LEN];
+	static uint8_t kept_sender[FZN_PUBKEY_LEN], kept_only[FZN_PUBKEY_LEN];
+	static int kept_has_only;
 	static fzn_notes_sync_scope_t kept;
 	static uint64_t kept_stamp;
 	static const fzn_notes_store_t *kept_of;
@@ -3442,14 +3440,18 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 	uint64_t stamp = n && n->store.stamp ? n->store.stamp(n->store.stamp_ctx) : 0u;
 
 	if (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp
-	    && memcmp(kept_sender, sender, FZN_PUBKEY_LEN) == 0) {
+	    && memcmp(kept_sender, sender, FZN_PUBKEY_LEN) == 0 && kept_has_only == (only != NULL)
+	    && (!only || memcmp(kept_only, only, FZN_PUBKEY_LEN) == 0)) {
 		*scope = kept;
 		return;
 	}
 	have = 0;
-	shared_scope_work(n, sender, scope);
+	shared_scope_work(n, sender, only, scope);
 	if (sender && n->store.stamp) {
 		memcpy(kept_sender, sender, FZN_PUBKEY_LEN);
+		kept_has_only = only != NULL;
+		if (only)
+			memcpy(kept_only, only, FZN_PUBKEY_LEN);
 		kept = *scope;
 		kept_stamp = stamp;
 		kept_of = &n->store;
@@ -3457,7 +3459,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 	}
 }
 
-static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
+static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *only,
                               fzn_notes_sync_scope_t *scope)
 {
 	/* AS MANY AS ARE SHARED, sec 958: every row read once, the sender's own
@@ -3493,7 +3495,9 @@ static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
 		seed_floor = a;
 		seeds_room = n_rows;
 	}
-	for (r = 0; r < n_rows; r++)
+	/* ONLY ONE GROUP'S, sec 1401, where `only` names it: the sender's own
+	 * rows passed over, and every other group's. */
+	for (r = 0; r < n_rows && !only; r++)
 		if (memcmp(rows[r].contact, sender, FZN_PUBKEY_LEN) == 0) {
 			memcpy(seeds[seed_count], rows[r].subtree, FZN_TREE_ID_LEN);
 			seed_floor[seed_count++] = 0;
@@ -3505,6 +3509,8 @@ static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
 			uint64_t joined = 0;
 			int read = 0;
 
+			if (only && memcmp(in.ids[g], only, FZN_PUBKEY_LEN) != 0)
+				continue;
 			for (r = 0; r < n_rows && seed_count < seeds_room; r++) {
 				int catch_up;
 
@@ -3580,7 +3586,7 @@ static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const ui
 {
 	fzn_notes_sync_scope_t scope;
 
-	shared_scope(n, sender, &scope);
+	shared_scope(n, sender, NULL, &scope);
 	return fzn_notes_sync_answer_scoped(&n->store, &scope, request, request_len, reply,
 	                                    reply_cap);
 }
@@ -3752,7 +3758,7 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 
 	if (!n || !sender || !root)
 		return 0;
-	shared_scope(n, sender, &scope);
+	shared_scope(n, sender, NULL, &scope);
 	if (!root_claims_fresh(&n->store))
 		return 0;
 	hi = n_root_claims;
@@ -3859,7 +3865,7 @@ int fzn_node_notes_shares_file(fzn_node_notes_t *n, const uint8_t *sender,
 	}
 	if (lo == n_attached || memcmp(attached[lo].root, root, FZN_BLOB_HASH_LEN) != 0)
 		return 0;
-	shared_scope(n, sender, &scope);
+	shared_scope(n, sender, NULL, &scope);
 	for (i = lo; i < n_attached && memcmp(attached[i].root, root, FZN_BLOB_HASH_LEN) == 0; i++) {
 		fzn_record_t rec;
 		size_t len = 0;

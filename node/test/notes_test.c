@@ -1504,6 +1504,40 @@ static void test_group_share(void)
 	snprintf(want, sizeof(want), "1 0 %s,@family,1", f);
 	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
 	      "list share names the group as it was named, catching up as the group does");
+	/* WITHIN THE GROUP, secs 1400-1401: carol, a member, finds the note
+	 * shared with family and not one shared with her alone; this user the
+	 * same; within another group, neither. */
+	{
+		static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
+		fzn_search_store_t store = { "notes", fzn_node_notes_search, &notes };
+		fzn_search_query_t q;
+		uint8_t other[FZN_PUBKEY_LEN];
+		char g2[65];
+		size_t count = 0;
+		int more = 0;
+
+		memset(other, 0x77, sizeof(other));
+		CHECK(ask("add folder top alone") == FZN_REPLY_OK, "fixture: a second folder");
+		take_id(g2);
+		snprintf(line, sizeof(line), "add note %s inside", g2);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note in it");
+		snprintf(line, sizeof(line), "add share %s carol", g2);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: shared with carol alone");
+		CHECK(fzn_search_query_init(&q, "inside", 6u, 10u) && fzn_search_run(&store, 1u, &q, carol, hits, &count, &more)
+		              && count == 2u,
+		      "fixture: carol finds both notes");
+		q.within = family.id;
+		CHECK(fzn_search_run(&store, 1u, &q, carol, hits, &count, &more) && count == 1u,
+		      "carol within family found other than the note shared with the group");
+		CHECK(fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
+		      "this user within family found other than the note shared with the group");
+		q.within = other;
+		CHECK(fzn_search_run(&store, 1u, &q, carol, hits, &count, &more) && count == 0u
+		              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 0u,
+		      "a search within a group nobody shared with found a note");
+		snprintf(line, sizeof(line), "remove share %s carol", g2);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: carol's own share taken away again");
+	}
 	/* PER SHARE, sec 655: set and read back, the group's own setting the
 	 * default; a contact's share and a removal take no flag. */
 	snprintf(line, sizeof(line), "add share %s @family backfill 0", f);

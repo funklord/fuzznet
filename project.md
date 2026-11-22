@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1400
+The newest work is at the end of this file. **Read secs 1287 to 1401
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -46,8 +46,8 @@ listener port spans (`150e3106`).
   view (sec 1293); the library's files (sec 1299); facet filters, the
   engine's, the verb's and the client's (secs 1319, 1324); `with
   @GROUP`, this user's hosts and its members' who are contacts (secs
-  1399-1400). Left: members who are no contact, whom the round and sec
-  1291's gate do not reach; and a member's notes within the group.
+  1399-1401). Left: members who are no contact, whom the round and sec
+  1291's gate do not reach.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -96806,9 +96806,8 @@ that asker, within that conversation alone:
 - **lines**: none of another conversation; a contact asking still meets
   `reach_of`, its membership and joining floor included.
 - **notes**, for this user: its own notes shared with the group, the rows
-  filed under the group's id (sec 471). For a contact asking: none yet --
-  a member's notes within one group, from its joining on, is a scope
-  `shared_scope` does not draw apart from its others.
+  filed under the group's id (sec 471). For a contact asking: none at
+  first -- built in sec 1401.
 - **contacts, stickers, the library**: none -- they are in no
   conversation.
 
@@ -96839,3 +96838,25 @@ compare by wrapping difference, so the low 32 bits of a u64 clock serve
 any timeout under 2^31 units. The per-sender cap, adding from opened
 parts, a piece's own expiry and bounds at init are situ's next work.
 `chunk/reassembly.c` stays until they land.
+
+## 1401. A member's notes within one group, 2026-11-22
+
+Sec 1400 left a contact's ask within a group answered no notes:
+`shared_scope` drew a member's notes from every share it reads -- its own
+rows and every group it is in -- with no way to keep to one group.
+**`shared_scope` takes `only`, a group's id or NULL.** Where it names
+one, the sender's own rows are passed over, and so is every other
+group's; that group's rows seed the scope with the member's joining floor
+exactly as before (sec 655). The kept scope (sec 995) is keyed by the
+group as well as the sender, since it lives in the same arrays. Every
+other caller passes NULL.
+
+So a member's host, asked within a group, answers what the asker reads
+of the notes shared with that group, from its joining on, and nothing
+shared with the asker alone.
+
+**Tests:** notes_test (738): carol, a member of family, finds both notes
+-- one shared with family, one with her alone -- and within family only
+the first; this user within family the first; within a group nobody
+shared with, nothing for either. Sabotage
+`notes-within-group-passes-own-rows`.
