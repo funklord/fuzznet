@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1378
+The newest work is at the end of this file. **Read secs 1287 to 1379
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96093,3 +96093,23 @@ each); messages_test (301), delivery_fuzz (3000). Sabotage
 (one site), `node-messages-want-length-exact`,
 `node-messages-want-only-held`, `node-messages-give-at-most-per` and
 `node-messages-answer-no-more-than-asked` retargeted.
+
+## 1379. Twenty-four moved sabotage entries run: three gaps, two tests and one guard held once, 2026-11-22
+
+Every entry retargeted by secs 1370 to 1378 was run (`tool/sabotage.py
+--only`, 24 entries with the controls): 21 CAUGHT, three SURVIVED, and
+the three were one shape -- **a record longer than it should be**, which
+a fixed view reads as its first bytes and a `required` written `>`
+instead of `!=` lets by:
+
+- `pieces-kept-whole`: no test filed a piece with a byte after it; the
+  old mutation dropped the length check whole, so a short piece caught
+  it. piece_buckets_test now files one a byte long and wants it refused.
+- `messages-delivered-exact-length`: no test answered a delivery with a
+  byte too many. messages_test's `to_contact` gains mode 4 and wants it
+  counted unanswered, as mode 3's short answer is.
+- `messages-contact-text-exact` could not fire: sec 1377 capped a
+  DELIVER at its longest before `required` took it whole, so the cap and
+  the schema's `text_len [max = 512]` were the same guard twice. The cap
+  goes -- only an overflow bound stays -- and the schema's is the one,
+  which the entry now breaks.

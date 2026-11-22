@@ -826,6 +826,15 @@ static void test_shape_refused(void)
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes) - 1u)
 	          == FZN_NODE_APPLY_REFUSED,
 	      "a piece cut short was kept");
+	/* A BYTE AFTER ITS PIECE, sec 1379: every byte accounted for. */
+	{
+		uint8_t longer[sizeof(bytes) + 1u];
+
+		memcpy(longer, bytes, sizeof(bytes));
+		longer[sizeof(bytes)] = 0x41u;
+		CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, longer, sizeof(longer)) == FZN_NODE_APPLY_REFUSED,
+		      "a piece with a byte after it was kept");
+	}
 	CHECK(filer_b.file(filer_b.ctx, key_a, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
 	      "B kept a piece placed on A");
 	memcpy(bytes + 77, key_a, 32u);

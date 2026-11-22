@@ -1266,7 +1266,7 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 	}
 	if (request[1] != FZN_NODE_MESSAGES_DELIVER)
 		return 0;
-	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN || request_len > FZN_NODE_MESSAGES_DELIVER_MAX)
+	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN || request_len > UINT32_MAX)
 		return 0;
 	/* READ AS THE SCHEMA SAYS, sec 1377: version, type, a text of at most
 	 * 512 bytes, and THE TEXT IS THE REST, exactly -- a length that

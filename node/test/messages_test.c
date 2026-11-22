@@ -1619,7 +1619,8 @@ static device_t S, C; /* a sender, and its contact's host */
 
 /* THE CONTACT'S HOST ANSWERING, as fuzznetd's contact branch does: the
  * line filed under the sender's key when it keeps messages. `mode` 1 does
- * not answer; 2 answers another line's id; 3 answers a length short. */
+ * not answer; 2 answers another line's id; 3 answers a length short; 4 a
+ * byte too many (sec 1379). */
 typedef struct contact_link {
 	int keeps;
 	int mode;
@@ -1642,6 +1643,8 @@ static int to_contact(void *ctx, const uint8_t *request, size_t request_len, uin
 		out[2] ^= 0x01u;
 	if (l->mode == 3)
 		n--;
+	if (l->mode == 4 && n < out_cap)
+		out[n++] = 0u;
 	*out_len = n;
 	return 1;
 }
@@ -2368,6 +2371,9 @@ static void test_a_host_that_keeps_none_refuses(void)
 	l.mode = 3;
 	CHECK(deliver(&l) && dv.unanswered == 1u && dv.delivered == 0u,
 	      "an answer cut short is no answer");
+	l.mode = 4;
+	CHECK(deliver(&l) && dv.unanswered == 1u && dv.delivered == 0u,
+	      "an answer a byte too long is no answer");
 	l.mode = 0;
 	CHECK(deliver(&l) && dv.sent == 2u && dv.delivered == 2u
 	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found)
