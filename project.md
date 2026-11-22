@@ -73,7 +73,14 @@ listener port spans (`150e3106`).
   registry holds the contract (sec 1330); reading through it waits on the
   holder (non-minimal spellings, sec 1330). The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
-  `chunk/reassembly.c` until situ builds four gaps (secs 1399-1400).
+  `chunk/reassembly.c` for now: situ built all six gaps of sec 1399
+  (forget af5ee8d4; per-sender cap, add from parts, a piece's expiry and
+  bounds at init 724bd60b; the cap at init cad797b8). Two last asks went
+  to situ on 2026-11-22 before the move loses nothing: which bound
+  refused a piece (fuzznet logs FULL, QUOTA, TOO_LARGE and EXPIRED
+  apart), and a differing repeat of a held piece refused (CONFLICT)
+  rather than ignored. The wrapper keeps the handed-until-released
+  guard.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
