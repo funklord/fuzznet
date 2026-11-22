@@ -11358,17 +11358,15 @@ SABOTAGES = [
 	(
 		'reconcile-gate-bars-ids',
 		'node/reconcile.c',
-		'\tif (served(gate, request[2], request + 3u)\n',
+		'\tif (served(gate, kind, subject)\n',
 		'\tif (1\n',
 		'a caller names a barred bucket and is given its ids -- sec 567',
 	),
 	(
 		'reconcile-gate-bars-items',
 		'node/reconcile.c',
-		'\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n'
-		'\t    && !(gate && gate->serves_item\n'
-		'\t         && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)request[2], subject,\n'
-		'\t                              request + 3u)))\n'
+		'\tif (err != FZN_BUCKETS_ABSENT && !served(gate, kind, subject)\n'
+		'\t    && !(gate && gate->serves_item && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)kind, subject, id)))\n'
 		'\t\tlen = 0;\n',
 		'',
 		'a caller asking a barred item by its id is handed it -- sec 567',
@@ -12870,8 +12868,8 @@ SABOTAGES = [
 	(
 		"reconcile-item-served-by-its-own-gate",
 		"node/reconcile.c",
-		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n\t    && !(gate && gate->serves_item\n",
-		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n\t    && !(0 && gate && gate->serves_item\n",
+		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, kind, subject)\n\t    && !(gate && gate->serves_item && ",
+		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, kind, subject)\n\t    && !(0 && gate && gate->serves_item && ",
 		"a host cannot learn its pieces are held, so none is ever counted and every whole is kept -- sec 599",
 	),
 	(

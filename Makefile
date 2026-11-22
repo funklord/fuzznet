@@ -264,6 +264,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
              wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
              wire/generated/exchange_wire.c wire/generated/message_wire.c wire/generated/contact_devices_wire.c \
+             wire/generated/reconcile_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -294,7 +295,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c \
                  wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c \
                  wire/generated/exchange_wire_vectors.c wire/generated/message_wire_vectors.c \
-                 wire/generated/contact_devices_wire_vectors.c
+                 wire/generated/contact_devices_wire_vectors.c wire/generated/reconcile_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -797,6 +798,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/exchange_wire_vectors \
              $(BUILD_DIR)/wire/test/message_wire_vectors \
              $(BUILD_DIR)/wire/test/contact_devices_wire_vectors \
+             $(BUILD_DIR)/wire/test/reconcile_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -4700,6 +4702,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# RECONCILIATION'S MESSAGES, generated, sec 1389.
+$(BUILD_DIR)/wire/test/reconcile_wire_vectors: wire/generated/reconcile_wire_vectors.c \
+                                              wire/generated/reconcile_wire.c wire/generated/situ.c \
+                                              $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A CONTACT'S DEVICES, generated, sec 1386.
 $(BUILD_DIR)/wire/test/contact_devices_wire_vectors: wire/generated/contact_devices_wire_vectors.c \
                                                     wire/generated/contact_devices_wire.c wire/generated/situ.c \
@@ -5572,7 +5581,7 @@ $(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o $(NODE_AP
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/node/test/reconcile_test: $(BUILD_DIR)/node/test/reconcile_test.o \
-                                       $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+                                       $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5644,7 +5653,7 @@ $(BUILD_DIR)/node/test/members_fuzz: $(BUILD_DIR)/node/test/members_fuzz.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/node/test/reconcile_fuzz: $(BUILD_DIR)/node/test/reconcile_fuzz.o \
-                                       $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+                                       $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5655,7 +5664,7 @@ $(BUILD_DIR)/node/test/votes_fuzz: $(BUILD_DIR)/node/test/votes_fuzz.o $(NODE_AP
 
 # Append-only kinds by bucket, and their exchange, sec 564.
 $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
-                                     $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+                                     $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5762,14 +5771,14 @@ $(BUILD_DIR)/node/test/piece_buckets_test: $(BUILD_DIR)/node/test/piece_buckets_
                                            $(BUILD_DIR)/node/piece_buckets.o \
                                            $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o \
                                            $(BUILD_DIR)/chunk/erasure.o \
-                                           $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+                                           $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # A host's packed log segments as bucket items, sec 571.
 $(BUILD_DIR)/node/test/log_buckets_test: $(BUILD_DIR)/node/test/log_buckets_test.o \
                                          $(BUILD_DIR)/node/log_buckets.o \
-                                         $(BUILD_DIR)/node/reconcile.o \
+                                         $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o \
                                          $(BUILD_DIR)/log/copy.o $(BUILD_DIR)/log/pack.o \
                                          $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
@@ -5826,7 +5835,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o $(BUILD_DIR)/node/reconcile.o \
+              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
@@ -6230,7 +6239,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
               $(BUILD_DIR)/node/state_dir.o \
                                       $(BUILD_DIR)/node/holdings.o \
                                       $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
-                                      $(BUILD_DIR)/node/reconcile.o \
+                                      $(BUILD_DIR)/node/reconcile.o $(BUILD_DIR)/wire/generated/reconcile_wire.o \
                                       $(BUILD_DIR)/node/apply.o \
                                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                       $(BUILD_DIR)/local/client.o \
@@ -7946,7 +7955,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               record/exchange_wire.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note_row.situ node/opjournal_row.situ messages/line_record.situ \
               messages/keys_wire.situ messages/deliver_wire.situ state/setting_record.situ \
-              node/reconcile.situ node/buckets_row.situ \
+              node/reconcile_wire.situ node/buckets_row.situ \
               log/entry_record.situ log/cause_wire.situ log/gather_wire.situ chunk/piece_wire.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices_wire.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
@@ -8709,6 +8718,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reconcile_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/reconcile_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_reconcile_wire \
+	         --out $(BUILD_DIR)/.gen.new node/reconcile_wire.situ node/reconcile_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_contact_devices_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/contact_devices_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_contact_devices_wire \
@@ -8955,6 +8968,7 @@ schema:
 	          message_wire.c message_wire.h message_wire_build.h message_wire_edit.h message_wire_vectors.c \
 	          contact_devices_wire.c contact_devices_wire.h contact_devices_wire_build.h contact_devices_wire_edit.h \
 	          contact_devices_wire_vectors.c \
+	          reconcile_wire.c reconcile_wire.h reconcile_wire_build.h reconcile_wire_edit.h reconcile_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

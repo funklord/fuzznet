@@ -1,0 +1,15 @@
+# Golden vectors for node/reconcile_wire.situ's bucket exchange, written by
+# hand from its layouts: a query for message buckets from the first; a page
+# of one bucket -- subject 11s, month 2, one item, digest 22s -- of one; a
+# query for that bucket's ids; a page of its one id, 33s; a query for that
+# item's bytes from 0; the item's answer, 2 bytes of 2; a push of those 2
+# bytes; and the answer that it was kept.
+
+fzn_reconcile_buckets_query messages 06 09 00 00 00 00 00
+fzn_reconcile_buckets one 06 0A 00 00 00 00 01 00 00 00 00 00 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 00 00 00 00 00 00 00 01 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22
+fzn_reconcile_bucket_ids_query first 06 0B 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 00 00 00 00
+fzn_reconcile_bucket_ids one 06 0C 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 00 00 00 01 00 00 00 00 00 01 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33
+fzn_reconcile_item_query from0 06 0D 00 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 00 00 00 00
+fzn_reconcile_item two 06 0E 00 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 00 00 00 02 00 00 00 00 00 02 61 62
+fzn_reconcile_item_put two 06 0F 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 00 00 00 02 00 00 00 00 00 02 61 62
+fzn_reconcile_item_took kept 06 10 00 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 01 00 00 00 02

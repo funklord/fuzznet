@@ -1,6 +1,8 @@
 /* See reconcile.h. */
 
 #include "reconcile.h"
+#include "../wire/generated/reconcile_wire.h"
+#include "../wire/generated/reconcile_wire_build.h"
 
 #include "../wire/bytes.h"
 
@@ -241,13 +243,22 @@ static size_t answer_buckets(const fzn_buckets_t *b, const fzn_reconcile_gate_t 
                              size_t reply_cap)
 {
 	size_t n = 0, from, count, room, i, at = FZN_RECONCILE_BUCKETS_HEAD_LEN;
+	situ_msg_t m, out;
+	situ_view_t q, v, e;
+	uint8_t kind;
 
-	if (request_len != FZN_RECONCILE_BUCKETS_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
-	    || reply_cap < FZN_RECONCILE_BUCKETS_HEAD_LEN)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1389: a kind of at most 3
+	 * the generated validate's. */
+	if (request_len != FZN_RECONCILE_BUCKETS_QUERY_LEN || reply_cap < FZN_RECONCILE_BUCKETS_HEAD_LEN)
 		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_buckets_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_buckets_query_validate(q) != SITU_OK)
+		return 0;
+	kind = fzn_reconcile_wire_fzn_reconcile_buckets_query_kind_get(q);
 	/* TOO MANY TO LIST answers a count this cannot reach and no buckets,
 	 * so the asker counts it full rather than taking a part for the whole. */
-	switch (fzn_buckets_list_all(b, (fzn_buckets_kind_t)request[2], &served_buckets,
+	switch (fzn_buckets_list_all(b, (fzn_buckets_kind_t)kind, &served_buckets,
 	                             &served_room, &n)) {
 	case FZN_BUCKETS_OK:
 		break;
@@ -263,29 +274,38 @@ static size_t answer_buckets(const fzn_buckets_t *b, const fzn_reconcile_gate_t 
 		size_t kept = 0;
 
 		for (i = 0; i < n; i++)
-			if (served(gate, request[2], served_buckets[i].subject))
+			if (served(gate, kind, served_buckets[i].subject))
 				served_buckets[kept++] = served_buckets[i];
 		n = kept;
 	}
-	from = fzn_get_be32(request + 3u);
+	from = fzn_reconcile_wire_fzn_reconcile_buckets_query_from_get(q);
 	count = n != COUNT_FULL && from < n ? n - from : 0u;
 	room = (reply_cap - FZN_RECONCILE_BUCKETS_HEAD_LEN) / FZN_RECONCILE_BUCKET_LEN;
 	if (count > room)
 		count = room;
-	for (i = 0; i < count; i++, at += FZN_RECONCILE_BUCKET_LEN) {
+	/* THE PAGE WRITTEN THROUGH ITS VIEW, sec 1389: its length known first,
+	 * the count before the buckets so each is found in its place. */
+	at = FZN_RECONCILE_BUCKETS_HEAD_LEN + count * FZN_RECONCILE_BUCKET_LEN;
+	memset(reply, 0, at);
+	situ_msg_init(&out, reply, (uint32_t)at);
+	if (fzn_reconcile_wire_fzn_reconcile_buckets_view(&out, 0u, (uint32_t)at, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_buckets_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_buckets_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_BUCKETS);
+	fzn_reconcile_wire_fzn_reconcile_buckets_kind_set(v, kind);
+	fzn_reconcile_wire_fzn_reconcile_buckets_total_set(v, (uint32_t)n);
+	fzn_reconcile_wire_fzn_reconcile_buckets_from_set(v, (uint32_t)from);
+	fzn_reconcile_wire_fzn_reconcile_buckets_count_set(&out, v, (uint16_t)count);
+	for (i = 0; i < count; i++) {
 		const fzn_bucket_t *k = &served_buckets[from + i];
 
-		memcpy(reply + at, k->subject, FZN_PUBKEY_LEN);
-		fzn_put_be32(reply + at + 32u, k->month);
-		fzn_put_be64(reply + at + 36u, k->count);
-		memcpy(reply + at + 44u, k->digest, FZN_BUCKETS_ID_LEN);
+		if (fzn_reconcile_wire_fzn_reconcile_buckets_buckets_at(v, (uint32_t)i, &e) != SITU_OK)
+			return 0;
+		memcpy(fzn_reconcile_wire_fzn_reconcile_bucket_subject_ptr(e), k->subject, FZN_PUBKEY_LEN);
+		fzn_reconcile_wire_fzn_reconcile_bucket_month_set(e, k->month);
+		fzn_reconcile_wire_fzn_reconcile_bucket_count_set(e, k->count);
+		memcpy(fzn_reconcile_wire_fzn_reconcile_bucket_digest_ptr(e), k->digest, FZN_BUCKETS_ID_LEN);
 	}
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_BUCKETS;
-	reply[2] = request[2];
-	fzn_put_be32(reply + 3u, (uint32_t)n);
-	fzn_put_be32(reply + 7u, (uint32_t)from);
-	fzn_put_be16(reply + 11u, (uint16_t)count);
 	return at;
 }
 
@@ -294,33 +314,51 @@ static size_t answer_bucket_ids(const fzn_buckets_t *b, const fzn_reconcile_gate
                                 size_t reply_cap)
 {
 	uint64_t total = 0;
-	size_t count = 0, room;
+	size_t count = 0, room, len;
 	uint32_t month, from;
+	situ_msg_t m, out;
+	situ_view_t q, v;
+	const uint8_t *subject;
+	uint8_t kind;
 
-	if (request_len != FZN_RECONCILE_BUCKET_IDS_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
-	    || reply_cap < FZN_RECONCILE_BUCKET_IDS_HEAD_LEN)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1389. */
+	if (request_len != FZN_RECONCILE_BUCKET_IDS_QUERY_LEN || reply_cap < FZN_RECONCILE_BUCKET_IDS_HEAD_LEN)
 		return 0;
-	month = fzn_get_be32(request + 35u);
-	from = fzn_get_be32(request + 39u);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_validate(q) != SITU_OK)
+		return 0;
+	kind = fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_kind_get(q);
+	subject = fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_subject_ptr(q);
+	month = fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_month_get(q);
+	from = fzn_reconcile_wire_fzn_reconcile_bucket_ids_query_from_get(q);
 	room = (reply_cap - FZN_RECONCILE_BUCKET_IDS_HEAD_LEN) / FZN_BUCKETS_ID_LEN;
 	if (room > 0xffffu)
 		room = 0xffffu;
 	/* A BUCKET THE CALLER MAY NOT HOLD names no ids, as one not held. */
-	if (served(gate, request[2], request + 3u)
-	    && (fzn_buckets_ids(b, (fzn_buckets_kind_t)request[2], request + 3u, month, from,
+	if (served(gate, kind, subject)
+	    && (fzn_buckets_ids(b, (fzn_buckets_kind_t)kind, subject, month, from,
 	                        (uint8_t(*)[FZN_BUCKETS_ID_LEN])(reply
 	                                                         + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN),
 	                        room, &count, &total)
 	                != FZN_BUCKETS_OK
 	        || total > 0xffffffffu))
 		return 0;
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS;
-	memcpy(reply + 2u, request + 2u, 1u + FZN_PUBKEY_LEN + 4u);
-	fzn_put_be32(reply + 39u, (uint32_t)total);
-	fzn_put_be32(reply + 43u, from);
-	fzn_put_be16(reply + 47u, (uint16_t)count);
-	return FZN_RECONCILE_BUCKET_IDS_HEAD_LEN + count * FZN_BUCKETS_ID_LEN;
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1389, the ids already in
+	 * their place. */
+	len = FZN_RECONCILE_BUCKET_IDS_HEAD_LEN + count * FZN_BUCKETS_ID_LEN;
+	situ_msg_init(&out, reply, (uint32_t)len);
+	if (fzn_reconcile_wire_fzn_reconcile_bucket_ids_view(&out, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_BUCKET_IDS);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_kind_set(v, kind);
+	memcpy(fzn_reconcile_wire_fzn_reconcile_bucket_ids_subject_ptr(v), subject, FZN_PUBKEY_LEN);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_month_set(v, month);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_total_set(v, (uint32_t)total);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_from_set(v, from);
+	fzn_reconcile_wire_fzn_reconcile_bucket_ids_count_set(&out, v, (uint16_t)count);
+	return len;
 }
 
 static uint8_t served_item[FZN_BUCKETS_ITEM_MAX];
@@ -349,31 +387,38 @@ static size_t answer_item(const fzn_reconcile_server_t *srv, const fzn_buckets_t
 	uint32_t offset;
 	fzn_buckets_err_t err;
 	const struct fzn_reconcile_filer *kind_filer;
+	situ_msg_t m, out;
+	situ_view_t q, v;
+	const uint8_t *id;
+	uint8_t kind;
 
-	if (request_len != FZN_RECONCILE_ITEM_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
-	    || reply_cap < FZN_RECONCILE_ITEM_HEAD_LEN)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1389. */
+	if (request_len != FZN_RECONCILE_ITEM_QUERY_LEN || reply_cap < FZN_RECONCILE_ITEM_HEAD_LEN)
 		return 0;
-	offset = fzn_get_be32(request + 35u);
-	err = fzn_buckets_item(b, (fzn_buckets_kind_t)request[2], request + 3u, served_item,
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_item_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_item_query_validate(q) != SITU_OK)
+		return 0;
+	kind = fzn_reconcile_wire_fzn_reconcile_item_query_kind_get(q);
+	id = fzn_reconcile_wire_fzn_reconcile_item_query_id_ptr(q);
+	offset = fzn_reconcile_wire_fzn_reconcile_item_query_offset_get(q);
+	err = fzn_buckets_item(b, (fzn_buckets_kind_t)kind, id, served_item,
 	                       sizeof(served_item), &len, subject, NULL);
 	if (err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT && err != FZN_BUCKETS_LARGE)
 		return 0;
-	kind_filer = srv ? srv->takers[request[2]] : NULL;
+	kind_filer = srv ? srv->takers[kind] : NULL;
 	/* ONE ITS KIND KEEPS is read through the kind, sec 570; a kind that
 	 * cannot read it serves it as not held. */
 	if (err == FZN_BUCKETS_LARGE) {
 		if (!kind_filer || !kind_filer->read
-		    || fzn_buckets_ref(b, (fzn_buckets_kind_t)request[2], request + 3u, ref, &ref_len,
-		                       &size)
+		    || fzn_buckets_ref(b, (fzn_buckets_kind_t)kind, id, ref, &ref_len, &size)
 		               != FZN_BUCKETS_OK
 		    || !readable(kind_filer, ref, ref_len, size))
 			size = 0;
 		len = (size_t)size;
 	}
-	if (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)
-	    && !(gate && gate->serves_item
-	         && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)request[2], subject,
-	                              request + 3u)))
+	if (err != FZN_BUCKETS_ABSENT && !served(gate, kind, subject)
+	    && !(gate && gate->serves_item && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)kind, subject, id)))
 		len = 0;
 	/* NOT HELD answers 0 of 0; an offset past the end, nothing of all. */
 	if (offset < len) {
@@ -390,12 +435,18 @@ static size_t answer_item(const fzn_reconcile_server_t *srv, const fzn_buckets_t
 			memcpy(reply + FZN_RECONCILE_ITEM_HEAD_LEN, served_item + offset, n);
 		}
 	}
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_ITEM;
-	memcpy(reply + 2u, request + 2u, 1u + FZN_BUCKETS_ID_LEN);
-	fzn_put_be32(reply + 35u, (uint32_t)len);
-	fzn_put_be32(reply + 39u, offset);
-	fzn_put_be16(reply + 43u, (uint16_t)n);
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1389, the bytes already in
+	 * their place. */
+	situ_msg_init(&out, reply, (uint32_t)(FZN_RECONCILE_ITEM_HEAD_LEN + n));
+	if (fzn_reconcile_wire_fzn_reconcile_item_view(&out, 0u, (uint32_t)(FZN_RECONCILE_ITEM_HEAD_LEN + n), &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_item_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_item_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_ITEM);
+	fzn_reconcile_wire_fzn_reconcile_item_kind_set(v, kind);
+	memcpy(fzn_reconcile_wire_fzn_reconcile_item_id_ptr(v), id, FZN_BUCKETS_ID_LEN);
+	fzn_reconcile_wire_fzn_reconcile_item_total_set(v, (uint32_t)len);
+	fzn_reconcile_wire_fzn_reconcile_item_offset_set(v, offset);
+	fzn_reconcile_wire_fzn_reconcile_item_len_set(&out, v, (uint16_t)n);
 	return FZN_RECONCILE_ITEM_HEAD_LEN + n;
 }
 
@@ -417,14 +468,14 @@ static uint64_t staged_clock;
 static size_t answer_took(uint8_t *reply, size_t reply_cap, uint8_t kind, const uint8_t *id,
                           fzn_reconcile_took_t took, uint32_t held)
 {
-	if (reply_cap < FZN_RECONCILE_ITEM_TOOK_LEN)
+	uint32_t wrote = 0;
+
+	if (reply_cap < FZN_RECONCILE_ITEM_TOOK_LEN
+	    || fzn_reconcile_wire_fzn_reconcile_item_took_build(reply, FZN_RECONCILE_ITEM_TOOK_LEN, (uint8_t)FZN_CMD_RECONCILE,
+	                                                        FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_ITEM_TOOK, kind, id,
+	                                                        (fzn_reconcile_wire_fzn_reconcile_took_t)took, held, &wrote)
+	               != SITU_OK)
 		return 0;
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_ITEM_TOOK;
-	reply[2] = kind;
-	memcpy(reply + 3u, id, FZN_BUCKETS_ID_LEN);
-	reply[35] = (uint8_t)took;
-	fzn_put_be32(reply + 36u, held);
 	return FZN_RECONCILE_ITEM_TOOK_LEN;
 }
 
@@ -481,20 +532,34 @@ static size_t answer_put(const fzn_reconcile_server_t *srv, const uint8_t *reque
 {
 	const struct fzn_reconcile_filer *taker;
 	fzn_buckets_t b = { srv->store, srv->hash };
-	const uint8_t *subject = request + 3u, *id = request + 39u;
-	uint8_t kind = request[2], got[FZN_BUCKETS_ID_LEN];
-	uint32_t month, total, offset;
+	const uint8_t *subject, *id, *bytes;
+	uint8_t kind, got[FZN_BUCKETS_ID_LEN];
+	uint32_t month, total, offset, need = 0;
 	struct staged *st;
 	size_t n;
+	situ_msg_t m;
+	situ_view_t v;
 
-	if (request_len < FZN_RECONCILE_ITEM_PUT_HEAD_LEN || kind >= FZN_BUCKETS_KINDS)
+	/* THE PIECE READ AS THE SCHEMA SAYS, sec 1389: a kind of at most 3, a
+	 * total of 1 to 64 MiB and EXACTLY ITS BYTES; that they lie inside the
+	 * item, the codec's. */
+	if (request_len < FZN_RECONCILE_ITEM_PUT_HEAD_LEN || request_len > UINT32_MAX
+	    || fzn_reconcile_wire_fzn_reconcile_item_put_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
-	month = fzn_get_be32(request + 35u);
-	total = fzn_get_be32(request + 71u);
-	offset = fzn_get_be32(request + 75u);
-	n = fzn_get_be16(request + 79u);
-	if (request_len != FZN_RECONCILE_ITEM_PUT_HEAD_LEN + n || total == 0u
-	    || total > FZN_BUCKETS_LARGE_MAX || offset > total || n > total - offset)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_item_put_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_item_put_validate(v) != SITU_OK)
+		return 0;
+	kind = fzn_reconcile_wire_fzn_reconcile_item_put_kind_get(v);
+	subject = fzn_reconcile_wire_fzn_reconcile_item_put_subject_ptr(v);
+	id = fzn_reconcile_wire_fzn_reconcile_item_put_id_ptr(v);
+	month = fzn_reconcile_wire_fzn_reconcile_item_put_month_get(v);
+	total = fzn_reconcile_wire_fzn_reconcile_item_put_total_get(v);
+	offset = fzn_reconcile_wire_fzn_reconcile_item_put_offset_get(v);
+	n = fzn_reconcile_wire_fzn_reconcile_item_put_len_get(v);
+	bytes = fzn_reconcile_wire_fzn_reconcile_item_put_bytes_ptr(v);
+	if (total > FZN_BUCKETS_LARGE_MAX || offset > total || n > total - offset)
 		return 0;
 	taker = srv->takers[kind];
 	/* A NODE THAT TAKES NO PUSHES OF THE KIND, or none so large, says so,
@@ -539,12 +604,12 @@ static size_t answer_put(const fzn_reconcile_server_t *srv, const uint8_t *reque
 	 * far it is. */
 	if (st->total > FZN_BUCKETS_ITEM_MAX) {
 		if (!taker->stage(taker->ctx, id, st->total, st->held,
-		                  request + FZN_RECONCILE_ITEM_PUT_HEAD_LEN, n)) {
+		                  bytes, n)) {
 			staged_free(st);
 			return answer_took(reply, reply_cap, kind, id, FZN_RECONCILE_TOOK_REFUSED, 0u);
 		}
 	} else {
-		memcpy(st->bytes + st->held, request + FZN_RECONCILE_ITEM_PUT_HEAD_LEN, n);
+		memcpy(st->bytes + st->held, bytes, n);
 	}
 	st->held += (uint32_t)n;
 	if (st->held < st->total)

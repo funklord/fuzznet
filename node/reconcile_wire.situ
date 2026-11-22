@@ -1,6 +1,8 @@
 // Reconciliation's messages: what one node holds of the estate's state, and
-// the objects another lacks. project.md sec 551. The hand-written codec is
-// node/reconcile.c; this is its checked contract, in `make schema`'s list.
+// the objects another lacks. project.md sec 551. node/reconcile.c answers
+// the bucket exchange through the code situ generates from this (sec 1389);
+// the rest is still its own. `_wire`, so the generated file's name meets no
+// source's.
 //
 // The first byte is the message version, 6, below any verb's first letter
 // and apart from notes and messages (2), cause (3), gather (4) and the
@@ -111,7 +113,7 @@ struct fzn_reconcile_spine_entry {
 
 struct fzn_reconcile_base {
 	u8                         version [must_eq = 6];
-	fzn_reconcile_type         type    [must_eq = base];
+	fzn_reconcile_type         type    [must_eq = fzn_reconcile_type.base];   // qualified: the field `base` below shadows the enum member
 	u64                        base    [min = 1];  // the first sequence held
 	u8                         below[32];          // the id of the record before it
 	u64                        from;               // echoed

@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: reconcile.situ
+# schema: reconcile_wire.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -26,7 +26,7 @@ enum fzn_reconcile_took : u8 unknown=error
 
 struct fzn_reconcile_base size=52..6291412
   @0x0000   1         u8         version  must_eq=6
-  @0x0001   1         fzn_reconcile_type type  must_eq=base
+  @0x0001   1         fzn_reconcile_type type  must_eq=8
   @0x0002   8         u64        base  big min=1
   @0x000a   32        u8         below  big
   @0x002a   8         u64        from  big

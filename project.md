@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1388
+The newest work is at the end of this file. **Read secs 1287 to 1389
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -61000,7 +61000,7 @@ of a vote, is covered in sec 562.
 Sec 550's second and third steps, built together because the round is
 little more than the exchange's client.
 
-- **`node/reconcile.h`**, contract `node/reconcile.situ` (version byte 6,
+- **`node/reconcile.h`**, contract `node/reconcile_wire.situ` (version byte 6,
   below every verb and apart from notes and messages 2, cause 3, gather 4
   and the journal 5): DIGEST, a count and digest per class; IDS, a page
   of a class's ids ascending; OBJECTS, the objects named, as many as fit.
@@ -61045,7 +61045,7 @@ the journal itself up, so the stream resumes from the peer's window.
 - **The pull names the stream.** The exchange tally's `missed` lists the
   first eight streams that came back empty
   (`FZN_EXCHANGE_MISSED_MAX`), beside the existing count.
-- **BASE_QUERY and BASE** join `node/reconcile.situ` (types 7 and 8): a
+- **BASE_QUERY and BASE** join `node/reconcile_wire.situ` (types 7 and 8): a
   stream's base, the id of the record below it, and, for the estate
   stream, its spine entries from a given sequence, as many as fit.
   `fzn_node_journal_spine_entry` serves an entry from the held record,
@@ -61151,7 +61151,7 @@ it by their own rules, not by `fzn_node_apply_object`'s.
 
 - **`FZN_HOLDINGS_NOTES`**, class 8, last in the order: a claim's writer
   is admitted by the estate state reconciled before it.
-  `node/reconcile.situ`'s class bound grows to 8, and a peer sending a
+  `node/reconcile_wire.situ`'s class bound grows to 8, and a peer sending a
   class past its own build's skips it.
 - **The round takes a notes hook** (`fzn_reconcile_notes_t`) and passes
   the class over without one. fuzznetd's files each claim with
@@ -62839,7 +62839,7 @@ bucket exchange.
 ### A third bucket kind
 
 `pieces = 2` (`node/buckets_row.situ`; the exchange's kind bound in
-`node/reconcile.situ` widened to it). An item is one piece's file whole;
+`node/reconcile_wire.situ` widened to it). An item is one piece's file whole;
 its SUBJECT is the host the piece was placed on to keep, not the host
 whose segment it is, and its month the segment's. So a host wants exactly
 the buckets whose subject it is (`node/piece_buckets.{h,c}`), is served
@@ -93120,7 +93120,7 @@ back is the bare reference, and one to no line is refused. Sabotages
 - A bound naming an arm of the member's own enum bare is read as that arm,
   and the compatibility check compares it by value -- the five contracts
   regenerated in 0c9f199c (sec 1278's gates).
-- **`node/reconcile.situ` holds two bounds situ refuses to build on
+- **`node/reconcile_wire.situ` holds two bounds situ refuses to build on
   purpose**: `u64 from [min = 1]` and `u64 base [min = 1]`, a comparison of
   an unsigned 64-bit value, which situ widens to signed. The contract is
   checked, never generated, so nothing builds it today; the day it is
@@ -94235,7 +94235,7 @@ Nothing generated here is stale.
    bytes still produced by C written here (`chain/`, `record/`, `tree/`,
    `spool/`, `log/`, `messages/`, the notes, groups, contacts and routing
    records, the sticker pack, a location fix, a chunk piece...). **All 40
-   build at situ's HEAD today but `node/reconcile.situ`**, which situ refuses
+   build at situ's HEAD today but `node/reconcile_wire.situ`**, which situ refuses
    on purpose (sec 1283: an unsigned `[min = 1]`, the schema's to change).
    This is "situ owns all layouts" not yet carried out, and it is the
    largest gap; each is a codec replaced by the generated reader and writer
@@ -94858,7 +94858,7 @@ The lens from sec 1327's finding -- a schema enum lacking a value the
 code sends -- run over the thirteen contract-only schemas with enums or
 bounds (a read-only audit, every finding then checked here by hand):
 
-- **`node/reconcile.situ`'s `kind [max = 2]`**, eight places, while the
+- **`node/reconcile_wire.situ`'s `kind [max = 2]`**, eight places, while the
   records kind (3, `FZN_BUCKETS_RECORDS`) has been reconciled since
   2a139647 (fuzznetd calls `fzn_reconcile_buckets` and `_push` with it).
   Now `[max = 3]`.
@@ -96387,3 +96387,34 @@ reachability_fuzz, members_fuzz, reconcile_fuzz and votes_fuzz.
 Sabotage `contact-estate-item-exact-length`, `contact-estate-page-whole`
 and `contact-rows-page-whole` retargeted, the two pages' onto their lines
 of `page_view`.
+
+## 1389. Reconciliation's bucket exchange, the answering side, through situ's code; a shadowed name reported, 2026-11-22
+
+The thirty-sixth of the 40 layouts, begun: `node/reconcile.situ` is
+`node/reconcile_wire.situ` (secs 551, 564-572). **situ would not build
+it**: in `fzn_reconcile_base`, `type [must_eq = base]` meant the enum
+member `base` (8), and `build` resolved it to the sibling field `base`
+(a u64) and refused, while `wire` took it unresolved -- a schema that
+passed `wire --check` and could not be built. The bound is now spelled
+`fzn_reconcile_type.base`, the contract printing `must_eq=8`, `--check`
+calling it unchanged; reported to situ, inbox 20261122T0921Z.
+
+In `node/reconcile.c`, stage one, the answering side of the bucket
+exchange: the buckets, bucket-ids and item queries and a pushed piece
+are read through their views and `validate` (a kind of at most 3, a
+pushed total of 1 to 64 MiB, a piece EXACTLY ITS BYTES by `required`;
+that the bytes lie inside the item stays the codec's); the buckets page
+is written through its view, its length known first and each bucket
+through `buckets_at` and its setters; the ids and item answers, their
+bodies already in place, have their heads written through their views;
+the took answer is built.
+
+**Stage two, not yet**: the asking side of the bucket exchange, and the
+holdings exchange (digest, ids, objects, base).
+
+**The seeded fuzzer agrees case for case**: reconcile_fuzz -- 182 bent
+requests answered among its counts -- gives what it gave before.
+**Tests:** reconcile_wire_vectors (8, the bucket exchange's); reconcile_test,
+buckets_test, log_buckets_test, piece_buckets_test. Sabotage
+`reconcile-gate-bars-ids`, `reconcile-gate-bars-items` and
+`reconcile-item-served-by-its-own-gate` retargeted.

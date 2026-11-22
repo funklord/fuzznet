@@ -1,6 +1,6 @@
 /*
  * RECONCILIATION: one node bringing what it holds of the estate's state up
- * to what a peer holds. project.md sec 551; `node/reconcile.situ` is the
+ * to what a peer holds. project.md sec 551; `node/reconcile_wire.situ` is the
  * wire contract.
  *
  * Every round, with every pull peer -- the holder's "never merely a one-shot
@@ -50,7 +50,7 @@ typedef enum fzn_reconcile_type {
 	FZN_RECONCILE_ITEM_TOOK = 16
 } fzn_reconcile_type_t;
 
-/* What a receiver says of a pushed item: `node/reconcile.situ`'s
+/* What a receiver says of a pushed item: `node/reconcile_wire.situ`'s
  * fzn_reconcile_took. */
 typedef enum fzn_reconcile_took {
 	FZN_RECONCILE_TOOK_MORE = 0,
@@ -60,7 +60,7 @@ typedef enum fzn_reconcile_took {
 	FZN_RECONCILE_TOOK_NOT_WANTED = 4
 } fzn_reconcile_took_t;
 
-/* The fixed parts, from `node/reconcile.situ.map`. */
+/* The fixed parts, from `node/reconcile_wire.situ.map`. */
 #define FZN_RECONCILE_DIGEST_QUERY_LEN 2u
 #define FZN_RECONCILE_DIGEST_HEAD_LEN 3u
 #define FZN_RECONCILE_CLASS_LEN 37u
