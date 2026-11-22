@@ -1726,6 +1726,24 @@ static void test_the_store_outlives_the_journal(void)
 	CHECK(list(&A, NULL, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_IN, long_text)
 	              && page[0].written_at > page[1].written_at && rec_reads == 0u,
 	      "and everyone's page, newest first, with when each was written kept");
+	/* A ROW OF NO SHAPE, sec 1381: the short line's direction made one no
+	 * line has. Read as the schema says it is no row, so the page holds
+	 * the long line alone -- not a line of a direction nothing writes. */
+	{
+		size_t i, j, n = strlen("a short one"), bent = 0;
+
+		for (i = 0; i < ROWS; i++)
+			if (A.store.rows[i].used && A.store.rows[i].slot == FZN_PERSIST_MESSAGE_LINE)
+				for (j = 0; j + n <= A.store.rows[i].len; j++)
+					if (memcmp(A.store.rows[i].bytes + j, "a short one", n) == 0) {
+						A.store.rows[i].bytes[89] = 3u; /* fzn_message_stored.direction */
+						bent++;
+						break;
+					}
+		CHECK(bent == 1u && list(&A, X, 0u, 5u) && count == 1u
+		              && is_line(0, 2u, FZN_MESSAGE_IN, long_text),
+		      "a row whose direction no line has was listed");
+	}
 }
 
 static void test_a_trimmed_month_keeps_heads_only(void)

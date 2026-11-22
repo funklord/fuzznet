@@ -96165,7 +96165,14 @@ That the three agree -- opened with no parts, or not with no text and
 every part or none -- stays `stored_shape_ok`'s, and the row's place
 (device and sequence) the codec's.
 
-**Tests:** messages_test (283), line_fuzz, delivery_fuzz and keys_fuzz
+**Tests:** messages_test (284), line_fuzz, delivery_fuzz and keys_fuzz
 with the same counts as before, node messages_test (302), records_test
 (227). Sabotage `messages-row-is-its-own-line` retargeted,
-`messages-row-read-as-the-schema` new.
+`messages-row-read-as-the-schema` new -- and it SURVIVED its first run:
+no test had ever loaded a row of no shape, the hand checks it replaced
+(a direction no line has, a sealed part shorter than a line's head)
+having had no entry. test_the_store_outlives_the_journal now bends the
+short line's row to direction 3 and wants the page to hold the long line
+alone. The run with the other three (`messages-row-is-its-own-line`,
+`messages-position-length-exact`, `messages-mark-state-known`) caught
+each.
