@@ -1,8 +1,8 @@
 /* Notes between nodes: one node pulls what another holds. sec 432, phase 4
  * of the notes move.
  *
- * The bytes are `notes/sync_wire.situ`'s, encoded here by hand as spool/message.c
- * encodes its own. A pull asks a peer for the INDEX of what it holds -- each
+ * The bytes are `notes/sync_wire.situ`'s, written and read through the code
+ * situ generates from it (secs 1392-1394). A pull asks a peer for the INDEX of what it holds -- each
  * claim's key and sequence -- and then for the RECORDS of only the claims it
  * lacks or holds older. Every record that arrives goes through `fzn_notes_put`,
  * the same admission and supersession a locally written note goes through,

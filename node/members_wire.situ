@@ -1,0 +1,43 @@
+// The estate's members, asked by one member of another: node/members.c
+// writes and reads both messages through the code situ generates from
+// this. They are FZN_CMD_MEMBERS's, version 9, since sec 1085 gave them a
+// command of their own; types 11 and 12 keep the numbers they had in the
+// notes sync family (notes/sync_wire.situ), which no longer describes
+// them. secs 445, 1394.
+//
+// A PAGE AT A TIME. The asker names the first member it wants; the
+// answer says how many the server holds, which page this is, and as many
+// members as fit, each with the chain that proves it. A contact is no
+// member and is not counted.
+
+endian big;
+
+enum fzn_members_type : u8 {
+	members_query = 11,  // "Who are your members, from FROM on?"
+	members       = 12,  // "These, with the chains I hold for them."
+}
+
+struct fzn_members_query {
+	u8                version [must_eq = 9];
+	fzn_members_type  type    [must_eq = members_query];
+	u16               from;
+}
+
+struct fzn_members_hop {
+	u8   bytes[179];                                  // FZN_HOP_LEN
+}
+
+struct fzn_members_member {
+	u8               key[32];
+	u8               hop_count [min = 1, max = 8];   // FZN_CHAIN_MAX_HOPS
+	fzn_members_hop  hops[hop_count];
+}
+
+struct fzn_members_page {
+	u8                  version [must_eq = 9];
+	fzn_members_type    type    [must_eq = members];
+	u16                 total;                       // members the server holds
+	u16                 from;                        // the first in this page
+	u8                  count;
+	fzn_members_member  members[count];
+}

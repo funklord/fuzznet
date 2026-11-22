@@ -1,6 +1,8 @@
 /* See members.h. */
 
 #include "members.h"
+#include "../wire/generated/members_wire.h"
+#include "../wire/generated/members_wire_build.h"
 
 #include "../wire/bytes.h"
 
@@ -32,19 +34,27 @@ size_t fzn_node_members_answer(const fzn_node_config_t *config, const fzn_node_p
                                uint8_t *reply, size_t reply_cap)
 {
 	size_t total = 0, from, i, seen = 0, n = 0, used = FZN_NODE_MEMBERS_HEAD_LEN;
+	situ_msg_t m, out;
+	situ_view_t q, v;
 
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1394. */
 	if (!config || (!peers && peer_count) || !request || !reply
-	    || request_len != FZN_NODE_MEMBERS_QUERY_LEN || request[0] != FZN_CMD_MEMBERS
-	    || request[1] != FZN_NODE_MEMBERS_QUERY || reply_cap < FZN_NODE_MEMBERS_HEAD_LEN)
+	    || request_len != FZN_NODE_MEMBERS_QUERY_LEN || reply_cap < FZN_NODE_MEMBERS_HEAD_LEN
+	    || reply_cap > UINT32_MAX)
 		return 0;
-	from = fzn_get_be16(request + 2);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_members_wire_fzn_members_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_members_wire_fzn_members_query_validate(q) != SITU_OK)
+		return 0;
+	from = fzn_members_wire_fzn_members_query_from_get(q);
 	/* A CONTACT IS NO MEMBER: a share's chain is not membership. */
 	for (i = 0; i < peer_count; i++)
 		if (!fzn_node_peer_contact(config, &peers[i]))
 			total++;
 	for (i = 0; i < peer_count; i++) {
 		const fzn_node_peer_t *p = &peers[i];
-		size_t need = FZN_PUBKEY_LEN + 1u + (p->hop_count * FZN_HOP_LEN), h;
+		size_t need = FZN_PUBKEY_LEN + 1u + (p->hop_count * FZN_HOP_LEN);
+		uint32_t wrote = 0;
 
 		if (fzn_node_peer_contact(config, p))
 			continue;
@@ -53,19 +63,25 @@ size_t fzn_node_members_answer(const fzn_node_config_t *config, const fzn_node_p
 		if (p->hop_count == 0u || p->hop_count > FZN_CHAIN_MAX_HOPS || n >= 255u
 		    || reply_cap - used < need)
 			break;
-		memcpy(reply + used, p->sender, FZN_PUBKEY_LEN);
-		reply[used + FZN_PUBKEY_LEN] = (uint8_t)p->hop_count;
-		for (h = 0; h < p->hop_count; h++)
-			memcpy(reply + used + FZN_PUBKEY_LEN + 1u + (h * FZN_HOP_LEN), p->hop_bytes[h],
-			       FZN_HOP_LEN);
+		/* EACH MEMBER BUILT BY THE GENERATED BUILDER, sec 1394. */
+		if (fzn_members_wire_fzn_members_member_build(reply + used, (uint32_t)(reply_cap - used), p->sender,
+		                                              &p->hop_bytes[0][0],
+		                                              (uint32_t)(p->hop_count * FZN_HOP_LEN), &wrote)
+		            != SITU_OK
+		    || wrote != need)
+			return 0;
 		used += need;
 		n++;
 	}
-	reply[0] = FZN_CMD_MEMBERS;
-	reply[1] = FZN_NODE_MEMBERS_REPLY;
-	fzn_put_be16(reply + 2, (uint16_t)total);
-	fzn_put_be16(reply + 4, (uint16_t)(from > total ? total : from));
-	reply[6] = (uint8_t)n;
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, the members already in place. */
+	situ_msg_init(&out, reply, (uint32_t)used);
+	if (fzn_members_wire_fzn_members_page_view(&out, 0u, (uint32_t)used, &v) != SITU_OK)
+		return 0;
+	fzn_members_wire_fzn_members_page_version_set(v, FZN_CMD_MEMBERS);
+	fzn_members_wire_fzn_members_page_type_set(v, FZN_MEMBERS_WIRE_FZN_MEMBERS_TYPE_MEMBERS);
+	fzn_members_wire_fzn_members_page_total_set(v, (uint16_t)total);
+	fzn_members_wire_fzn_members_page_from_set(v, (uint16_t)(from > total ? total : from));
+	fzn_members_wire_fzn_members_page_count_set(&out, v, (uint8_t)n);
 	return used;
 }
 
@@ -96,9 +112,11 @@ enum { MEMBERS_PAGING = 1, MEMBERS_DONE = 2 };
 static void members_query(const fzn_node_members_pulling_t *p, uint8_t *request,
                           size_t *request_len)
 {
-	request[0] = FZN_CMD_MEMBERS;
-	request[1] = FZN_NODE_MEMBERS_QUERY;
-	fzn_put_be16(request + 2, (uint16_t)p->from);
+	uint32_t wrote = 0;
+
+	(void)fzn_members_wire_fzn_members_query_build(request, FZN_NODE_MEMBERS_QUERY_LEN, FZN_CMD_MEMBERS,
+	                                               FZN_MEMBERS_WIRE_FZN_MEMBERS_TYPE_MEMBERS_QUERY, (uint16_t)p->from,
+	                                               &wrote);
 	*request_len = FZN_NODE_MEMBERS_QUERY_LEN;
 }
 
@@ -139,6 +157,9 @@ fzn_node_members_err_t fzn_node_members_pull_step(fzn_node_members_pulling_t *p,
                                                   size_t *request_len, int *done)
 {
 	size_t n, i, at = FZN_NODE_MEMBERS_HEAD_LEN;
+	situ_msg_t m;
+	situ_view_t v, e, h;
+	uint32_t need = 0;
 
 	if (!p || p->phase != MEMBERS_PAGING || !request
 	    || request_cap < FZN_NODE_MEMBERS_QUERY_LEN || !request_len || !done)
@@ -146,36 +167,48 @@ fzn_node_members_err_t fzn_node_members_pull_step(fzn_node_members_pulling_t *p,
 	*done = 0;
 	if (!reply)
 		return members_end(p, done, FZN_NODE_MEMBERS_ERR_NO_ANSWER);
-	if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply[0] != FZN_CMD_MEMBERS
-	    || reply[1] != FZN_NODE_MEMBERS_REPLY || fzn_get_be16(reply + 4) != p->from)
+	/* THE PAGE'S HEAD READ AS THE SCHEMA SAYS, sec 1394; each member read
+	 * and proved as it comes, as before, through a cursor held here (the
+	 * generated `_at` is O(index) for a run of variable records), and
+	 * EXACTLY ITS MEMBERS checked by `required` once all are. */
+	if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply_len > UINT32_MAX)
 		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
-	p->total = fzn_get_be16(reply + 2);
-	n = reply[6];
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_members_wire_fzn_members_page_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+	    || fzn_members_wire_fzn_members_page_version_get(v) != FZN_CMD_MEMBERS
+	    || fzn_members_wire_fzn_members_page_type_get(v) != FZN_MEMBERS_WIRE_FZN_MEMBERS_TYPE_MEMBERS
+	    || fzn_members_wire_fzn_members_page_from_get(v) != p->from)
+		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+	p->total = fzn_members_wire_fzn_members_page_total_get(v);
+	n = fzn_members_wire_fzn_members_page_count_get(v);
 	for (i = 0; i < n; i++) {
-		const uint8_t *key = reply + at;
+		const uint8_t *key;
 		size_t hop_count, k;
 		int have = 0;
 
-		if (reply_len - at < FZN_PUBKEY_LEN + 1u)
+		if (fzn_members_wire_fzn_members_member_required(reply + at, (uint32_t)(reply_len - at), &need)
+		            != SITU_OK
+		    || fzn_members_wire_fzn_members_member_view(&m, (uint32_t)at, need, &e) != SITU_OK
+		    || fzn_members_wire_fzn_members_member_validate(e) != SITU_OK
+		    || fzn_members_wire_fzn_members_member_hops_at(e, 0u, &h) != SITU_OK)
 			return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
-		hop_count = reply[at + FZN_PUBKEY_LEN];
-		if (hop_count == 0u || hop_count > FZN_CHAIN_MAX_HOPS
-		    || reply_len - at - FZN_PUBKEY_LEN - 1u < hop_count * FZN_HOP_LEN)
-			return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+		key = fzn_members_wire_fzn_members_member_key_ptr(e);
+		hop_count = fzn_members_wire_fzn_members_member_hop_count_get(e);
 		/* ADMITTED ONLY ON PROOF, and once. */
 		for (k = 0; k < p->count && !have; k++)
 			have = memcmp(p->out[k], key, FZN_PUBKEY_LEN) == 0;
 		if (!have) {
-			if (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, p->root,
+			if (!proves(key, situ_base(h), hop_count, p->root,
 			            p->capability, p->now, p->sign, p->revocations)
 			    || p->count >= p->cap)
 				p->refused++;
 			else
 				memcpy(p->out[p->count++], key, FZN_PUBKEY_LEN);
 		}
-		at += FZN_PUBKEY_LEN + 1u + (hop_count * FZN_HOP_LEN);
+		at += need;
 	}
-	if (at != reply_len)
+	if (fzn_members_wire_fzn_members_page_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+	    || need != reply_len)
 		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
 	p->from += n;
 	/* A PAGE THAT BRINGS NOTHING ends it, or a short server would be asked

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1393
+The newest work is at the end of this file. **Read secs 1287 to 1394
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96550,3 +96550,35 @@ contract of their own.
 (1080); notes_sync_fuzz gives its counts of before. Sabotage
 `notes-sync-purge-erases-for-admitted` retargeted onto the id read
 through the view.
+
+## 1394. Members on a contract of their own, and the text push; stage three of notes sync, 2026-11-22
+
+**The contract was wrong about members.** `notes/sync_wire.situ` said
+types 11 and 12 were notes sync's, `must_eq = 8`; the code has sent them
+under `FZN_CMD_MEMBERS`, 9, since sec 1085, and `node/members.h` still
+said version 2. Generated code built from that contract would have
+refused every real members message. So the two messages leave it for
+`node/members_wire.situ` -- version 9, the same types and layout -- and
+the notes contract's enum says where 11 and 12 went; its "version is 2"
+comment says 8, as its fields always did.
+
+- **node/members.c**: the query built and read through its view; each
+  member built by the generated builder from the peer's chain as it is
+  held; the page's head set through its view; a page read with each
+  member proved as it comes, as before. That walk uses a cursor held
+  here -- `member_required`, then a view at that offset -- because the
+  generated `_at` is O(index) over a run of variable records and says so.
+  EXACTLY ITS MEMBERS is checked by the page's `required` once all are.
+- **node/notes.c**, the text push: the offer built, its head kept for
+  the spans after as before; a push read through its view, and one that
+  does not parse is refused as a short one always was; the answer built,
+  and read with its outcome 0 to 2.
+
+**notes/sync is done**: no hand-coded byte of its contract is left in
+`notes/sync.c`, `node/members.c` or the text push.
+
+**Tests:** members_wire_vectors (3); members_fuzz gives its counts of
+before (4000 cases, 1506 admitted through one); notes_test (730),
+admin_test (377), pair_test (443), apply_test (191), notebook_view_test
+(1080). Sabotage `members-pull-admits-only-on-proof` and
+`notes-text-push-vouches-for-the-sender` retargeted.

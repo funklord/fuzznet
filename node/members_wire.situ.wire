@@ -1,0 +1,42 @@
+# situ wire signature v3
+# schema: members_wire.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+
+enum fzn_members_type : u8 unknown=error
+  members_query=11 members=12
+
+struct fzn_members_hop size=179
+  @0x0000   179       u8         bytes  big
+
+struct fzn_members_member size=212..1465
+  @0x0000   32        u8         key  big
+  @0x0020   1         u8         hop_count  min=1 max=8
+  @0x0021   179..1432 fzn_members_hop hops  big sized-by=hop_count
+
+struct fzn_members_page size=7..373582
+  @0x0000   1         u8         version  must_eq=9
+  @0x0001   1         fzn_members_type type  must_eq=12
+  @0x0002   2         u16        total  big
+  @0x0004   2         u16        from  big
+  @0x0006   1         u8         count
+  @0x0007   0..373575 fzn_members_member members  sized-by=count
+
+struct fzn_members_query size=4
+  @0x0000   1         u8         version  must_eq=9
+  @0x0001   1         fzn_members_type type  must_eq=11
+  @0x0002   2         u16        from  big

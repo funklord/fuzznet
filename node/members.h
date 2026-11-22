@@ -23,8 +23,8 @@
  * 406). One from a root B has not learned is refused, and counted, until it
  * has.
  *
- * Two messages in the notes sync family, version 2, `notes/sync_wire.situ`'s
- * types 11 and 12:
+ * Two messages, FZN_CMD_MEMBERS's (9, sec 1085), types 11 and 12, as
+ * `node/members_wire.situ` says (sec 1394):
  *
  *   MEMBERS_QUERY   version | type | from u16
  *   MEMBERS         version | type | total u16 | from u16 | count u8 |

@@ -6074,9 +6074,9 @@ SABOTAGES = [
 	(
 		"members-pull-admits-only-on-proof",
 		"node/members.c",
-		"\t\t\tif (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, p->root,\n\t\t\t            p->capability, p->now, p->sign, p->revocations)\n\t\t\t    || p->count >= p->cap)",
+		"\t\t\tif (!proves(key, situ_base(h), hop_count, p->root,\n\t\t\t            p->capability, p->now, p->sign, p->revocations)\n\t\t\t    || p->count >= p->cap)",
 		"\t\t\tif (p->count >= p->cap)",
-		"any key a peer names is admitted as a writer -- sec 445",
+		"any key a peer names is admitted as a writer -- secs 445, 1394",
 	),
 	(
 		"members-chain-names-the-key",
@@ -6130,9 +6130,9 @@ SABOTAGES = [
 	(
 		"notes-text-push-vouches-for-the-sender",
 		"node/notes.c",
-		"\tif (request_len < TEXT_PUSH_HEAD || !n->place || !sender_admitted(n, sender))",
-		"\tif (request_len < TEXT_PUSH_HEAD || !n->place)",
-		"any node that can reach this one fills its shelf -- sec 448",
+		"\tif (request_len < TEXT_PUSH_HEAD || request_len > UINT32_MAX || !n->place\n\t    || !sender_admitted(n, sender))",
+		"\tif (request_len < TEXT_PUSH_HEAD || request_len > UINT32_MAX || !n->place)",
+		"any node that can reach this one fills its shelf -- secs 448, 1394",
 	),
 	(
 		"notes-text-push-only-for-a-held-note",

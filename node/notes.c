@@ -14,6 +14,8 @@
 #include "../wire/cmd.h"
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/notes_local_build.h"
+#include "../wire/generated/sync_wire.h"
+#include "../wire/generated/sync_wire_build.h"
 #include "../wire/status.h"
 #include "../hex/hex.h"
 
@@ -1387,14 +1389,24 @@ static size_t take_text(fzn_node_notes_t *n, const uint8_t *sender, const uint8_
 	const uint8_t *root;
 	uint64_t length;
 	int complete = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t wrote = 0;
 
 	if (request_len < 2u || request[0] != FZN_CMD_NOTES
 	    || request[1] != FZN_NOTES_SYNC_TEXT_PUSH || reply_cap < TEXT_PUSHED_LEN)
 		return 0;
-	if (request_len < TEXT_PUSH_HEAD || !n->place || !sender_admitted(n, sender))
+	if (request_len < TEXT_PUSH_HEAD || request_len > UINT32_MAX || !n->place
+	    || !sender_admitted(n, sender))
 		goto answer;
-	root = request + 2;
-	length = fzn_get_be64(request + 2 + FZN_BLOB_HASH_LEN);
+	/* READ AS THE SCHEMA SAYS, sec 1394; a push that does not parse is
+	 * refused, as a short one always was. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_sync_wire_fzn_notes_sync_text_push_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_text_push_validate(v) != SITU_OK)
+		goto answer;
+	root = fzn_sync_wire_fzn_notes_sync_text_push_root_ptr(v);
+	length = fzn_sync_wire_fzn_notes_sync_text_push_length_get(v);
 	if (!own_note_names(n, root, length))
 		goto answer;
 	if (request_len == TEXT_PUSH_HEAD) {
@@ -1405,9 +1417,10 @@ static size_t take_text(fzn_node_notes_t *n, const uint8_t *sender, const uint8_
 		outcome = complete ? TEXT_WHOLE : TEXT_WANTED;
 	}
 answer:
-	reply[0] = FZN_CMD_NOTES;
-	reply[1] = FZN_NOTES_SYNC_TEXT_PUSHED;
-	reply[2] = outcome;
+	if (fzn_sync_wire_fzn_notes_sync_text_pushed_build(reply, TEXT_PUSHED_LEN, FZN_CMD_NOTES,
+	                                                   FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_TEXT_PUSHED, outcome, &wrote)
+	    != SITU_OK)
+		return 0;
 	return TEXT_PUSHED_LEN;
 }
 
@@ -1435,10 +1448,15 @@ static int texts_next_offer(fzn_node_notes_texting_t *x, uint8_t *request, size_
 		    || !whole_here)
 			continue;
 		x->tally.offered++;
-		request[0] = FZN_CMD_NOTES;
-		request[1] = FZN_NOTES_SYNC_TEXT_PUSH;
-		memcpy(request + 2, x->roots[x->at], FZN_BLOB_HASH_LEN);
-		fzn_put_be64(request + 2 + FZN_BLOB_HASH_LEN, x->lengths[x->at]);
+		/* THE OFFER BUILT, sec 1394: its head stays for the spans after. */
+		{
+			uint32_t wrote = 0;
+
+			(void)fzn_sync_wire_fzn_notes_sync_text_push_build(request, TEXT_PUSH_HEAD, FZN_CMD_NOTES,
+			                                                   FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_TEXT_PUSH,
+			                                                   x->roots[x->at], x->lengths[x->at], NULL, 0u,
+			                                                   &wrote);
+		}
 		*request_len = TEXT_PUSH_HEAD;
 		x->phase = TEXTS_OFFER;
 		return 1;
@@ -1500,15 +1518,21 @@ int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *r
                                    size_t *request_len, int *done)
 {
 	uint8_t outcome;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!x || (x->phase != TEXTS_OFFER && x->phase != TEXTS_SPAN) || !request
 	    || cap < FZN_NODE_NOTES_TEXT_REQUEST_MAX || !request_len || !done)
 		return 0;
 	*done = 0;
-	if (!reply || reply_len != TEXT_PUSHED_LEN || reply[0] != FZN_CMD_NOTES
-	    || reply[1] != FZN_NOTES_SYNC_TEXT_PUSHED || reply[2] > TEXT_WHOLE)
+	/* READ AS THE SCHEMA SAYS, sec 1394: an outcome 0 to 2. */
+	if (!reply || reply_len != TEXT_PUSHED_LEN)
 		return texts_end(x, done, 0);
-	outcome = reply[2];
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_sync_wire_fzn_notes_sync_text_pushed_view(&m, 0u, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_text_pushed_validate(v) != SITU_OK)
+		return texts_end(x, done, 0);
+	outcome = fzn_sync_wire_fzn_notes_sync_text_pushed_outcome_get(v);
 	if (x->phase == TEXTS_SPAN) {
 		x->tally.spans++;
 		if (outcome == TEXT_REFUSED) {

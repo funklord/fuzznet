@@ -264,7 +264,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
              wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
              wire/generated/exchange_wire.c wire/generated/message_wire.c wire/generated/contact_devices_wire.c \
-             wire/generated/reconcile_wire.c wire/generated/sync_wire.c \
+             wire/generated/reconcile_wire.c wire/generated/sync_wire.c wire/generated/members_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -296,7 +296,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c \
                  wire/generated/exchange_wire_vectors.c wire/generated/message_wire_vectors.c \
                  wire/generated/contact_devices_wire_vectors.c wire/generated/reconcile_wire_vectors.c \
-                 wire/generated/sync_wire_vectors.c
+                 wire/generated/sync_wire_vectors.c wire/generated/members_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -801,6 +801,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/contact_devices_wire_vectors \
              $(BUILD_DIR)/wire/test/reconcile_wire_vectors \
              $(BUILD_DIR)/wire/test/sync_wire_vectors \
+             $(BUILD_DIR)/wire/test/members_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -4704,6 +4705,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# THE ESTATE'S MEMBERS, generated, sec 1394.
+$(BUILD_DIR)/wire/test/members_wire_vectors: wire/generated/members_wire_vectors.c \
+                                            wire/generated/members_wire.c wire/generated/situ.c \
+                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # THE NOTES SYNC VOCABULARY, generated, sec 1392.
 $(BUILD_DIR)/wire/test/sync_wire_vectors: wire/generated/sync_wire_vectors.c \
                                          wire/generated/sync_wire.c wire/generated/situ.c \
@@ -5387,7 +5395,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
-              $(BUILD_DIR)/node/members.o \
+              $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
@@ -5440,7 +5448,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
-              $(BUILD_DIR)/node/members.o \
+              $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
@@ -5558,7 +5566,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
-                   $(BUILD_DIR)/node/members.o \
+                   $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
                    $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o \
@@ -5656,7 +5664,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
 # The estate's members and its reconciliation through a lying peer, sec
 # 689's estate journey.
 $(BUILD_DIR)/node/test/members_fuzz: $(BUILD_DIR)/node/test/members_fuzz.o \
-                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
+                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                                      $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5836,7 +5844,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/node/received.o \
-              $(BUILD_DIR)/node/members.o \
+              $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
@@ -6217,7 +6225,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/log/ring.o \
                                       $(BUILD_DIR)/log/retain.o \
                                       $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o \
-                                      $(BUILD_DIR)/node/members.o \
+                                      $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
                                       $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
                                       $(BUILD_DIR)/node/node.o \
                                       $(BUILD_DIR)/notes/store.o \
@@ -7962,7 +7970,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               record/store_file.situ catalog/attribute_row.situ \
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange_wire.situ \
-              wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync_wire.situ notes/note_row.situ node/opjournal_row.situ messages/line_record.situ \
+              wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync_wire.situ node/members_wire.situ notes/note_row.situ node/opjournal_row.situ messages/line_record.situ \
               messages/keys_wire.situ messages/deliver_wire.situ state/setting_record.situ \
               node/reconcile_wire.situ node/buckets_row.situ \
               log/entry_record.situ log/cause_wire.situ log/gather_wire.situ chunk/piece_wire.situ \
@@ -8727,6 +8735,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_members_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/members_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_members_wire \
+	         --out $(BUILD_DIR)/.gen.new node/members_wire.situ node/members_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_sync_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new notes/sync_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_sync_wire \
@@ -8983,6 +8995,7 @@ schema:
 	          contact_devices_wire_vectors.c \
 	          reconcile_wire.c reconcile_wire.h reconcile_wire_build.h reconcile_wire_edit.h reconcile_wire_vectors.c \
 	          sync_wire.c sync_wire.h sync_wire_build.h sync_wire_edit.h sync_wire_vectors.c \
+	          members_wire.c members_wire.h members_wire_build.h members_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
