@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1386
+The newest work is at the end of this file. **Read secs 1287 to 1387
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96330,3 +96330,32 @@ reachability_fuzz give the counts they gave before. **Tests:**
 contact_devices_wire_vectors (4); contact_test, contact_devices_test and
 the 29 targets linking the contact devices. Sabotage
 `contact-device-exact-length` retargeted onto `required`.
+
+## 1387. A contact's device pages and revocations through situ's code; stage two of the contact messages, first half, 2026-11-22
+
+In `node/contact_devices.c`, after sec 1386:
+
+- **The device page** (`fzn_contact_devices_query_step`) is read whole
+  for its frame first -- `required` (EXACTLY ITS ENTRIES), the view and
+  `validate` (a `more` of 0 or 1) -- and then each entry through
+  `entries_at` is decoded as a device and handed on in turn, one that is
+  not ending the page there. A page broken in its frame now gives
+  nothing, where before it handed on the entries ahead of the break, as
+  sec 1373 chose for a log page; a page whose frame holds still delivers
+  the devices before one that will not decode, as before. The page asked,
+  and a page that says more naming some, stay the codec's.
+- **The revocation query** is built, and read by the answerer through
+  its view and `validate`; **its page** is read the same way as the
+  device page, its records through the run's pointer.
+- **Not moved**: the two page writers fill a page an entry at a time and
+  write its count last, as every page writer here does.
+
+**The seeded fuzzers agree case for case**: estate_fuzz, reachability_fuzz,
+members_fuzz, reconcile_fuzz and votes_fuzz give the counts they gave
+before. **Tests:** the 29 targets linking the contact devices. Sabotage
+`contact-revoked-records-exact-length`, `contact-revoked-more-names-some`,
+`contact-devices-page-names-its-from`, `contact-devices-page-exact` and
+`contact-devices-step-pages-on` retargeted.
+
+**Still to come, stage two's second half**: the estate's items, rows, k
+and acts.

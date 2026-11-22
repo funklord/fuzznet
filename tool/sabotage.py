@@ -11698,15 +11698,15 @@ SABOTAGES = [
 	(
 		"contact-revoked-records-exact-length",
 		'node/contact_devices.c',
-		"\tif (reply_len != FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN + n * FZN_REVOCATION_LEN\n",
-		"\tif (reply_len < FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN + n * FZN_REVOCATION_LEN\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_devices_records_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t    || need != reply_len)\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_devices_records_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t    || need > reply_len)\n",
 		"a page of records with bytes past its last is read as one -- sec 776",
 	),
 	(
 		"contact-revoked-more-names-some",
 		'node/contact_devices.c',
-		"\t    || (reply[7] && n == 0u))\n\t\treturn 0;\n\tfor (k = 0; k < n; k++) {\n\t\tq->take(",
-		"\t    || 0)\n\t\treturn 0;\n\tfor (k = 0; k < n; k++) {\n\t\tq->take(",
+		"\tif (more && n == 0u)\n\t\treturn 0;\n\trecords = ",
+		"\tif (0)\n\t\treturn 0;\n\trecords = ",
 		"a page that says more and names none is asked again for ever -- sec 776",
 	),
 	(
@@ -13451,15 +13451,15 @@ SABOTAGES = [
 	(
 		"contact-devices-page-names-its-from",
 		"node/contact_devices.c",
-		"\t    || reply[2] != q->from || reply[4] > 1u)\n",
-		"\t    || reply[4] > 1u)\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_devices_list_from_get(v) != q->from)\n",
+		"\t    || 0)\n",
 		"a page answering another query is taken, and entries are skipped or doubled -- sec 614",
 	),
 	(
 		"contact-devices-page-exact",
 		"node/contact_devices.c",
-		"\tif (at != reply_len || (reply[4] && n == 0u))\n",
-		"\tif (reply[4] && n == 0u)\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_devices_list_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t    || need != reply_len)\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_devices_list_required(reply, (uint32_t)reply_len, &need) != SITU_OK\n\t    || need > reply_len)\n",
 		"a page with trailing bytes is taken -- sec 614",
 	),
 	(
@@ -15357,7 +15357,7 @@ SABOTAGES = [
 	(
 		"contact-devices-step-pages-on",
 		"node/contact_devices.c",
-		"\tif (!reply[4])\n\t\treturn 1;\n\tq->from += n;\n",
+		"\tif (!more)\n\t\treturn 1;\n\tq->from += n;\n",
 		"\tif (1)\n\t\treturn 1;\n\tq->from += n;\n",
 		"a devices query by steps takes the first page alone, and the devices listed after it are never kept -- sec 636",
 	),
