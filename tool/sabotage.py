@@ -5680,13 +5680,6 @@ SABOTAGES = [
 		"a writer is named once per note, and a share written by a few fills the list -- sec 437",
 	),
 	(
-		"sync-writers-length-matches-count",
-		"notes/sync.c",
-		"\t\t    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN))\n\t\t\treturn pull_end(p, done, FZN_NOTES_SYNC_SHAPE);\n",
-		"\t\t    )\n\t\t\treturn pull_end(p, done, FZN_NOTES_SYNC_SHAPE);\n",
-		"a writers answer shorter than its count admits keys read past what arrived -- sec 437",
-	),
-	(
 		"notes-shared-top-is-roots",
 		"node/notes.c",
 		"\tif (fzn_tree_is_root(parent) && shared)\n",

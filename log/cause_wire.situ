@@ -4,7 +4,7 @@
 // wraps and unwraps it through the code situ generates from this (sec
 // 1362); `_wire`, so the generated file's name meets no source's.
 //
-// THE VERSION IS 3, AND THAT IS THE DISPATCH, as notes/sync.situ's 2 and
+// THE VERSION IS 3, AND THAT IS THE DISPATCH, as notes/sync_wire.situ's 2 and
 // spool/message's 1 are: a payload's first byte says which family it is,
 // and a verb line's first byte is a letter. The host answering takes the
 // envelope off and hands the request inside to whichever family it is.

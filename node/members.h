@@ -23,7 +23,7 @@
  * 406). One from a root B has not learned is refused, and counted, until it
  * has.
  *
- * Two messages in the notes sync family, version 2, `notes/sync.situ`'s
+ * Two messages in the notes sync family, version 2, `notes/sync_wire.situ`'s
  * types 11 and 12:
  *
  *   MEMBERS_QUERY   version | type | from u16

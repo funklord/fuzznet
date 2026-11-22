@@ -1,6 +1,8 @@
 // The notes sync vocabulary: what one node asks another for so their notes
-// converge. notes/sync.c encodes and decodes it by hand, as spool/message.c
-// does its own; this is the contract it is measured against. sec 432.
+// converge. notes/sync.c writes and reads the pull -- writers, index and
+// records -- through the code situ generates from this (sec 1392); the rest
+// is still its own. `_wire`, so the generated file's name meets no source's.
+// sec 432.
 //
 // AN INDEX THEN THE RECORDS, sec 432. A node asks a peer for the index
 // of what it holds -- each claim's key and sequence, 40 bytes -- and then

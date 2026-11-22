@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1391
+The newest work is at the end of this file. **Read secs 1287 to 1392
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -52569,7 +52569,7 @@ blob store:
 
 A node now pulls from each peer it pulls from the notes that peer holds,
 each round, after roots and votes. `notes/sync` is the library and
-`notes/sync.situ` its contract.
+`notes/sync_wire.situ` its contract.
 
 ### An index, then only what is missing
 
@@ -52752,7 +52752,7 @@ waits, and is marked to converse now.
   logged "1 taken", and the note gone from both.
 - No daemon was left running.
 
-`notes/sync.situ` describes the four new messages, and its contract was
+`notes/sync_wire.situ` describes the four new messages, and its contract was
 regenerated. They were first written without it; the schema gate could
 not notice, since a schema and its contract that both omit a message
 agree, and it was caught reading the change over before committing.
@@ -53187,7 +53187,7 @@ to the sharer: it pins only the sharer's node key, from the card. So the
 sharer's node is asked.
 
 **WRITERS_QUERY and WRITERS** (sync messages 9 and 10, in
-`notes/sync.situ`) are answered only under the share capability, with the
+`notes/sync_wire.situ`) are answered only under the share capability, with the
 distinct writers of the notes the share reaches, sorted, at most 64; past 64
 the query is not answered, since a short list would refuse some writers'
 notes with nothing saying why. `fzn_notes_sync_pull_shared` asks first and
@@ -53737,7 +53737,7 @@ estate's members by their chains.
 ### Proof-carrying, so the relaying node vouches for nothing
 
 - **MEMBERS_QUERY and MEMBERS** (types 11 and 12 of the notes sync family,
-  in `notes/sync.situ`): a node lists the peers it holds that are not
+  in `notes/sync_wire.situ`): a node lists the peers it holds that are not
   contacts, each with the capability chain it holds for it, a page at a
   time.
 - **The asker admits a key only on proof**: its chain verifies against the
@@ -53803,7 +53803,7 @@ it pulls from none: a note written on a member reached nobody. Secs 432 and
 pull, it has what it needs to push: every claim it holds that the peer lacks
 or holds older goes over as a PUSH, and the peer answers PUSHED -- taken,
 held already, or refused. Types 13 and 14 of the notes sync family, in
-`notes/sync.situ`.
+`notes/sync_wire.situ`.
 
 - **One record a message**, so a push fits one frame: fuzznetd does not
   reassemble a request larger than one, and a record is at most 668 bytes.
@@ -54278,7 +54278,7 @@ position), subsystem, a cause count of 0 or 2 and the two names, and the
 text. Nothing is formatted and nothing escaped, which is what makes it the
 format the ring holds. situc measures it at **55 to 4672 bytes**.
 
-- **A situ schema, adopted as a checked contract** like `notes/sync.situ`:
+- **A situ schema, adopted as a checked contract** like `notes/sync_wire.situ`:
   `log/entry.c` packs and unpacks by hand, and `make schema` pins the
   committed `.wire` and `.map`.
 - **The text is bytes in version 1.** Sec 428 sketched a template id and
@@ -81858,7 +81858,7 @@ Static memory is 904 MB, untouched until used: a host of 12000 notes is resident
 
 **Three more walls stood behind the number:**
 - **A sync's index counted in 16 bits,** so 65536 claims read as none. `total` and `from` are 32
-  bits now, a wire change, in `notes/sync.situ`.
+  bits now, a wire change, in `notes/sync_wire.situ`.
 - **`fzn_node_shelf_collect` loaded every note once a text,** and at 7000 notes held the daemon
   past 20 s. A view now stands while `fzn_notes_store_t.stamp` does.
 - **The title cache scanned its whole table a note.** It looks in one window of 16 now, a root
@@ -86519,7 +86519,7 @@ local verb `call NAME` is still the procedure call's; its rename to `rrpc` is th
 128 and 129 keep their numbers. **The meter** reads one family per CMD, with the same family per
 message as before, where `shared_family` kept hand-written ranges of family 2.
 
-**Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys_wire.situ` and
+**Contracts repinned:** `notes/sync_wire.situ` (20 messages) to 8, `messages/keys_wire.situ` and
 `deliver.situ` to 10, `node/contact_devices_wire.situ`'s twelve messages to 11, `node/address.situ`
 to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line_record.situ`
 and `node/buckets_row.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
@@ -94862,7 +94862,7 @@ bounds (a read-only audit, every finding then checked here by hand):
   records kind (3, `FZN_BUCKETS_RECORDS`) has been reconciled since
   2a139647 (fuzznetd calls `fzn_reconcile_buckets` and `_push` with it).
   Now `[max = 3]`.
-- **`notes/sync.situ`'s index page `count [max = 256]`, "FZN_NOTES_MAX"**:
+- **`notes/sync_wire.situ`'s index page `count [max = 256]`, "FZN_NOTES_MAX"**:
   that maximum is 262144, and the server fills a page to its reply
   buffer -- some 280 claims at the smallest. The bound is gone; the count
   is as many as the reply holds.
@@ -96485,3 +96485,35 @@ gave before. **Tests:** reconcile_test and the targets linking
 reconciliation, and livecheck, every live round running through it.
 Sabotage `reconcile-rebase-pages-on` retargeted onto the base query's
 builder.
+
+## 1392. The notes pull through situ's code; stage one of notes sync, 2026-11-22
+
+The thirty-seventh of the 40 layouts, begun: `notes/sync.situ` is
+`notes/sync_wire.situ` (secs 432, 437). In `notes/sync.c`, the pull,
+both sides:
+
+- **The writers**: the query built; the answer built from the sorted
+  keys, and read whole through `required`, the view and `validate` (at
+  most 64 writers, EXACTLY THEM).
+- **The index**: the query built and read through its view; a page
+  written through its view, as many claims as fit counted first and each
+  through `claims_at`; a page read whole, the page asked and no more
+  than is left the codec's.
+- **The records**: the query built from the keys as they are held and
+  read whole (1 to 16 keys, EXACTLY THEM); a page's head written
+  through its view, the records already in place; a page read through
+  its view with each record taken as it is read, as before, and EXACTLY
+  ITS RECORDS checked by `required` once all are.
+
+**Stage two, not yet**: purges, members, text pushes, wraps, lacks and
+gives.
+
+**The seeded fuzzer agrees case for case**: notes_sync_fuzz gives the
+counts it gave before. **Tests:** sync_wire_vectors (6, the pull's);
+notes_sync_test (152), notes_test (730), notebook_view_test (1080).
+Sabotage `sync-writers-length-matches-count` -- a writers answer shorter
+than its count -- is removed: `required` returns TRUNCATED for it, and
+`validate` and `writers_at` each refuse it too, so no one mutation can
+show the guard gone. I first retargeted it onto `need != reply_len`,
+which made it an equivalent mutant; the generated code's readers hold
+shortness three times over.

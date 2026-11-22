@@ -1,0 +1,12 @@
+# Golden vectors for notes/sync_wire.situ's pull, written by hand from its
+# layouts: asking who writes what is shared; one writer, 11s; asking for
+# the index from the first claim; an index of one claim -- key 22s at
+# sequence 3 -- of one; asking for claim 22s's record; and a page of one
+# record of three bytes.
+
+fzn_notes_sync_writers_query ask 08 09
+fzn_notes_sync_writers one 08 0A 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
+fzn_notes_sync_index_query first 08 01 00 00 00 00
+fzn_notes_sync_index one 08 02 00 00 00 01 00 00 00 00 00 01 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 00 00 00 00 00 00 00 03
+fzn_notes_sync_records_query one 08 03 01 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22
+fzn_notes_sync_records one 08 04 01 00 03 61 62 63
