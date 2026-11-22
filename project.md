@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1389
+The newest work is at the end of this file. **Read secs 1287 to 1390
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96397,7 +96397,13 @@ member `base` (8), and `build` resolved it to the sibling field `base`
 (a u64) and refused, while `wire` took it unresolved -- a schema that
 passed `wire --check` and could not be built. The bound is now spelled
 `fzn_reconcile_type.base`, the contract printing `must_eq=8`, `--check`
-calling it unchanged; reported to situ, inbox 20261122T0921Z.
+calling it unchanged; reported to situ, inbox 20261122T0921Z. situ
+answered at 4885bfb9 (26.1150, inbox 20261122T1005Z): `wire --check` now
+resolves a bare bound name to the enum's arm only where no scalar member
+of the struct has the name, as the backends do, so the old spelling
+reports BREAKING rather than identical, and the build's refusal names
+`fzn_reconcile_type.base` as the spelling for the arm. A sibling keeps
+the bare name (26.1094), so the qualified spelling stays.
 
 In `node/reconcile.c`, stage one, the answering side of the bucket
 exchange: the buckets, bucket-ids and item queries and a pushed piece
@@ -96418,3 +96424,27 @@ requests answered among its counts -- gives what it gave before.
 buckets_test, log_buckets_test, piece_buckets_test. Sabotage
 `reconcile-gate-bars-ids`, `reconcile-gate-bars-items` and
 `reconcile-item-served-by-its-own-gate` retargeted.
+
+## 1390. Reconciliation's bucket exchange, the asking side, through situ's code, 2026-11-22
+
+Stage two of `node/reconcile.c` after sec 1389: the side that asks. Its
+queries -- buckets, a bucket's ids, an item's bytes -- are built by the
+generated builders, and its pages and answers read whole as the schema
+says before anything is taken, through five helpers: `item_query` and
+`item_answer` (a total of at most 64 MiB, EXACTLY ITS BYTES, of the item
+and offset asked), `buckets_query`, `buckets_page` and `bucket_at`, and
+`bucket_ids_query` and `bucket_ids_page` (of the bucket and page asked).
+Every reader of them -- `fzn_reconcile_peer_holds`, `fetch_item`,
+`fzn_reconcile_fetch_one`, `take_bucket`, `fzn_reconcile_buckets` and
+`fzn_reconcile_push` -- uses the helpers instead of its own copy of the
+checks, which four of them had repeated. A pushed piece is written
+through its view, its length before its bytes, and the took answer read
+through its view and `validate` (a `took` of its enum).
+
+**Still to come**: the holdings exchange -- digest, ids, objects, base --
+the twenty-nine offset sites left.
+
+**The seeded fuzzer agrees case for case**: reconcile_fuzz gives what it
+gave before. **Tests:** reconcile_test, buckets_test, log_buckets_test,
+piece_buckets_test. Sabotage `reconcile-peer-holds-by-its-length`
+retargeted.

@@ -12616,7 +12616,7 @@ SABOTAGES = [
 	(
 		"reconcile-peer-holds-by-its-length",
 		"node/reconcile.c",
-		"\t*held = fzn_get_be32(reply + 35u) > 0u;\n",
+		"\t*held = fzn_reconcile_wire_fzn_reconcile_item_total_get(v) > 0u;\n",
 		"\t*held = 1;\n",
 		"a peer that let a fossil go, or never held it, counts as holding it, and the last copy is pruned -- sec 592",
 	),
