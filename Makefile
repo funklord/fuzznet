@@ -2351,7 +2351,7 @@ DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(THORVG_OBJS:.o=.d) $(QR_DECODE_OBJS:.o=.d) \
        $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d $(BUILD_DIR)/tool/sticker_convert.d
 
-.PHONY: sticker-convert embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: cites sticker-convert embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -7081,8 +7081,15 @@ reach:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck device-check ctcheck sancheck arrangements qrcheck qttycheck livecheck \
+check: style cites test installcheck device-check ctcheck sancheck arrangements qrcheck qttycheck livecheck \
        livecheck-lean
+
+# EVERY `sec N` THE TREE CITES NAMES A SECTION, in project.md or
+# doc/journal.md (sec 1403): the checker's own cases first, so a checker
+# that has stopped catching anything fails rather than passing.
+cites:
+	python3 tool/test_sec_cites.py
+	python3 tool/sec_cites.py
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
 # instruction 2026-09-04. What it costs is roughly the test time again; what

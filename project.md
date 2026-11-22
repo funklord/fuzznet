@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1402
+The newest work is at the end of this file. **Read secs 1287 to 1403
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -83,10 +83,11 @@ listener port spans (`150e3106`).
   guard.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
-  its citations). Not started. Measured: 174 of 1309 numbered sections
+  its citations). The checker it waited on is built (sec 1403); the
+  moves are next. Measured: 174 of 1309 numbered sections
   are cited nowhere (10,791 of 93,700 lines); the rest are cited by
-  number from code and from here, and no gate checks a `sec N` citation,
-  so moving them means a checker that reads the journal's headings too.
+  number from code and from here, and resolve in the journal once moved,
+  their numbers kept.
 - **No sticker store** until there is an always-on host (sec 1312): the
   holder's, settled.
 - **Assumptions the holder may move**: discovery port 6290 and the
@@ -40043,7 +40044,7 @@ misshapen at verify) survived.
 The survivor was confirmed against ALL THREE callers, not the obvious two:
 `disclose_test`, `disclose_fuzz`, AND `sim/test/disclosure_test.c`, which the
 first probe would have missed -- the incomplete-binary-list mistake that made
-a false gap in sec 288. All three survived, and no library wraps disclose, so
+a false gap (cited here by a section number no section had, 288). All three survived, and no library wraps disclose, so
 the bounds were genuinely unheld. `test_a_maximum_field_commits_and_opens`
 commits a MAX_FIELD field and hashes the MAX_LEN blob, exercising both bounds
 at once; `disclose-field-max-is-inclusive` and `disclose-committed-max-is-inclusive`
@@ -96898,3 +96899,37 @@ context's length and words, the break sent as a space) and a row read
 whole. The conversation and picker views' text-scripted tests pass
 through the fallback. Sabotage `stickers-binary-answers-a-match` and
 `rpc-sticker-match-reads-its-rows`.
+
+## 1403. Every `sec N` names a section: the checker the split waits on, 2026-11-22
+
+Sec 0's open item, splitting this file by lifetime (the holder's rule of
+2026-11-20), said what it waits for: "no gate checks a `sec N` citation,
+so moving them means a checker that reads the journal's headings too".
+Measured first: the three dated "where this stands" sweeps (secs 878,
+892, 901), the clearest "true once" material, are cited -- from later
+sections and from `tool/live_siblings.py` -- so not even they could move
+without one.
+
+**Built: `tool/sec_cites.py`, run by `make cites`, part of `make check`.**
+It reads every heading number in `project.md` and `doc/journal.md` and
+every `sec N`, `secs N, M and K`, `secs N-M` and `section N` in tracked
+text, and names each that resolves to no heading. A section moved to
+the journal keeps its number, so its citations resolve there without
+being rewritten -- which is what lets a cited section move. Passed over:
+another project's section, named just before (`situ's sec 7a`,
+`fuzzypickles sec 196`), and a date after a comma (`sec 298,
+2026-09-17`). Only a section's integer is checked. **No headings read is
+exit 2, never a pass.** `tool/test_sec_cites.py` holds it to seven cases
+in throwaway git trees, and runs first in `make cites`, so a checker that
+stopped catching fails.
+
+**What it found, run over the tree:** two citations that never named a
+section. The grants step's comment in node/daemon.c cited 585, which came
+in with b9c1b364, a commit that wrote no section; it now cites that
+commit. Sec 292 cited 288, a number between 287 and 289 that no section ever had; it now says
+so. Its first run also read five dates after a comma as sections,
+which the date rule fixed.
+
+**Next for the split:** move the dated sweeps and closed narratives,
+whole and byte for byte, to `doc/journal.md`, saying in each commit how
+many lines went.

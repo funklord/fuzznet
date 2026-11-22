@@ -27714,7 +27714,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					break;
 				case ROUND_GRANTS:
 #ifdef FZN_RECORD_STORE_FILE_ON
-					/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
+					/* A GRANT JUST LOGGED, PUSHED NOW (b9c1b364): logged after
 					 * the round's push, it would wait a round for the next.
 					 * LOCAL CLIENTS ANSWERED meanwhile, sec 748: the push holds
 					 * only `fzn_exchange_push`'s own buffers and reads the store
