@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1379
+The newest work is at the end of this file. **Read secs 1287 to 1380
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -59436,7 +59436,7 @@ and not by running it:
   - A delegating device writes no line, which is why sec 521 had nothing
     to mark.
 
-### The format, `messages/line.situ`
+### The format, `messages/line_record.situ`
 
 Two record kinds on stream 3, `FZN_MESSAGE_STREAM`, each with the contact's
 key as the record's subject:
@@ -59783,7 +59783,7 @@ How lines get into the index:
 ### Read state
 
 - **`fzn_messages_read_up_to`** writes a read record, kind 0x237,
-  `messages/line.situ`'s `fzn_message_read`. The conversation's read
+  `messages/line_record.situ`'s `fzn_message_read`. The conversation's read
   position here is the newest such record, wherever it was written.
 - **`fzn_messages_unread`** counts IN lines above the position, or all of
   them when there is none. It stops at the position whichever way its line
@@ -86521,7 +86521,7 @@ message as before, where `shared_family` kept hand-written ranges of family 2.
 
 **Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys_wire.situ` and
 `deliver.situ` to 10, `node/contact_devices.situ`'s twelve messages to 11, `node/address.situ`
-to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line.situ`
+to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line_record.situ`
 and `node/buckets.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
 
 **Found on the way, all tests building family-2 bytes by hand:** members_fuzz's requests (`0 bent
@@ -92009,7 +92009,7 @@ journal a user's devices already exchange -- and never a line.
 **Step 1, here: the node keeps it.**
 
 - **The record**, kind 0x337 on FZN_MESSAGE_STREAM, its subject the
-  contact: `messages/line.situ`'s `fzn_message_call`, 24 bytes --
+  contact: `messages/line_record.situ`'s `fzn_message_call`, 24 bytes --
   direction (out where this user rang), kinds, an outcome (answered,
   missed, declined, busy, no-answer, elsewhere, failed), the call's id,
   when it was rung, and how long it was up.
@@ -92492,7 +92492,7 @@ Sec 1268's first answer, built for contacts; groups are the next step.
   because a read is a change, which starts a round as any change does
   (sec 1149); a hook written to ask one was measured needless, its
   sabotage surviving at 2 s, and removed.
-- **Kept by the sender**: a record (kind 0x437, `messages/line.situ`'s
+- **Kept by the sender**: a record (kind 0x437, `messages/line_record.situ`'s
   `fzn_message_seen`) on the sender's message stream, which its other
   devices take in, and the conversation's seen position, the newest by
   the line's time -- an older or repeated telling moves nothing back.
@@ -92794,7 +92794,7 @@ cost of this" evaluated; the schema language is the holder's to settle
 with situ. This is the evaluation, not a change.
 
 **Measured on ml350g6-01** (load 9 to 18, `-Os`, 20 million records a
-way, three runs), the call record of sec 1255 (`messages/line.situ`'s
+way, three runs), the call record of sec 1255 (`messages/line_record.situ`'s
 `fzn_message_call`, 24 bytes) encoded and decoded two ways:
 
 | | per record |
@@ -92835,7 +92835,7 @@ E-mail's "distributed filtered set of folders" is the same shape: messages
 as records, a folder as a derived row set by a filter. Which of these a
 future situ declares is the holder's question with situ.
 
-**Found on the way:** situ refuses `messages/line.situ` for C today --
+**Found on the way:** situ refuses `messages/line_record.situ` for C today --
 the enum `fzn_message_call_outcome` and the field path
 `fzn_message_call.outcome` flatten to the same name -- so the measurement
 used a scratch copy with the enum renamed. The contract checks fine; only
@@ -93156,7 +93156,7 @@ others delete here would make the default a choice made for the receiver.
 
 **What taking back does**, `remove message WHO ID`:
 - **Here**: the line is marked UNSENT -- a new state, 5 in the store
-  (`messages/line.situ`), as a mark record, so the user's other devices
+  (`messages/line_record.situ`), as a mark record, so the user's other devices
   take it in and do the same -- and its text is let go from its row, as a
   trimmed month's is (`let_go_one`): the head stays, the line lists as a
   shell, state `unsent` (6 in the listing, whose 5 is `read`). UNSENT is
@@ -96117,3 +96117,34 @@ instead of `!=` lets by:
   paths answer nothing, so no test can tell them apart. The entry is
   removed, an equivalent mutant; the schema's bound stays at the
   boundary, the store's behind it.
+
+## 1380. A conversation line, its marks, read positions and calls through situ's code, 2026-11-22
+
+The thirtieth of the 40 layouts: `messages/line.situ` is
+`messages/line_record.situ` (sec 526), and its call outcome enum is
+`fzn_message_call_outcome_kind`, the field `outcome` and the enum having
+reached the same macro name (situ's warning; `wire --check` calls the
+rename compatible). `messages/line.c`, for six of its structs:
+
+- **A line** is built by the generated builder with its plaintext and a
+  zero tag, then sealed in place as before; a refused build leaves
+  zeros. It is read through the view and `validate` -- version,
+  direction, a part of at most 1 and parts 1 or 2 -- and how two parts
+  tile the text stays the codec's.
+- **A mark, a read position, a seen, a member's seen and a call** are
+  built by their builders, which refuse a direction, state or outcome
+  outside its enum and a call's kinds outside 1 to 3 (`call_ok` went),
+  and read by one `READ_FIXED`: exactly the length, then the view and
+  `validate`.
+
+**Not yet**: `fzn_message_stored`, the store's row in
+`messages/messages.c`, nests a run of variable-length sealed parts sized
+by `held`, which no builder writes; it is the next step of this family.
+
+**The seeded fuzzer agrees case for case**: line_fuzz reads 539 of two
+parts, 3535 bent parts and 1768 bent marks, as before. **Tests:**
+line_record_vectors (6, one of each); messages_test (283), node
+messages_test (302), records_test (227), and the 14 targets linking the
+line codec. Sabotage `messages-position-length-exact` and
+`messages-mark-state-known` retargeted onto `READ_FIXED`, which each now
+breaks for all four fixed readers.

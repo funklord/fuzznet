@@ -1,5 +1,5 @@
 /* A conversation line and a mark on one: the record bodies, and the sealing
- * of a line's text. project.md sec 526; `messages/line.situ` is the
+ * of a line's text. project.md sec 526; `messages/line_record.situ` is the
  * contract.
  *
  * A LINE IS A RECORD on the writing device's FZN_MESSAGE_STREAM, its subject
@@ -64,7 +64,7 @@
  * kept, and no later mark moves it. */
 #define FZN_MESSAGE_UNSENT 5u
 
-/* `messages/line.situ`. */
+/* `messages/line_record.situ`. */
 #define FZN_MESSAGE_LINE_OFF_VERSION 0u
 #define FZN_MESSAGE_LINE_OFF_DIRECTION 1u
 #define FZN_MESSAGE_LINE_OFF_PART 2u
@@ -192,16 +192,16 @@ int fzn_message_position_write(const uint8_t id[FZN_MESSAGE_ID_LEN],
                                uint8_t out[FZN_MESSAGE_READ_LEN]);
 int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN]);
 
-/* The contact's read position's body, `messages/line.situ`'s
+/* The contact's read position's body, `messages/line_record.situ`'s
  * fzn_message_seen: the line's id and its sender's time, ms. */
 int fzn_message_seen_write(const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime, uint8_t out[FZN_MESSAGE_SEEN_LEN]);
 int fzn_message_seen_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime);
-/* A group member's read position's body, `messages/line.situ`'s
+/* A group member's read position's body, `messages/line_record.situ`'s
  * fzn_message_member_seen: the member's root and the time read up to, ms. */
 int fzn_message_member_seen_write(const uint8_t member[32], uint64_t stime, uint8_t out[FZN_MESSAGE_MEMBER_SEEN_LEN]);
 int fzn_message_member_seen_read(const uint8_t *body, size_t len, uint8_t member[32], uint64_t *stime);
 
-/* A call's body, `messages/line.situ`'s fzn_message_call: 1, or 0 for one
+/* A call's body, `messages/line_record.situ`'s fzn_message_call: 1, or 0 for one
  * out of its ranges. */
 int fzn_message_call_write(const fzn_message_call_t *c, uint8_t out[FZN_MESSAGE_CALL_LEN]);
 int fzn_message_call_read(const uint8_t *body, size_t len, fzn_message_call_t *out);

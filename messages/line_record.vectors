@@ -1,0 +1,12 @@
+# Golden vectors for messages/line_record.situ, written by hand from its
+# layouts: a line out, one part of one, id 11s at time 1 in epoch 2, nonce
+# 33s, tag 44s, the sealed text "hi"; read up to 11s; a mark of that line
+# delivered; seen up to it at time 1; member 22s seen at time 1; and a
+# call out, audio, answered, id 55s, rung at 1, up 9 seconds.
+
+fzn_message_line out 01 01 00 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 01 00 00 00 02 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 44 44 44 44 44 44 44 44 44 44 44 44 44 44 44 44 68 69
+fzn_message_read upto 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
+fzn_message_mark delivered 01 01 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
+fzn_message_seen upto 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 01
+fzn_message_member_seen member 01 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 00 00 00 00 00 00 00 01
+fzn_message_call answered 01 01 01 01 55 55 55 55 55 55 55 55 00 00 00 00 00 00 00 01 00 00 00 09

@@ -1,6 +1,7 @@
-// A conversation line and a mark on one, as situ schemas: the hand-written
-// codec is messages/line.c, and these are its checked contract. project.md
-// sec 526.
+// A conversation line and a mark on one, as situ schemas: messages/line.c
+// writes and reads the line, its marks, read positions and calls through the
+// code situ generates from this (sec 1380); `_record`, so the generated
+// file's name meets no source's. project.md sec 526.
 //
 // Both are bodies of records on the writing device's FZN_MESSAGE_STREAM
 // (3), with the contact's key as the record's subject. A line's text is
@@ -71,7 +72,7 @@ struct fzn_message_member_seen {
 	u64                    stime;                   // 33 the time read up to, ms
 }
 
-enum fzn_message_call_outcome : u8 {
+enum fzn_message_call_outcome_kind : u8 {
 	answered  = 1,	// it was up, SECONDS long
 	missed    = 2,	// rang here and nobody answered anywhere
 	declined  = 3,	// refused, by either end
@@ -88,7 +89,7 @@ struct fzn_message_call {
 	u8                        version [must_eq = 1];    //  0
 	fzn_message_direction     direction;                //  1 out: this user rang
 	u8                        kinds [min = 1, max = 3]; //  2 audio 1, video 2
-	fzn_message_call_outcome  outcome;                  //  3
+	fzn_message_call_outcome_kind  outcome;                  //  3
 	u8                        id[8];                    //  4 the call's id
 	u64                       started;                  // 12 rung, seconds since 1970
 	u32                       seconds;                  // 20 how long it was up

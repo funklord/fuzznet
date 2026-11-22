@@ -211,7 +211,7 @@ uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PU
 
 /* ---- a line as the store keeps it, secs 536 and 539 ---------------------- */
 
-/* `line.situ`'s fzn_message_stored, version 2: a head; the line's text,
+/* `line_record.situ`'s fzn_message_stored, version 2: a head; the line's text,
  * OPENED, when its key has been held here (sec 539: data is kept decrypted
  * unless staying sealed buys something); and its parts still sealed, as the
  * line records' bodies were written, only while it waits for its key. */

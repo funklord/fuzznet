@@ -1,6 +1,8 @@
 /* See line.h. */
 
 #include "line.h"
+#include "../wire/generated/line_record.h"
+#include "../wire/generated/line_record_build.h"
 
 #include "../wire/bytes.h"
 
@@ -93,22 +95,26 @@ int fzn_message_line_seal(const fzn_aead_ops_t *aead, const uint8_t key[FZN_CONV
                           size_t len, uint8_t part, uint8_t parts, uint8_t *body,
                           size_t *body_len)
 {
+	static const uint8_t no_tag[FZN_AEAD_TAG_LEN];
 	uint8_t aad[AAD_LEN];
 	size_t at = 0, n = 0;
+	uint32_t wrote = 0;
 
 	if (!aead || !aead->seal || !key || !contact || !id || !nonce || (!text && len) || !body
 	    || !body_len || !direction_ok(direction) || !part_span(len, part, parts, &at, &n))
 		return 0;
-	body[FZN_MESSAGE_LINE_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	body[FZN_MESSAGE_LINE_OFF_DIRECTION] = direction;
-	body[FZN_MESSAGE_LINE_OFF_PART] = part;
-	body[FZN_MESSAGE_LINE_OFF_PARTS] = parts;
-	memcpy(body + FZN_MESSAGE_LINE_OFF_ID, id, FZN_MESSAGE_ID_LEN);
-	fzn_put_be64(body + FZN_MESSAGE_LINE_OFF_STIME, stime);
-	fzn_put_be32(body + FZN_MESSAGE_LINE_OFF_EPOCH, epoch);
-	memcpy(body + FZN_MESSAGE_LINE_OFF_NONCE, nonce, FZN_AEAD_NONCE_LEN);
-	if (n)
-		memcpy(body + FZN_MESSAGE_LINE_HEAD, text + at, n);
+	/* BUILT BY THE CODE situ GENERATES from `messages/line_record.situ`
+	 * (sec 1380), the plaintext in its place and the tag zero, then both
+	 * sealed in place. */
+	if (fzn_line_record_fzn_message_line_build(body, (uint32_t)(FZN_MESSAGE_LINE_HEAD + n), FZN_MESSAGE_VERSION,
+	                                           (fzn_line_record_fzn_message_direction_t)direction, part, parts, id,
+	                                           stime, epoch, nonce, no_tag, n ? text + at : NULL, (uint32_t)n,
+	                                           &wrote)
+	            != SITU_OK
+	    || wrote != FZN_MESSAGE_LINE_HEAD + n) {
+		memset(body, 0, FZN_MESSAGE_LINE_HEAD + n);
+		return 0;
+	}
 	aad_of(contact, direction, part, parts, id, stime, epoch, aad);
 	if (!aead->seal(aead->ctx, key, nonce, aad, sizeof(aad), body + FZN_MESSAGE_LINE_HEAD, n,
 	                body + FZN_MESSAGE_LINE_OFF_TAG)) {
@@ -122,16 +128,23 @@ int fzn_message_line_seal(const fzn_aead_ops_t *aead, const uint8_t key[FZN_CONV
 
 int fzn_message_line_read(const uint8_t *body, size_t len, fzn_message_part_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
 	size_t text_len;
 
-	if (!body || !out || len < FZN_MESSAGE_LINE_HEAD || len > FZN_RECORD_BODY_MAX
-	    || body[FZN_MESSAGE_LINE_OFF_VERSION] != FZN_MESSAGE_VERSION
-	    || !direction_ok(body[FZN_MESSAGE_LINE_OFF_DIRECTION]))
+	if (!body || !out || len < FZN_MESSAGE_LINE_HEAD || len > FZN_RECORD_BODY_MAX)
+		return 0;
+	/* READ AS THE SCHEMA SAYS, sec 1380: version, direction, part at most
+	 * 1 and parts 1 or 2 the generated validate's; how the parts tile the
+	 * text the codec's, below. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)body, (uint32_t)len);
+	if (fzn_line_record_fzn_message_line_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_line_record_fzn_message_line_validate(v) != SITU_OK)
 		return 0;
 	text_len = len - FZN_MESSAGE_LINE_HEAD;
-	out->direction = body[FZN_MESSAGE_LINE_OFF_DIRECTION];
-	out->part = body[FZN_MESSAGE_LINE_OFF_PART];
-	out->parts = body[FZN_MESSAGE_LINE_OFF_PARTS];
+	out->direction = (uint8_t)fzn_line_record_fzn_message_line_direction_get(v);
+	out->part = fzn_line_record_fzn_message_line_part_get(v);
+	out->parts = fzn_line_record_fzn_message_line_parts_get(v);
 	/* THE PARTS TILE THE TEXT ONE WAY ONLY: one part is the whole text, and
 	 * of two the first is full. Anything else is two encodings of a line. */
 	if (out->parts == 0u || out->parts > FZN_MESSAGE_PARTS_MAX || out->part >= out->parts
@@ -139,12 +152,12 @@ int fzn_message_line_read(const uint8_t *body, size_t len, fzn_message_part_t *o
 	    || (out->parts == 2u && out->part == 1u
 	        && (text_len == 0u || text_len > FZN_MESSAGE_TEXT_MAX - FZN_MESSAGE_PART_MAX)))
 		return 0;
-	memcpy(out->id, body + FZN_MESSAGE_LINE_OFF_ID, FZN_MESSAGE_ID_LEN);
-	out->stime = fzn_get_be64(body + FZN_MESSAGE_LINE_OFF_STIME);
-	out->epoch = fzn_get_be32(body + FZN_MESSAGE_LINE_OFF_EPOCH);
-	memcpy(out->nonce, body + FZN_MESSAGE_LINE_OFF_NONCE, FZN_AEAD_NONCE_LEN);
-	memcpy(out->tag, body + FZN_MESSAGE_LINE_OFF_TAG, FZN_AEAD_TAG_LEN);
-	out->text = body + FZN_MESSAGE_LINE_HEAD;
+	memcpy(out->id, fzn_line_record_fzn_message_line_id_ptr(v), FZN_MESSAGE_ID_LEN);
+	out->stime = fzn_line_record_fzn_message_line_stime_get(v);
+	out->epoch = fzn_line_record_fzn_message_line_epoch_get(v);
+	memcpy(out->nonce, fzn_line_record_fzn_message_line_nonce_ptr(v), FZN_AEAD_NONCE_LEN);
+	memcpy(out->tag, fzn_line_record_fzn_message_line_tag_ptr(v), FZN_AEAD_TAG_LEN);
+	out->text = fzn_line_record_fzn_message_line_text_ptr(v);
 	out->text_len = text_len;
 	return 1;
 }
@@ -168,122 +181,136 @@ int fzn_message_line_open(const fzn_aead_ops_t *aead, const uint8_t key[FZN_CONV
 	return 1;
 }
 
+/* A FIXED RECORD READ AS THE SCHEMA SAYS, sec 1380: exactly its length,
+ * then the generated view and validate. */
+#define READ_FIXED(kind, body, len, want, v)                                                          \
+	do {                                                                                          \
+		situ_msg_t m_;                                                                        \
+                                                                                                      \
+		if (!(body) || (len) != (want))                                                       \
+			return 0;                                                                     \
+		situ_msg_init(&m_, (uint8_t *)(uintptr_t)(body), (uint32_t)(len));                    \
+		if (fzn_line_record_fzn_message_##kind##_view(&m_, 0u, &(v)) != SITU_OK               \
+		    || fzn_line_record_fzn_message_##kind##_validate(v) != SITU_OK)                   \
+			return 0;                                                                     \
+	} while (0)
+
 int fzn_message_mark_write(const fzn_message_mark_t *m, uint8_t out[FZN_MESSAGE_MARK_LEN])
 {
-	if (!m || !out || !direction_ok(m->direction) || m->state < FZN_MESSAGE_DELIVERED
-	    || m->state > FZN_MESSAGE_UNSENT)
-		return 0;
-	out[FZN_MESSAGE_MARK_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	out[FZN_MESSAGE_MARK_OFF_DIRECTION] = m->direction;
-	out[FZN_MESSAGE_MARK_OFF_STATE] = m->state;
-	memcpy(out + FZN_MESSAGE_MARK_OFF_ID, m->id, FZN_MESSAGE_ID_LEN);
-	return 1;
+	uint32_t wrote = 0;
+
+	/* BUILT BY THE GENERATED CODE, sec 1380, which refuses a direction or
+	 * a state outside its enum. */
+	return m && out
+	       && fzn_line_record_fzn_message_mark_build(out, FZN_MESSAGE_MARK_LEN, FZN_MESSAGE_VERSION,
+	                                                 (fzn_line_record_fzn_message_direction_t)m->direction,
+	                                                 (fzn_line_record_fzn_message_state_t)m->state, m->id, &wrote)
+	                  == SITU_OK;
 }
 
 int fzn_message_position_write(const uint8_t id[FZN_MESSAGE_ID_LEN],
                                uint8_t out[FZN_MESSAGE_READ_LEN])
 {
-	if (!id || !out)
-		return 0;
-	out[FZN_MESSAGE_READ_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	memcpy(out + FZN_MESSAGE_READ_OFF_ID, id, FZN_MESSAGE_ID_LEN);
-	return 1;
+	uint32_t wrote = 0;
+
+	return id && out
+	       && fzn_line_record_fzn_message_read_build(out, FZN_MESSAGE_READ_LEN, FZN_MESSAGE_VERSION, id, &wrote)
+	                  == SITU_OK;
 }
 
 int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN])
 {
-	if (!body || !id || len != FZN_MESSAGE_READ_LEN
-	    || body[FZN_MESSAGE_READ_OFF_VERSION] != FZN_MESSAGE_VERSION)
+	situ_view_t v;
+
+	if (!id)
 		return 0;
-	memcpy(id, body + FZN_MESSAGE_READ_OFF_ID, FZN_MESSAGE_ID_LEN);
+	READ_FIXED(read, body, len, FZN_MESSAGE_READ_LEN, v);
+	memcpy(id, fzn_line_record_fzn_message_read_id_ptr(v), FZN_MESSAGE_ID_LEN);
 	return 1;
 }
 
 int fzn_message_seen_write(const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime, uint8_t out[FZN_MESSAGE_SEEN_LEN])
 {
-	if (!id || !out)
-		return 0;
-	out[FZN_MESSAGE_SEEN_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	memcpy(out + FZN_MESSAGE_SEEN_OFF_ID, id, FZN_MESSAGE_ID_LEN);
-	fzn_put_be64(out + FZN_MESSAGE_SEEN_OFF_STIME, stime);
-	return 1;
+	uint32_t wrote = 0;
+
+	return id && out
+	       && fzn_line_record_fzn_message_seen_build(out, FZN_MESSAGE_SEEN_LEN, FZN_MESSAGE_VERSION, id, stime, &wrote)
+	                  == SITU_OK;
 }
 
 int fzn_message_seen_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime)
 {
-	if (!body || !id || !stime || len != FZN_MESSAGE_SEEN_LEN
-	    || body[FZN_MESSAGE_SEEN_OFF_VERSION] != FZN_MESSAGE_VERSION)
+	situ_view_t v;
+
+	if (!id || !stime)
 		return 0;
-	memcpy(id, body + FZN_MESSAGE_SEEN_OFF_ID, FZN_MESSAGE_ID_LEN);
-	*stime = fzn_get_be64(body + FZN_MESSAGE_SEEN_OFF_STIME);
+	READ_FIXED(seen, body, len, FZN_MESSAGE_SEEN_LEN, v);
+	memcpy(id, fzn_line_record_fzn_message_seen_id_ptr(v), FZN_MESSAGE_ID_LEN);
+	*stime = fzn_line_record_fzn_message_seen_stime_get(v);
 	return 1;
 }
 
 int fzn_message_member_seen_write(const uint8_t member[32], uint64_t stime, uint8_t out[FZN_MESSAGE_MEMBER_SEEN_LEN])
 {
-	if (!member || !out)
-		return 0;
-	out[FZN_MESSAGE_MEMBER_SEEN_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	memcpy(out + FZN_MESSAGE_MEMBER_SEEN_OFF_MEMBER, member, 32u);
-	fzn_put_be64(out + FZN_MESSAGE_MEMBER_SEEN_OFF_STIME, stime);
-	return 1;
+	uint32_t wrote = 0;
+
+	return member && out
+	       && fzn_line_record_fzn_message_member_seen_build(out, FZN_MESSAGE_MEMBER_SEEN_LEN, FZN_MESSAGE_VERSION,
+	                                                        member, stime, &wrote)
+	                  == SITU_OK;
 }
 
 int fzn_message_member_seen_read(const uint8_t *body, size_t len, uint8_t member[32], uint64_t *stime)
 {
-	if (!body || !member || !stime || len != FZN_MESSAGE_MEMBER_SEEN_LEN
-	    || body[FZN_MESSAGE_MEMBER_SEEN_OFF_VERSION] != FZN_MESSAGE_VERSION)
-		return 0;
-	memcpy(member, body + FZN_MESSAGE_MEMBER_SEEN_OFF_MEMBER, 32u);
-	*stime = fzn_get_be64(body + FZN_MESSAGE_MEMBER_SEEN_OFF_STIME);
-	return 1;
-}
+	situ_view_t v;
 
-static int call_ok(uint8_t direction, uint8_t kinds, uint8_t outcome)
-{
-	return direction_ok(direction) && kinds >= 1u && kinds <= 3u && outcome >= FZN_MESSAGE_CALL_ANSWERED
-	       && outcome <= FZN_MESSAGE_CALL_FAILED;
+	if (!member || !stime)
+		return 0;
+	READ_FIXED(member_seen, body, len, FZN_MESSAGE_MEMBER_SEEN_LEN, v);
+	memcpy(member, fzn_line_record_fzn_message_member_seen_member_ptr(v), 32u);
+	*stime = fzn_line_record_fzn_message_member_seen_stime_get(v);
+	return 1;
 }
 
 int fzn_message_call_write(const fzn_message_call_t *c, uint8_t out[FZN_MESSAGE_CALL_LEN])
 {
-	if (!c || !out || !call_ok(c->direction, c->kinds, c->outcome))
-		return 0;
-	out[FZN_MESSAGE_CALL_OFF_VERSION] = FZN_MESSAGE_VERSION;
-	out[FZN_MESSAGE_CALL_OFF_DIRECTION] = c->direction;
-	out[FZN_MESSAGE_CALL_OFF_KINDS] = c->kinds;
-	out[FZN_MESSAGE_CALL_OFF_OUTCOME] = c->outcome;
-	memcpy(out + FZN_MESSAGE_CALL_OFF_ID, c->id, FZN_MESSAGE_CALL_ID_LEN);
-	fzn_put_be64(out + FZN_MESSAGE_CALL_OFF_STARTED, c->started);
-	fzn_put_be32(out + FZN_MESSAGE_CALL_OFF_SECONDS, c->seconds);
-	return 1;
+	uint32_t wrote = 0;
+
+	/* BUILT BY THE GENERATED CODE, sec 1380, which refuses a direction or
+	 * an outcome outside its enum and kinds outside 1 to 3. */
+	return c && out
+	       && fzn_line_record_fzn_message_call_build(
+	                  out, FZN_MESSAGE_CALL_LEN, FZN_MESSAGE_VERSION,
+	                  (fzn_line_record_fzn_message_direction_t)c->direction, c->kinds,
+	                  (fzn_line_record_fzn_message_call_outcome_kind_t)c->outcome, c->id, c->started, c->seconds, &wrote)
+	                  == SITU_OK;
 }
 
 int fzn_message_call_read(const uint8_t *body, size_t len, fzn_message_call_t *out)
 {
-	if (!body || !out || len != FZN_MESSAGE_CALL_LEN || body[FZN_MESSAGE_CALL_OFF_VERSION] != FZN_MESSAGE_VERSION
-	    || !call_ok(body[FZN_MESSAGE_CALL_OFF_DIRECTION], body[FZN_MESSAGE_CALL_OFF_KINDS],
-	                body[FZN_MESSAGE_CALL_OFF_OUTCOME]))
+	situ_view_t v;
+
+	if (!out)
 		return 0;
-	out->direction = body[FZN_MESSAGE_CALL_OFF_DIRECTION];
-	out->kinds = body[FZN_MESSAGE_CALL_OFF_KINDS];
-	out->outcome = body[FZN_MESSAGE_CALL_OFF_OUTCOME];
-	memcpy(out->id, body + FZN_MESSAGE_CALL_OFF_ID, FZN_MESSAGE_CALL_ID_LEN);
-	out->started = fzn_get_be64(body + FZN_MESSAGE_CALL_OFF_STARTED);
-	out->seconds = fzn_get_be32(body + FZN_MESSAGE_CALL_OFF_SECONDS);
+	READ_FIXED(call, body, len, FZN_MESSAGE_CALL_LEN, v);
+	out->direction = (uint8_t)fzn_line_record_fzn_message_call_direction_get(v);
+	out->kinds = fzn_line_record_fzn_message_call_kinds_get(v);
+	out->outcome = (uint8_t)fzn_line_record_fzn_message_call_outcome_get(v);
+	memcpy(out->id, fzn_line_record_fzn_message_call_id_ptr(v), FZN_MESSAGE_CALL_ID_LEN);
+	out->started = fzn_line_record_fzn_message_call_started_get(v);
+	out->seconds = fzn_line_record_fzn_message_call_seconds_get(v);
 	return 1;
 }
 
 int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *out)
 {
-	if (!body || !out || len != FZN_MESSAGE_MARK_LEN
-	    || body[FZN_MESSAGE_MARK_OFF_VERSION] != FZN_MESSAGE_VERSION
-	    || !direction_ok(body[FZN_MESSAGE_MARK_OFF_DIRECTION])
-	    || body[FZN_MESSAGE_MARK_OFF_STATE] < FZN_MESSAGE_DELIVERED
-	    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_UNSENT)
+	situ_view_t v;
+
+	if (!out)
 		return 0;
-	out->direction = body[FZN_MESSAGE_MARK_OFF_DIRECTION];
-	out->state = body[FZN_MESSAGE_MARK_OFF_STATE];
-	memcpy(out->id, body + FZN_MESSAGE_MARK_OFF_ID, FZN_MESSAGE_ID_LEN);
+	READ_FIXED(mark, body, len, FZN_MESSAGE_MARK_LEN, v);
+	out->direction = (uint8_t)fzn_line_record_fzn_message_mark_direction_get(v);
+	out->state = (uint8_t)fzn_line_record_fzn_message_mark_state_get(v);
+	memcpy(out->id, fzn_line_record_fzn_message_mark_id_ptr(v), FZN_MESSAGE_ID_LEN);
 	return 1;
 }

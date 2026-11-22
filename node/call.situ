@@ -98,7 +98,7 @@ struct history {
 	u8  name[name_len];
 }
 
-// A PAST CALL, messages/line.situ's fzn_message_call: DIRECTION 1 out, 2
+// A PAST CALL, messages/line_record.situ's fzn_message_call: DIRECTION 1 out, 2
 // in; OUTCOME 1 answered, 2 missed, 3 declined, 4 busy, 5 no-answer, 6
 // elsewhere, 7 failed; STARTED when it was rung, seconds since 1970;
 // SECONDS how long it was up.

@@ -1654,7 +1654,7 @@ static void test_a_trim_reaches_every_device_key(void)
 
 /* ---- the store keeps the lines, sec 536 ---------------------------------------- */
 
-/* A row's head alone, `line.situ`'s fzn_message_stored with neither text
+/* A row's head alone, `line_record.situ`'s fzn_message_stored with neither text
  * nor parts. */
 #define STORED_HEAD_LEN 115u
 

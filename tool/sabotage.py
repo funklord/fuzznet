@@ -10962,16 +10962,16 @@ SABOTAGES = [
 	(
 		'messages-position-length-exact',
 		'messages/line.c',
-		'\tif (!body || !id || len != FZN_MESSAGE_READ_LEN',
-		'\tif (!body || !id || len < FZN_MESSAGE_READ_LEN',
-		"a read position with bytes past its id reads; line_fuzz's property 4 -- sec 731",
+		'\t\tif (!(body) || (len) != (want))',
+		'\t\tif (!(body) || (len) < (want))',
+		"a read position, a seen, a mark or a call with bytes past its end reads -- READ_FIXED is all four's since sec 1380; line_fuzz's property 4 -- secs 731, 1380",
 	),
 	(
 		'messages-mark-state-known',
 		'messages/line.c',
-		'\t    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_UNSENT)',
-		'\t    || 0)',
-		"a mark of a state no version writes reads as a line's state; line_fuzz's property 4 -- sec 731",
+		'\t\t    || fzn_line_record_fzn_message_##kind##_validate(v) != SITU_OK)',
+		'\t\t    || 0)',
+		"a mark of a state no version writes reads as a line's state, and any fixed record outside its schema reads -- READ_FIXED since sec 1380; line_fuzz's property 4 -- secs 731, 1380",
 	),
 	(
 		'node-messages-give-as-the-giver',
