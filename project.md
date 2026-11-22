@@ -96199,10 +96199,22 @@ row through its view and `validate`:
 
 **The seeded fuzzers agree case for case**: members_fuzz,
 reconcile_fuzz and pieces_fuzz give the counts they gave before.
-**Tests:** buckets_row_vectors (6, one of each); buckets_test (86),
+**Tests:** buckets_row_vectors (6, one of each); buckets_test (87),
 log_buckets_test (70), piece_buckets_test (70), reconcile_test (30),
 records_test (227), and the 20 targets linking the buckets. Sabotage
 `buckets-let-go-is-served-as-not-held`,
 `buckets-let-go-writes-the-tombstone` and
-`buckets-let-go-is-restored-by-its-kind` retargeted,
-`buckets-row-read-as-the-schema` new.
+`buckets-let-go-is-restored-by-its-kind` retargeted, each CAUGHT;
+`buckets-row-read-as-the-schema` new, and it SURVIVED its first run --
+the shape of sec 1381's: no test had loaded an item row of no shape. A
+first test set the item's mark to 2, and the entry survived again,
+rightly: every reader takes a mark other than 1 as not indexed, schema
+or no. What only the schema refuses is an item of no bytes, so
+test_an_item_is_held_once cuts the item's row to its head, length
+nought, and wants nothing served -- and the entry survived a third time:
+the generated view refuses a row shorter than an item's least size before
+`validate` runs, the load buffer and `required` bound the length from
+above, and the readers take any mark but 1 as not indexed. Every check
+`validate` makes on an item row is held twice, so the entry is removed as
+an equivalent mutant, as sec 1379's was; the empty-row test stays, holding
+the view's refusal.

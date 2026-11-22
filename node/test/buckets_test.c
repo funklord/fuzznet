@@ -229,6 +229,28 @@ static void test_an_item_is_held_once(void)
 	                                 FZN_BUCKETS_ITEM_MAX + 1u, NULL)
 	                         == FZN_BUCKETS_MALFORMED,
 	      "an unknown kind, an empty item or an oversized one was taken");
+	/* A ROW OF NO SHAPE, sec 1382: the item's row cut to its head, its
+	 * length nought -- an empty item, which the schema's `len [min = 1]`
+	 * refuses. Read as the schema says it is no row, so nothing is served:
+	 * not an item of no bytes. (A mark of 2 would not do: every reader
+	 * takes a mark other than 1 as not indexed, schema or no.) */
+	{
+		size_t i, bent = 0;
+
+		for (i = 0; i < ROWS; i++)
+			if (mem_a.rows[i].used && mem_a.rows[i].slot == FZN_PERSIST_BUCKET_ITEM
+			    && mem_a.rows[i].len == 41u + len) {
+				mem_a.rows[i].bytes[39] = 0u; /* fzn_buckets_item.len */
+				mem_a.rows[i].bytes[40] = 0u;
+				mem_a.rows[i].len = 41u;
+				bent++;
+			}
+		CHECK(bent == 1u
+		              && fzn_buckets_item(&A, FZN_BUCKETS_MESSAGES, id, out, sizeof(out), &got, NULL, NULL)
+		                         == FZN_BUCKETS_ABSENT
+		              && !fzn_buckets_has(&A, FZN_BUCKETS_MESSAGES, id),
+		      "an item row of no bytes was served");
+	}
 }
 
 /* THE DIGEST IS THE SET'S, whatever order it was learned in -- and moves

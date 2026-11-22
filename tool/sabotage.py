@@ -11479,13 +11479,6 @@ SABOTAGES = [
 		'copies are fetched whatever the copy rules say -- sec 571',
 	),
 	(
-		'buckets-row-read-as-the-schema',
-		'node/buckets.c',
-		'\t\t    || fzn_buckets_row_fzn_buckets_item_validate(v) != SITU_OK\n',
-		'\t\t    || 0\n',
-		'an item row whose mark is neither 0 nor 1, or whose length is past its bound, read -- sec 1382',
-	),
-	(
 		'buckets-let-go-is-served-as-not-held',
 		'node/buckets.c',
 		'\tif (!what || what == 3 || r.indexed != 1u)\n\t\treturn FZN_BUCKETS_ABSENT;',
