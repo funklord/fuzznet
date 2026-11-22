@@ -1,6 +1,7 @@
 /* See messages.h. */
 
 #include "messages.h"
+#include "../wire/generated/line_record.h"
 #include "reply.h"
 
 #include "../wire/bytes.h"
@@ -214,7 +215,9 @@ uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PU
 /* `line_record.situ`'s fzn_message_stored, version 2: a head; the line's text,
  * OPENED, when its key has been held here (sec 539: data is kept decrypted
  * unless staying sealed buys something); and its parts still sealed, as the
- * line records' bodies were written, only while it waits for its key. */
+ * line records' bodies were written, only while it waits for its key.
+ * Written through situ's edit layer and read through its view and
+ * `validate` (sec 1381); the offsets below are only for STORED_MAX. */
 #define STORED_VERSION 2u
 #define STORED_CONTACT 1u
 #define STORED_DEVICE (STORED_CONTACT + FZN_PUBKEY_LEN)
@@ -281,34 +284,47 @@ static int stored_save(const fzn_messages_t *m, const stored_t *s)
 {
 	uint8_t row[FZN_PUBKEY_LEN], b[STORED_MAX];
 	size_t at, i;
+	situ_msg_t msg;
+	situ_view_t v, part;
 	int ok;
 
 	if (!stored_shape_ok(s) || !line_row(m, s->device, s->seq, row))
 		return 0;
-	b[0] = STORED_VERSION;
-	memcpy(b + STORED_CONTACT, s->contact, FZN_PUBKEY_LEN);
-	memcpy(b + STORED_DEVICE, s->device, FZN_PUBKEY_LEN);
-	fzn_put_be64(b + STORED_SEQ, s->seq);
-	fzn_put_be64(b + STORED_WRITTEN, s->written_at);
-	fzn_put_be64(b + STORED_STIME, s->stime);
-	b[STORED_DIRECTION] = s->direction;
-	memcpy(b + STORED_ID, s->id, FZN_MESSAGE_ID_LEN);
-	fzn_put_be32(b + STORED_EPOCH, s->epoch);
-	b[STORED_PARTS] = s->parts;
-	b[STORED_OPENED] = s->opened;
-	b[STORED_TEXT_LEN] = (uint8_t)(s->text_len >> 8);
-	b[STORED_TEXT_LEN + 1u] = (uint8_t)s->text_len;
-	if (s->text_len)
-		memcpy(b + STORED_TEXT, s->text, s->text_len);
-	at = STORED_TEXT + s->text_len;
-	b[at++] = s->held;
+	/* THE WHOLE ROW'S LENGTH FIRST, then every field in order -- each
+	 * run's length before its bytes, so the edit layer finds every place
+	 * after it. */
+	at = STORED_TEXT + s->text_len + 1u;
 	for (i = 0; i < s->held; i++) {
 		if (s->body_len[i] < FZN_MESSAGE_LINE_HEAD || s->body_len[i] > FZN_RECORD_BODY_MAX)
 			return 0;
-		b[at] = (uint8_t)(s->body_len[i] >> 8);
-		b[at + 1u] = (uint8_t)s->body_len[i];
-		memcpy(b + at + 2u, s->body[i], s->body_len[i]);
 		at += 2u + s->body_len[i];
+	}
+	memset(b, 0, at);
+	situ_msg_init(&msg, b, (uint32_t)at);
+	if (fzn_line_record_fzn_message_stored_view(&msg, 0u, (uint32_t)at, &v) != SITU_OK)
+		return 0;
+	fzn_line_record_fzn_message_stored_version_set(v, STORED_VERSION);
+	memcpy(fzn_line_record_fzn_message_stored_contact_ptr(v), s->contact, FZN_PUBKEY_LEN);
+	memcpy(fzn_line_record_fzn_message_stored_device_ptr(v), s->device, FZN_PUBKEY_LEN);
+	fzn_line_record_fzn_message_stored_seq_set(v, s->seq);
+	fzn_line_record_fzn_message_stored_written_at_set(v, s->written_at);
+	fzn_line_record_fzn_message_stored_stime_set(v, s->stime);
+	fzn_line_record_fzn_message_stored_direction_set(v, (fzn_line_record_fzn_message_direction_t)s->direction);
+	memcpy(fzn_line_record_fzn_message_stored_id_ptr(v), s->id, FZN_MESSAGE_ID_LEN);
+	fzn_line_record_fzn_message_stored_epoch_set(v, s->epoch);
+	fzn_line_record_fzn_message_stored_parts_set(v, s->parts);
+	fzn_line_record_fzn_message_stored_opened_set(v, s->opened);
+	fzn_line_record_fzn_message_stored_text_len_set(&msg, v, (uint16_t)s->text_len);
+	if (s->text_len)
+		memcpy(fzn_line_record_fzn_message_stored_text_ptr(v), s->text, s->text_len);
+	fzn_line_record_fzn_message_stored_held_set(&msg, v, s->held);
+	for (i = 0; i < s->held; i++) {
+		if (fzn_line_record_fzn_message_stored_sealed_at(v, (uint32_t)i, &part) != SITU_OK) {
+			memset(b, 0, at);
+			return 0;
+		}
+		fzn_line_record_fzn_message_stored_part_len_set(&msg, part, (uint16_t)s->body_len[i]);
+		memcpy(fzn_line_record_fzn_message_stored_part_body_ptr(part), s->body[i], s->body_len[i]);
 	}
 	ok = m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row, b, at);
 	memset(b, 0, at);
@@ -321,44 +337,49 @@ static int stored_load(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_
                        uint8_t *buf, stored_t *s)
 {
 	uint8_t row[FZN_PUBKEY_LEN];
-	size_t len = 0, at, i;
+	size_t len = 0, i;
+	situ_msg_t msg;
+	situ_view_t v, part;
+	uint32_t need = 0;
 
 	if (!line_row(m, device, seq, row)
-	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row, buf, STORED_MAX, &len)
-	    || len < STORED_TEXT + 1u || buf[0] != STORED_VERSION)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row, buf, STORED_MAX, &len))
 		return 0;
-	memcpy(s->contact, buf + STORED_CONTACT, FZN_PUBKEY_LEN);
-	memcpy(s->device, buf + STORED_DEVICE, FZN_PUBKEY_LEN);
-	s->seq = fzn_get_be64(buf + STORED_SEQ);
-	s->written_at = fzn_get_be64(buf + STORED_WRITTEN);
-	s->stime = fzn_get_be64(buf + STORED_STIME);
-	s->direction = buf[STORED_DIRECTION];
-	memcpy(s->id, buf + STORED_ID, FZN_MESSAGE_ID_LEN);
-	s->epoch = fzn_get_be32(buf + STORED_EPOCH);
-	s->parts = buf[STORED_PARTS];
-	s->opened = buf[STORED_OPENED];
-	s->text_len = ((size_t)buf[STORED_TEXT_LEN] << 8) | buf[STORED_TEXT_LEN + 1u];
-	if (s->text_len > FZN_MESSAGE_TEXT_MAX || len < STORED_TEXT + s->text_len + 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1381: version, direction, parts, the
+	 * opened flag, a text of at most 512 bytes, at most two sealed parts
+	 * of 72 to 512 bytes each, and every byte accounted for the generated
+	 * code's; that the three agree is `stored_shape_ok`'s. */
+	if (len > STORED_MAX || fzn_line_record_fzn_message_stored_required(buf, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return 0;
-	s->text = buf + STORED_TEXT;
-	at = STORED_TEXT + s->text_len;
-	s->held = buf[at++];
+	situ_msg_init(&msg, buf, (uint32_t)len);
+	if (fzn_line_record_fzn_message_stored_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_line_record_fzn_message_stored_validate(v) != SITU_OK)
+		return 0;
+	memcpy(s->contact, fzn_line_record_fzn_message_stored_contact_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(s->device, fzn_line_record_fzn_message_stored_device_ptr(v), FZN_PUBKEY_LEN);
+	s->seq = fzn_line_record_fzn_message_stored_seq_get(v);
+	s->written_at = fzn_line_record_fzn_message_stored_written_at_get(v);
+	s->stime = fzn_line_record_fzn_message_stored_stime_get(v);
+	s->direction = (uint8_t)fzn_line_record_fzn_message_stored_direction_get(v);
+	memcpy(s->id, fzn_line_record_fzn_message_stored_id_ptr(v), FZN_MESSAGE_ID_LEN);
+	s->epoch = fzn_line_record_fzn_message_stored_epoch_get(v);
+	s->parts = fzn_line_record_fzn_message_stored_parts_get(v);
+	s->opened = fzn_line_record_fzn_message_stored_opened_get(v);
+	s->text_len = fzn_line_record_fzn_message_stored_text_len_get(v);
+	s->text = fzn_line_record_fzn_message_stored_text_ptr(v);
+	s->held = fzn_line_record_fzn_message_stored_held_get(v);
 	/* WHAT IT SAYS IT IS, where it was looked for: a row under another
 	 * line's place is not that line. */
-	if (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq
-	    || !direction_ok(s->direction) || !stored_shape_ok(s))
+	if (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq || !stored_shape_ok(s))
 		return 0;
 	for (i = 0; i < s->held; i++) {
-		if (len - at < 2u)
+		if (fzn_line_record_fzn_message_stored_sealed_at(v, (uint32_t)i, &part) != SITU_OK)
 			return 0;
-		s->body_len[i] = ((size_t)buf[at] << 8) | buf[at + 1u];
-		if (s->body_len[i] < FZN_MESSAGE_LINE_HEAD || s->body_len[i] > FZN_RECORD_BODY_MAX
-		    || len - at - 2u < s->body_len[i])
-			return 0;
-		s->body[i] = buf + at + 2u;
-		at += 2u + s->body_len[i];
+		s->body_len[i] = fzn_line_record_fzn_message_stored_part_len_get(part);
+		s->body[i] = fzn_line_record_fzn_message_stored_part_body_ptr(part);
 	}
-	return at == len;
+	return 1;
 }
 
 /* OPEN a line's sealed parts under `device`'s key for its month, into

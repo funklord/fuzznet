@@ -10372,11 +10372,18 @@ SABOTAGES = [
 		"a page lists no line from the store, only what the journal still holds -- sec 536",
 	),
 	(
+		"messages-row-read-as-the-schema",
+		"messages/messages.c",
+		"\t    || fzn_line_record_fzn_message_stored_validate(v) != SITU_OK)",
+		"\t    || 0)",
+		"a stored row of a direction no line has, or a sealed part shorter than a line's head, read -- sec 1381",
+	),
+	(
 		"messages-row-is-its-own-line",
 		"messages/messages.c",
-		"\tif (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq\n\t    || !direction_ok(s->direction)",
-		"\tif (!direction_ok(s->direction)",
-		"a row under another line's place is shown as that line -- sec 536",
+		"\tif (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq || !stored_shape_ok(s))",
+		"\tif (!stored_shape_ok(s))",
+		"a row under another line's place is shown as that line -- secs 536, 1381",
 	),
 	(
 		"messages-keep-once",

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1380
+The newest work is at the end of this file. **Read secs 1287 to 1381
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96148,3 +96148,24 @@ messages_test (302), records_test (227), and the 14 targets linking the
 line codec. Sabotage `messages-position-length-exact` and
 `messages-mark-state-known` retargeted onto `READ_FIXED`, which each now
 breaks for all four fixed readers.
+
+## 1381. The store's row of a line through situ's code, 2026-11-22
+
+The rest of sec 1380: `fzn_message_stored`, the row `messages/messages.c`
+keeps a line in (secs 536, 539), is written through situ's edit layer and
+read through its view and `validate`. No builder writes a run of
+variable-length structs, so `stored_save` sizes the whole row first and
+writes every field in order -- each run's length before its bytes, so the
+edit layer finds every place after it: the text's length then its text,
+`held` then each sealed part's length then its body. `stored_load` reads
+through `required` (every byte accounted for, which the hand loop's
+`at == len` was), the view and `validate`: version, direction, parts,
+the opened flag, a text of at most 512 bytes, a sealed part of 72 to 512.
+That the three agree -- opened with no parts, or not with no text and
+every part or none -- stays `stored_shape_ok`'s, and the row's place
+(device and sequence) the codec's.
+
+**Tests:** messages_test (283), line_fuzz, delivery_fuzz and keys_fuzz
+with the same counts as before, node messages_test (302), records_test
+(227). Sabotage `messages-row-is-its-own-line` retargeted,
+`messages-row-read-as-the-schema` new.
