@@ -22,3 +22,8 @@ ascii_only = true
 floor = 0.43
 
 exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher", "quirc", "qtty", "thorvg", "frame.situ.wire", "frame.situ.map", "generated"]
+
+# What was true once, moved out of project.md (the holder's rule of
+# 2026-11-20): held by the docs mode as project.md is, so a path or a
+# citation it names keeps resolving.
+doc_extra = ["doc/journal.md"]
