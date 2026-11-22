@@ -1,6 +1,8 @@
 /* See roster.h. */
 
 #include "roster.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../contact/contact.h"
 #include "../hex/hex.h"
@@ -119,18 +121,17 @@ static fzn_node_roster_err_t save(const fzn_persist_ops_t *store, const fzn_hash
 {
 	static uint8_t blob[BLOB_MAX];
 	uint8_t id[FZN_PUBKEY_LEN];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	size_t i;
+	uint32_t wrote = 0;
 
-	if (!store->save || !record_id(hash, record, id)
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
+	if (!store->save || hop_count > FZN_CHAIN_MAX_HOPS || !record_id(hash, record, id)
 	    || fzn_persist_head_write(blob, sizeof(blob), BODY(hop_count), FZN_PERSIST_BLOB_ROSTER)
-	               != FZN_PERSIST_OK)
+	               != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_roster_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)BODY(hop_count), record,
+	                                              hop_count ? &hops[0][0] : NULL,
+	                                              (uint32_t)(hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK)
 		return FZN_NODE_ROSTER_NOT_SAVED;
-	memcpy(body, record, FZN_ROSTER_MIN_LEN);
-	body[FZN_ROSTER_MIN_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(body + FZN_ROSTER_MIN_LEN + 1u + (i * (size_t)FZN_HOP_LEN), hops[i],
-		       FZN_HOP_LEN);
 	if (!store->save(store->ctx, FZN_PERSIST_ROSTER, id, blob,
 	                 FZN_PERSIST_HEAD_LEN + BODY(hop_count)))
 		return FZN_NODE_ROSTER_NOT_SAVED;
@@ -143,20 +144,28 @@ int fzn_node_roster_get(const fzn_persist_ops_t *store, const uint8_t id[FZN_PUB
 {
 	static uint8_t blob[BLOB_MAX];
 	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	size_t len = 0, n, i;
+	size_t len = 0, n;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
+	/* READ AS THE SCHEMA SAYS, sec 1397: at most eight hops, EXACTLY THEM. */
 	if (!store || !store->load || !id || !record || !hops || !hop_count
 	    || !store->load(store->ctx, FZN_PERSIST_ROSTER, id, blob, sizeof(blob), &len)
-	    || len < FZN_PERSIST_HEAD_LEN + BODY(0))
+	    || len < FZN_PERSIST_HEAD_LEN + BODY(0)
+	    || fzn_persist_wire_fzn_persist_roster_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_ROSTER) != FZN_PERSIST_OK)
 		return 0;
-	n = body[FZN_ROSTER_MIN_LEN];
-	if (n > FZN_CHAIN_MAX_HOPS
-	    || fzn_persist_head_check(blob, len, BODY(n), FZN_PERSIST_BLOB_ROSTER) != FZN_PERSIST_OK)
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_roster_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_roster_body_validate(b) != SITU_OK)
 		return 0;
-	memcpy(record, body, FZN_ROSTER_MIN_LEN);
-	for (i = 0; i < n; i++)
-		memcpy(hops[i], body + FZN_ROSTER_MIN_LEN + 1u + (i * (size_t)FZN_HOP_LEN),
-		       FZN_HOP_LEN);
+	n = fzn_persist_wire_fzn_persist_roster_body_hop_count_get(b);
+	if (n > FZN_CHAIN_MAX_HOPS || (n && fzn_persist_wire_fzn_persist_roster_body_hops_at(b, 0u, &e) != SITU_OK))
+		return 0;
+	memcpy(record, fzn_persist_wire_fzn_persist_roster_body_record_ptr(b), FZN_ROSTER_MIN_LEN);
+	if (n)
+		memcpy(hops, situ_base(e), n * (size_t)FZN_HOP_LEN);
 	*hop_count = n;
 	return 1;
 }

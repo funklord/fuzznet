@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1396
+The newest work is at the end of this file. **Read secs 1287 to 1397
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96653,3 +96653,44 @@ of the 50 links carrying persist.o builds. Sabotage
 `persist-open-must-not-clear`, `persist-pinned-anchor-refused` and
 `persist-identity-open-refuses-a-zero-seed` retargeted onto the view's
 pointers.
+
+## 1397. The persist bodies that carry chains through situ's code; stage two of persist, 2026-11-22
+
+Every persist body that carries hops is packed by its generated body
+builder and opened through its view:
+
+| Body | File |
+|---|---|
+| revocation, vote, admin confirm, own admin | node/revoke.c |
+| admin retention | node/roots.c |
+| node peer | node/peer_persist.c |
+| pairing | node/pair.c |
+| succession | node/succession.c |
+| roster | node/roster.c |
+
+A pack writes the head, then builds the body from the record and the
+hops as they are held (one contiguous array each). An open asks the
+body's `required` for its exact length, which reads the hop count within
+what is there. That length goes to `fzn_persist_head_check` as before,
+and the body is then read through its view and `validate`.
+
+**The hop bound is held twice** where a hop array is copied into a fixed
+struct (node peer, 8 rows): by the schema's `max` and by the code's own
+check, so that a schema loosened later cannot overflow the array. Removing
+either alone is an equivalent mutant, so
+`node-peer-open-bounds-the-hop-count` now removes both.
+`pairing-open-capability-agrees-with-hop` follows the chain and
+capability read through the view.
+
+**Left on the frame, on purpose:** roots.c's change blobs (root add,
+remove, quorum and retention set), whose body is one opaque record chosen
+by tag, and the own root's seed, written straight from the random source
+into the blob. notes/store.c's note, purged mark and wrap key are the
+same kind. A builder over one opaque field adds nothing to the head check
+that already holds its exact length; they move with the head.
+
+**Evidence:** votes_fuzz, estate_fuzz, group_fuzz, card_fuzz,
+reachability_fuzz, members_fuzz and reconcile_fuzz give their counts of
+before. admin_test (377), pair_test (443), peer_persist_test (44),
+contact_devices_test (136), apply_test (191) and the rest of the 26 links
+pass.

@@ -950,9 +950,14 @@ SABOTAGES = [
 	(
 		"node-peer-open-bounds-the-hop-count",
 		"node/peer_persist.c",
-		"\tif (hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n"
-		"\t\treturn FZN_PERSIST_ERR_SHAPE;",
-		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"\t    || fzn_persist_wire_fzn_persist_node_peer_body_validate(b) != SITU_OK)\n"
+		"\t\treturn FZN_PERSIST_ERR_SHAPE;\n"
+		"\thop_count = fzn_persist_wire_fzn_persist_node_peer_body_hop_count_get(b);\n"
+		"\tif (hop_count > (size_t)FZN_CHAIN_MAX_HOPS\n",
+		")\n"
+		"\t\treturn FZN_PERSIST_ERR_SHAPE;\n"
+		"\thop_count = fzn_persist_wire_fzn_persist_node_peer_body_hop_count_get(b);\n"
+		"\tif (0\n",
 		"the same bound where the count arrives from a FILE rather than "
 		"from a caller, which is the case that matters. The forged blob "
 		"has to be SELF-CONSISTENT -- a declared count of nine with a "
@@ -3512,7 +3517,7 @@ SABOTAGES = [
 	(
 		"pairing-open-capability-agrees-with-hop",
 		"node/pair.c",
-		"\tif (memcmp(bytes + OFF_CHAIN + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY,\n\t           bytes + OFF_CAP, FZN_CAP_ID_LEN) != 0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\tif (memcmp(chain + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY, cap, FZN_CAP_ID_LEN) != 0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
 		"",
 		"two copies of the capability in one blob that need not agree are two encodings of it, and the device would present one grant while holding another -- sec 377",
 	),

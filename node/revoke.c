@@ -1,6 +1,8 @@
 /* See revoke.h. */
 
 #include "revoke.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "roots.h"
 #include "roster.h"
@@ -64,10 +66,18 @@ static int load_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
 
 	if (!store->load(store->ctx, slot, grantee, blob, sizeof(blob), &len))
 		return 0;
+	situ_msg_t m;
+	situ_view_t b;
+	const uint8_t *record;
+
+	/* THE BODY READ THROUGH ITS VIEW, sec 1397. */
+	situ_msg_init(&m, blob, (uint32_t)len);
 	if (fzn_persist_head_check(blob, len, FZN_REVOCATION_LEN, FZN_PERSIST_BLOB_REVOCATION)
 	            != FZN_PERSIST_OK
-	    || fzn_revocation_open(blob + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN, &rec)
-	               != FZN_CHAIN_OK)
+	    || fzn_persist_wire_fzn_persist_revocation_body_view(&m, FZN_PERSIST_HEAD_LEN, &b) != SITU_OK)
+		return 0;
+	record = fzn_persist_wire_fzn_persist_revocation_body_record_ptr(b);
+	if (fzn_revocation_open(record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 		return 0;
 	/* FILED UNDER ITS OWN ROW: its grantee's, or its grantee's beside its
 	 * capability (`vote_row`). Under any other it is refused. */
@@ -76,7 +86,7 @@ static int load_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
 	if (memcmp(fzn_revocation_grantee(rec), grantee, FZN_PUBKEY_LEN) != 0
 	    && memcmp(beside, grantee, FZN_PUBKEY_LEN) != 0)
 		return 0;
-	memcpy(out, blob + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN);
+	memcpy(out, record, FZN_REVOCATION_LEN);
 	return 1;
 }
 
@@ -198,11 +208,18 @@ static fzn_node_revoke_err_t issue(struct fzn_node_roots *roots, const fzn_node_
 	               != FZN_CHAIN_OK)
 		return FZN_NODE_REVOKE_STORE_REFUSED;
 
-	if (fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN,
-	                           FZN_PERSIST_BLOB_REVOCATION)
-	            != FZN_PERSIST_OK)
-		return FZN_NODE_REVOKE_NOT_SAVED;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
+		if (fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN,
+		                           FZN_PERSIST_BLOB_REVOCATION)
+		            != FZN_PERSIST_OK
+		    || fzn_persist_wire_fzn_persist_revocation_body_build(blob + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN,
+		                                                          record, &wrote)
+		               != SITU_OK)
+			return FZN_NODE_REVOKE_NOT_SAVED;
+	}
 	if (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))
 		return FZN_NODE_REVOKE_NOT_SAVED;
 	/* LOGGED WHERE IT IS MADE, sec 504, under its issuer: a vote not in its
@@ -814,23 +831,35 @@ static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_P
                      uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
 	uint8_t blob[VOTE_BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *run = NULL;
 	fzn_revocation_record_t rec;
 	fzn_chain_hop_t hop;
 	size_t len = 0, n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
+	/* READ AS THE SCHEMA SAYS, sec 1397: the body EXACTLY its record and
+	 * at most seven hops, under the head; then through its view. */
 	if (!store->load(store->ctx, FZN_PERSIST_VOTE, subject, blob, sizeof(blob), &len)
-	    || len < FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u)
+	    || len < FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_vote_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need)
+	               != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_VOTE) != FZN_PERSIST_OK)
 		return 0;
-	n = body[FZN_REVOCATION_LEN];
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_vote_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_vote_body_validate(b) != SITU_OK)
+		return 0;
+	n = fzn_persist_wire_fzn_persist_vote_body_hop_count_get(b);
 	if (n >= FZN_CHAIN_MAX_HOPS
-	    || fzn_persist_head_check(blob, len, FZN_REVOCATION_LEN + 1u + (n * FZN_HOP_LEN),
-	                              FZN_PERSIST_BLOB_VOTE)
-	               != FZN_PERSIST_OK
-	    || fzn_revocation_open(body, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+	    || (n && fzn_persist_wire_fzn_persist_vote_body_hops_at(b, 0u, &e) != SITU_OK)
+	    || fzn_revocation_open(fzn_persist_wire_fzn_persist_vote_body_record_ptr(b), FZN_REVOCATION_LEN, &rec)
+	               != FZN_CHAIN_OK)
 		return 0;
+	run = n ? situ_base(e) : NULL;
 	for (i = 0; i < n; i++) {
-		const uint8_t *h = body + FZN_REVOCATION_LEN + 1u + (i * FZN_HOP_LEN);
+		const uint8_t *h = run + (i * FZN_HOP_LEN);
 
 		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return 0;
@@ -846,17 +875,18 @@ static int save_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_P
                      const uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t hop_count)
 {
 	uint8_t blob[VOTE_BLOB_MAX];
-	size_t body = FZN_REVOCATION_LEN + 1u + (hop_count * FZN_HOP_LEN), i;
+	size_t body = FZN_REVOCATION_LEN + 1u + (hop_count * FZN_HOP_LEN);
+	uint32_t wrote = 0;
 
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397, the hops as
+	 * they are held. */
 	if (hop_count >= FZN_CHAIN_MAX_HOPS
 	    || fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_VOTE)
-	               != FZN_PERSIST_OK)
+	               != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_vote_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)body, record,
+	                                                    &hops[0][0], (uint32_t)(hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK)
 		return 0;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
-	blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u + (i * FZN_HOP_LEN),
-		       hops[i], FZN_HOP_LEN);
 	return store->save(store->ctx, FZN_PERSIST_VOTE, subject, blob,
 	                   (size_t)FZN_PERSIST_HEAD_LEN + body);
 }
@@ -894,27 +924,38 @@ static int load_confirm(const fzn_persist_ops_t *store, const uint8_t subject[FZ
                         uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
 	uint8_t blob[CONFIRM_BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *run = NULL;
 	fzn_chain_hop_t hop;
 	size_t len = 0, n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
+	/* READ AS THE SCHEMA SAYS, sec 1397, as a vote is. */
 	if (!store->load(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, subject, blob, sizeof(blob), &len)
-	    || len < FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN + 1u)
+	    || len < FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_admin_confirm_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN),
+	                                                                &need)
+	               != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_ADMIN_CONFIRM) != FZN_PERSIST_OK)
 		return 0;
-	n = body[FZN_ADMIN_CONFIRM_LEN];
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_admin_confirm_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_admin_confirm_body_validate(b) != SITU_OK)
+		return 0;
+	n = fzn_persist_wire_fzn_persist_admin_confirm_body_hop_count_get(b);
 	if (n >= FZN_CHAIN_MAX_HOPS
-	    || fzn_persist_head_check(blob, len, FZN_ADMIN_CONFIRM_LEN + 1u + (n * FZN_HOP_LEN),
-	                              FZN_PERSIST_BLOB_ADMIN_CONFIRM)
-	               != FZN_PERSIST_OK)
+	    || (n && fzn_persist_wire_fzn_persist_admin_confirm_body_hops_at(b, 0u, &e) != SITU_OK))
 		return 0;
+	run = n ? situ_base(e) : NULL;
 	for (i = 0; i < n; i++) {
-		const uint8_t *h = body + FZN_ADMIN_CONFIRM_LEN + 1u + (i * FZN_HOP_LEN);
+		const uint8_t *h = run + (i * FZN_HOP_LEN);
 
 		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return 0;
 		memcpy(hops[i], h, FZN_HOP_LEN);
 	}
-	memcpy(record, body, FZN_ADMIN_CONFIRM_LEN);
+	memcpy(record, fzn_persist_wire_fzn_persist_admin_confirm_body_record_ptr(b), FZN_ADMIN_CONFIRM_LEN);
 	*hop_count = n;
 	return 1;
 }
@@ -925,18 +966,19 @@ static int save_confirm(const fzn_persist_ops_t *store, const fzn_hash_ops_t *ha
                         const uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t hop_count)
 {
 	uint8_t blob[CONFIRM_BLOB_MAX], subject[FZN_PUBKEY_LEN];
-	size_t body = FZN_ADMIN_CONFIRM_LEN + 1u + (hop_count * FZN_HOP_LEN), i;
+	size_t body = FZN_ADMIN_CONFIRM_LEN + 1u + (hop_count * FZN_HOP_LEN);
+	uint32_t wrote = 0;
 
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
 	if (hop_count >= FZN_CHAIN_MAX_HOPS
 	    || !hash->hash(hash->ctx, subject, sizeof(subject), record, FZN_ADMIN_CONFIRM_LEN)
 	    || fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_ADMIN_CONFIRM)
-	               != FZN_PERSIST_OK)
+	               != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_admin_confirm_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)body,
+	                                                             record, &hops[0][0],
+	                                                             (uint32_t)(hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK)
 		return 0;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_ADMIN_CONFIRM_LEN);
-	blob[FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN + 1u + (i * FZN_HOP_LEN),
-		       hops[i], FZN_HOP_LEN);
 	return store->save(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, subject, blob,
 	                   (size_t)FZN_PERSIST_HEAD_LEN + body);
 }
@@ -1180,21 +1222,32 @@ int fzn_node_admin_chain_load(const fzn_persist_ops_t *store, fzn_node_admin_cha
 	uint8_t blob[OWN_ADMIN_BLOB_MAX];
 	fzn_chain_hop_t hop;
 	size_t len = 0, n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
 	if (!store || !store->load || !out)
 		return -1;
 	memset(out, 0, sizeof(*out));
 	if (!store->load(store->ctx, FZN_PERSIST_OWN_ADMIN, NULL, blob, sizeof(blob), &len))
 		return 0;
-	if (len < FZN_PERSIST_HEAD_LEN + 1u)
+	/* READ AS THE SCHEMA SAYS, sec 1397: one to seven hops, EXACTLY THEM. */
+	if (len < FZN_PERSIST_HEAD_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_own_admin_body_required(blob + FZN_PERSIST_HEAD_LEN,
+	                                                            (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need)
+	               != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_OWN_ADMIN) != FZN_PERSIST_OK)
 		return -1;
-	n = blob[FZN_PERSIST_HEAD_LEN];
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_own_admin_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_own_admin_body_validate(b) != SITU_OK)
+		return -1;
+	n = fzn_persist_wire_fzn_persist_own_admin_body_hop_count_get(b);
 	if (n == 0u || n >= FZN_CHAIN_MAX_HOPS
-	    || fzn_persist_head_check(blob, len, 1u + (n * FZN_HOP_LEN), FZN_PERSIST_BLOB_OWN_ADMIN)
-	               != FZN_PERSIST_OK)
+	    || fzn_persist_wire_fzn_persist_own_admin_body_hops_at(b, 0u, &e) != SITU_OK)
 		return -1;
 	for (i = 0; i < n; i++) {
-		const uint8_t *h = blob + FZN_PERSIST_HEAD_LEN + 1u + (i * FZN_HOP_LEN);
+		const uint8_t *h = situ_base(e) + (i * FZN_HOP_LEN);
 
 		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return -1;
@@ -1233,12 +1286,18 @@ fzn_node_revoke_err_t fzn_node_admin_chain_set(const fzn_persist_ops_t *store,
 	    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0
 	    || !fzn_hop_delegable(views[hop_count - 1u]))
 		return FZN_NODE_REVOKE_NOT_ADMIN;
-	if (fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_OWN_ADMIN)
-	    != FZN_PERSIST_OK)
-		return FZN_NODE_REVOKE_MALFORMED;
-	blob[FZN_PERSIST_HEAD_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(blob + FZN_PERSIST_HEAD_LEN + 1u + (i * FZN_HOP_LEN), hops[i], FZN_HOP_LEN);
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
+		if (fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_OWN_ADMIN)
+		            != FZN_PERSIST_OK
+		    || fzn_persist_wire_fzn_persist_own_admin_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)body,
+		                                                         &hops[0][0], (uint32_t)(hop_count * FZN_HOP_LEN),
+		                                                         &wrote)
+		               != SITU_OK)
+			return FZN_NODE_REVOKE_MALFORMED;
+	}
 	if (!store->save(store->ctx, FZN_PERSIST_OWN_ADMIN, NULL, blob,
 	                 (size_t)FZN_PERSIST_HEAD_LEN + body))
 		return FZN_NODE_REVOKE_NOT_SAVED;

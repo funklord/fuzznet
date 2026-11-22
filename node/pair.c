@@ -1,6 +1,8 @@
 /* See pair.h. */
 
 #include "pair.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "peer_persist.h"
 #include "roots.h"
@@ -459,12 +461,18 @@ fzn_persist_err_t fzn_node_pairing_pack(const fzn_node_pairing_t *pairing, uint8
 	                             FZN_PERSIST_BLOB_PAIRING);
 	if (err != FZN_PERSIST_OK)
 		return err;
-	memcpy(out + OFF_NODE, pairing->node, FZN_PUBKEY_LEN);
-	memcpy(out + OFF_CAP, pairing->capability.b, FZN_CAP_ID_LEN);
-	memcpy(out + OFF_KEY, pairing->send_key, FZN_AEAD_KEY_LEN);
-	memcpy(out + OFF_CKEY, pairing->send_ckey, FZN_COMMITMENT_KEY_LEN);
-	out[OFF_HOP_COUNT] = (uint8_t)n;
-	memcpy(out + OFF_CHAIN, pairing->chain, n * FZN_HOP_LEN);
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
+		if (fzn_persist_wire_fzn_persist_pairing_body_build(out + OFF_NODE, (uint32_t)FZN_NODE_PAIRING_BODY_LEN(n),
+		                                                    pairing->node, pairing->capability.b,
+		                                                    pairing->send_key, pairing->send_ckey,
+		                                                    &pairing->chain[0][0], (uint32_t)(n * FZN_HOP_LEN),
+		                                                    &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
+	}
 	*len = (size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PAIRING_BODY_LEN(n);
 	return FZN_PERSIST_OK;
 }
@@ -475,36 +483,47 @@ fzn_persist_err_t fzn_node_pairing_open(const uint8_t *bytes, size_t len,
 	fzn_persist_err_t err;
 	fzn_chain_hop_t hop;
 	size_t n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
+	const uint8_t *chain, *cap;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	if (len <= OFF_HOP_COUNT)
+	/* READ AS THE SCHEMA SAYS, sec 1397: one to eight hops, EXACTLY THEM. */
+	if (len <= OFF_HOP_COUNT || len > UINT32_MAX
+	    || fzn_persist_wire_fzn_persist_pairing_body_required(bytes + OFF_NODE, (uint32_t)(len - OFF_NODE), &need)
+	               != SITU_OK)
 		return FZN_PERSIST_ERR_SHAPE;
-	n = bytes[OFF_HOP_COUNT];
-	if (n == 0u || n > FZN_CHAIN_MAX_HOPS)
-		return FZN_PERSIST_ERR_SHAPE;
-	err = fzn_persist_head_check(bytes, len, FZN_NODE_PAIRING_BODY_LEN(n),
-	                             FZN_PERSIST_BLOB_PAIRING);
+	err = fzn_persist_head_check(bytes, len, need, FZN_PERSIST_BLOB_PAIRING);
 	if (err != FZN_PERSIST_OK)
 		return err;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_pairing_body_view(&m, OFF_NODE, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_pairing_body_validate(b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	n = fzn_persist_wire_fzn_persist_pairing_body_hop_count_get(b);
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS
+	    || fzn_persist_wire_fzn_persist_pairing_body_chain_at(b, 0u, &e) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	chain = situ_base(e);
+	cap = fzn_persist_wire_fzn_persist_pairing_body_capability_ptr(b);
 	/* EVERY HOP MUST BE A HOP, AND THE LAST ONE'S CAPABILITY THE ONE STORED
 	 * BESIDE IT. Two copies of one fact in one blob is a second encoding
 	 * unless they are required to agree -- `persist.c`'s head check refuses
 	 * a trailing byte for the same reason. */
 	for (i = 0; i < n; i++)
-		if (fzn_hop_open(bytes + OFF_CHAIN + i * FZN_HOP_LEN, FZN_HOP_LEN, &hop)
-		    != FZN_CHAIN_OK)
+		if (fzn_hop_open(chain + i * FZN_HOP_LEN, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return FZN_PERSIST_ERR_SHAPE;
-	if (memcmp(bytes + OFF_CHAIN + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY,
-	           bytes + OFF_CAP, FZN_CAP_ID_LEN) != 0)
+	if (memcmp(chain + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY, cap, FZN_CAP_ID_LEN) != 0)
 		return FZN_PERSIST_ERR_SHAPE;
 	memset(out, 0, sizeof(*out));
-	memcpy(out->node, bytes + OFF_NODE, FZN_PUBKEY_LEN);
-	memcpy(out->capability.b, bytes + OFF_CAP, FZN_CAP_ID_LEN);
-	memcpy(out->send_key, bytes + OFF_KEY, FZN_AEAD_KEY_LEN);
-	memcpy(out->send_ckey, bytes + OFF_CKEY, FZN_COMMITMENT_KEY_LEN);
+	memcpy(out->node, fzn_persist_wire_fzn_persist_pairing_body_node_ptr(b), FZN_PUBKEY_LEN);
+	memcpy(out->capability.b, cap, FZN_CAP_ID_LEN);
+	memcpy(out->send_key, fzn_persist_wire_fzn_persist_pairing_body_send_key_ptr(b), FZN_AEAD_KEY_LEN);
+	memcpy(out->send_ckey, fzn_persist_wire_fzn_persist_pairing_body_send_ckey_ptr(b), FZN_COMMITMENT_KEY_LEN);
 	out->hop_count = n;
-	memcpy(out->chain, bytes + OFF_CHAIN, n * FZN_HOP_LEN);
+	memcpy(out->chain, chain, n * FZN_HOP_LEN);
 	return FZN_PERSIST_OK;
 }
 

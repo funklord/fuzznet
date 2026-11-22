@@ -1,6 +1,8 @@
 /* See succession.h. */
 
 #include "succession.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 #include "roots.h"
 
 #include <string.h>
@@ -25,28 +27,36 @@ int fzn_node_succession_get(const fzn_persist_ops_t *store, const uint8_t subjec
                             uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
 	uint8_t blob[BLOB_MAX];
-	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN, *run = NULL;
 	fzn_chain_hop_t hop;
 	size_t len = 0, n, i;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
+	/* READ AS THE SCHEMA SAYS, sec 1397: at most seven hops, EXACTLY THEM. */
 	if (!store || !store->load || !subject || !record || !hops || !hop_count
 	    || !store->load(store->ctx, FZN_PERSIST_SUCCESSION, subject, blob, sizeof(blob), &len)
-	    || len < FZN_PERSIST_HEAD_LEN + FZN_SUCCESSION_LEN + 1u)
+	    || len < FZN_PERSIST_HEAD_LEN + FZN_SUCCESSION_LEN + 1u
+	    || fzn_persist_wire_fzn_persist_succession_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need) != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_SUCCESSION) != FZN_PERSIST_OK)
 		return 0;
-	n = body[FZN_SUCCESSION_LEN];
-	if (n >= FZN_CHAIN_MAX_HOPS
-	    || fzn_persist_head_check(blob, len, FZN_SUCCESSION_LEN + 1u + (n * FZN_HOP_LEN),
-	                              FZN_PERSIST_BLOB_SUCCESSION)
-	               != FZN_PERSIST_OK)
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_succession_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_succession_body_validate(b) != SITU_OK)
 		return 0;
+	n = fzn_persist_wire_fzn_persist_succession_body_hop_count_get(b);
+	if (n >= FZN_CHAIN_MAX_HOPS || (n && fzn_persist_wire_fzn_persist_succession_body_hops_at(b, 0u, &e) != SITU_OK))
+		return 0;
+	run = n ? situ_base(e) : NULL;
 	for (i = 0; i < n; i++) {
-		const uint8_t *h = body + FZN_SUCCESSION_LEN + 1u + (i * FZN_HOP_LEN);
+		const uint8_t *h = run + (i * FZN_HOP_LEN);
 
 		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return 0;
 		memcpy(hops[i], h, FZN_HOP_LEN);
 	}
-	memcpy(record, body, FZN_SUCCESSION_LEN);
+	memcpy(record, fzn_persist_wire_fzn_persist_succession_body_record_ptr(b), FZN_SUCCESSION_LEN);
 	*hop_count = n;
 	return 1;
 }
@@ -57,18 +67,19 @@ static int save(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                 size_t hop_count)
 {
 	uint8_t blob[BLOB_MAX], subject[FZN_PUBKEY_LEN];
-	size_t body = FZN_SUCCESSION_LEN + 1u + (hop_count * FZN_HOP_LEN), i;
+	size_t body = FZN_SUCCESSION_LEN + 1u + (hop_count * FZN_HOP_LEN);
+	uint32_t wrote = 0;
 
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397. */
 	if (hop_count >= FZN_CHAIN_MAX_HOPS || !store->save
 	    || !hash->hash(hash->ctx, subject, sizeof(subject), record, FZN_SUCCESSION_LEN)
 	    || fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_SUCCESSION)
-	               != FZN_PERSIST_OK)
+	               != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_succession_body_build(blob + FZN_PERSIST_HEAD_LEN, (uint32_t)body, record,
+	                                                  hop_count ? &hops[0][0] : NULL,
+	                                                  (uint32_t)(hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK)
 		return 0;
-	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_SUCCESSION_LEN);
-	blob[FZN_PERSIST_HEAD_LEN + FZN_SUCCESSION_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_SUCCESSION_LEN + 1u + (i * FZN_HOP_LEN),
-		       hops[i], FZN_HOP_LEN);
 	return store->save(store->ctx, FZN_PERSIST_SUCCESSION, subject, blob,
 	                   (size_t)FZN_PERSIST_HEAD_LEN + body);
 }

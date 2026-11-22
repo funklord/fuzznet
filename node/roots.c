@@ -1,6 +1,8 @@
 /* See roots.h. */
 
 #include "roots.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 #include "journal.h"
 
 #include "../wire/bytes.h"
@@ -989,19 +991,20 @@ static fzn_node_roots_err_t save_admin_retention(const fzn_node_roots_t *roots,
 {
 	static uint8_t blob[ADMIN_RETENTION_BLOB_MAX];
 	uint8_t id[FZN_ROOT_ACT_ID_LEN];
-	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	size_t i;
+	uint32_t wrote = 0;
 
-	if (!store->save
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397, the hops as
+	 * they are held. */
+	if (!store->save || hop_count > ADMIN_HOPS_MAX
 	    || !roots->hash->hash(roots->hash->ctx, id, sizeof(id), record, FZN_RETENTION_SET_LEN)
 	    || fzn_persist_head_write(blob, sizeof(blob), ADMIN_RETENTION_BODY(hop_count),
 	                              FZN_PERSIST_BLOB_ADMIN_RETENTION)
-	               != FZN_PERSIST_OK)
+	               != FZN_PERSIST_OK
+	    || fzn_persist_wire_fzn_persist_admin_retention_body_build(
+	               blob + FZN_PERSIST_HEAD_LEN, (uint32_t)ADMIN_RETENTION_BODY(hop_count), record,
+	               hop_count ? &hops[0][0] : NULL, (uint32_t)(hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK)
 		return FZN_NODE_ROOTS_NOT_SAVED;
-	memcpy(body, record, FZN_RETENTION_SET_LEN);
-	body[FZN_RETENTION_SET_LEN] = (uint8_t)hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(body + FZN_RETENTION_SET_LEN + 1u + (i * FZN_HOP_LEN), hops[i], FZN_HOP_LEN);
 	/* FILED UNDER THE RECORD'S OWN ID, as a root record is. */
 	if (!store->save(store->ctx, FZN_PERSIST_ADMIN_RETENTION, id, blob,
 	                 FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(hop_count)))
@@ -1016,22 +1019,31 @@ int fzn_node_roots_admin_retention_get(const fzn_persist_ops_t *store,
 {
 	static uint8_t blob[ADMIN_RETENTION_BLOB_MAX];
 	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	size_t len = 0, n, i;
+	size_t len = 0, n;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
+	/* READ AS THE SCHEMA SAYS, sec 1397: one to seven hops, EXACTLY THEM. */
 	if (!store || !store->load || !subject || !record || !hops || !hop_count
 	    || !store->load(store->ctx, FZN_PERSIST_ADMIN_RETENTION, subject, blob, sizeof(blob),
 	                    &len)
-	    || len < FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(1))
+	    || len < FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(1)
+	    || fzn_persist_wire_fzn_persist_admin_retention_body_required(body, (uint32_t)(len - FZN_PERSIST_HEAD_LEN),
+	                                                                  &need)
+	               != SITU_OK
+	    || fzn_persist_head_check(blob, len, need, FZN_PERSIST_BLOB_ADMIN_RETENTION) != FZN_PERSIST_OK)
 		return 0;
-	n = body[FZN_RETENTION_SET_LEN];
+	situ_msg_init(&m, blob, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_admin_retention_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_admin_retention_body_validate(b) != SITU_OK)
+		return 0;
+	n = fzn_persist_wire_fzn_persist_admin_retention_body_hop_count_get(b);
 	if (n == 0u || n > ADMIN_HOPS_MAX
-	    || fzn_persist_head_check(blob, len, ADMIN_RETENTION_BODY(n),
-	                              FZN_PERSIST_BLOB_ADMIN_RETENTION)
-	               != FZN_PERSIST_OK)
+	    || fzn_persist_wire_fzn_persist_admin_retention_body_hops_at(b, 0u, &e) != SITU_OK)
 		return 0;
-	memcpy(record, body, FZN_RETENTION_SET_LEN);
-	for (i = 0; i < n; i++)
-		memcpy(hops[i], body + FZN_RETENTION_SET_LEN + 1u + (i * FZN_HOP_LEN), FZN_HOP_LEN);
+	memcpy(record, fzn_persist_wire_fzn_persist_admin_retention_body_record_ptr(b), FZN_RETENTION_SET_LEN);
+	memcpy(hops, situ_base(e), n * FZN_HOP_LEN);
 	*hop_count = n;
 	return 1;
 }

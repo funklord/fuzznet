@@ -1,6 +1,8 @@
 /* See peer_persist.h. */
 
 #include "peer_persist.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include <string.h>
 
@@ -25,8 +27,8 @@ fzn_persist_err_t fzn_node_peer_pack(const fzn_node_peer_t *peer, uint8_t *out,
                                      size_t cap, size_t *len)
 {
 	size_t body;
-	size_t i;
 	fzn_persist_err_t err;
+	uint32_t wrote = 0;
 
 	if (!peer || !out || !len)
 		return FZN_PERSIST_ERR_MALFORMED;
@@ -42,17 +44,13 @@ fzn_persist_err_t fzn_node_peer_pack(const fzn_node_peer_t *peer, uint8_t *out,
 	if (err != FZN_PERSIST_OK)
 		return err;
 
-	memcpy(out + FZN_PERSIST_HEAD_LEN + OFF_SENDER, peer->sender,
-	       FZN_PUBKEY_LEN);
-	memcpy(out + FZN_PERSIST_HEAD_LEN + OFF_RECV_KEY, peer->recv_key,
-	       FZN_AEAD_KEY_LEN);
-	memcpy(out + FZN_PERSIST_HEAD_LEN + OFF_RECV_CKEY, peer->recv_ckey,
-	       FZN_COMMITMENT_KEY_LEN);
-	out[FZN_PERSIST_HEAD_LEN + OFF_HOP_COUNT] = (uint8_t)peer->hop_count;
-	for (i = 0; i < peer->hop_count; i++)
-		memcpy(out + FZN_PERSIST_HEAD_LEN + OFF_HOPS +
-		           (i * (size_t)FZN_HOP_LEN),
-		       peer->hop_bytes[i], FZN_HOP_LEN);
+	/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1397, the hops as the
+	 * peer holds them. */
+	if (fzn_persist_wire_fzn_persist_node_peer_body_build(out + FZN_PERSIST_HEAD_LEN, (uint32_t)body, peer->sender,
+	                                                      peer->recv_key, peer->recv_ckey, &peer->hop_bytes[0][0],
+	                                                      (uint32_t)(peer->hop_count * FZN_HOP_LEN), &wrote)
+	    != SITU_OK)
+		return FZN_PERSIST_ERR_MALFORMED;
 	*len = FZN_PERSIST_HEAD_LEN + body;
 	return FZN_PERSIST_OK;
 }
@@ -61,41 +59,43 @@ fzn_persist_err_t fzn_node_peer_open(const uint8_t *bytes, size_t len,
                                      fzn_node_peer_t *out)
 {
 	size_t hop_count;
-	size_t i;
 	fzn_persist_err_t err;
+	situ_msg_t m;
+	situ_view_t b, e;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	/* THE COUNT IS INSIDE THE BODY, so it is read before the length can be
-	 * checked against it -- and reading it needs its own bound first, or
-	 * the read is past the end of a short blob. The order is: enough bytes
-	 * to hold the count, then the count, then the exact length. */
-	if (len < FZN_PERSIST_HEAD_LEN + FZN_NODE_PEER_BODY_FIXED)
-		return FZN_PERSIST_ERR_SHAPE;
-	hop_count = bytes[FZN_PERSIST_HEAD_LEN + OFF_HOP_COUNT];
-	if (hop_count > (size_t)FZN_CHAIN_MAX_HOPS)
+	/* THE COUNT IS INSIDE THE BODY, so the body's length is the schema's
+	 * to say, sec 1397: `required` reads the count within what is there,
+	 * and refuses a blob too short to hold it. */
+	if (len < FZN_PERSIST_HEAD_LEN + FZN_NODE_PEER_BODY_FIXED || len > UINT32_MAX
+	    || fzn_persist_wire_fzn_persist_node_peer_body_required(bytes + FZN_PERSIST_HEAD_LEN,
+	                                                            (uint32_t)(len - FZN_PERSIST_HEAD_LEN), &need)
+	               != SITU_OK)
 		return FZN_PERSIST_ERR_SHAPE;
 	/* Exact, version and tag, all from the shared head check -- so a blob
 	 * claiming eight hops and carrying two is refused here rather than
 	 * opened with six hops of whatever followed it in the file. */
-	err = fzn_persist_head_check(bytes, len, body_for(hop_count),
-	                             FZN_PERSIST_BLOB_NODE_PEER);
+	err = fzn_persist_head_check(bytes, len, need, FZN_PERSIST_BLOB_NODE_PEER);
 	if (err != FZN_PERSIST_OK)
 		return err;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_persist_wire_fzn_persist_node_peer_body_view(&m, FZN_PERSIST_HEAD_LEN, need, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_node_peer_body_validate(b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	hop_count = fzn_persist_wire_fzn_persist_node_peer_body_hop_count_get(b);
+	if (hop_count > (size_t)FZN_CHAIN_MAX_HOPS
+	    || (hop_count && fzn_persist_wire_fzn_persist_node_peer_body_hops_at(b, 0u, &e) != SITU_OK))
+		return FZN_PERSIST_ERR_SHAPE;
 
 	memset(out, 0, sizeof(*out));
-	memcpy(out->sender, bytes + FZN_PERSIST_HEAD_LEN + OFF_SENDER,
-	       FZN_PUBKEY_LEN);
-	memcpy(out->recv_key, bytes + FZN_PERSIST_HEAD_LEN + OFF_RECV_KEY,
-	       FZN_AEAD_KEY_LEN);
-	memcpy(out->recv_ckey, bytes + FZN_PERSIST_HEAD_LEN + OFF_RECV_CKEY,
-	       FZN_COMMITMENT_KEY_LEN);
+	memcpy(out->sender, fzn_persist_wire_fzn_persist_node_peer_body_sender_ptr(b), FZN_PUBKEY_LEN);
+	memcpy(out->recv_key, fzn_persist_wire_fzn_persist_node_peer_body_recv_key_ptr(b), FZN_AEAD_KEY_LEN);
+	memcpy(out->recv_ckey, fzn_persist_wire_fzn_persist_node_peer_body_recv_ckey_ptr(b), FZN_COMMITMENT_KEY_LEN);
 	out->hop_count = hop_count;
-	for (i = 0; i < hop_count; i++)
-		memcpy(out->hop_bytes[i],
-		       bytes + FZN_PERSIST_HEAD_LEN + OFF_HOPS +
-		           (i * (size_t)FZN_HOP_LEN),
-		       FZN_HOP_LEN);
+	if (hop_count)
+		memcpy(out->hop_bytes, situ_base(e), hop_count * (size_t)FZN_HOP_LEN);
 	return FZN_PERSIST_OK;
 }
 
