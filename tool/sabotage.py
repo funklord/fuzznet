@@ -11733,9 +11733,9 @@ SABOTAGES = [
 	(
 		"contact-estate-item-exact-length",
 		'node/contact_devices.c',
-		"\tif (hop_count > FZN_CHAIN_MAX_HOPS || len != 4u + record_len + hop_count * FZN_HOP_LEN\n",
-		"\tif (hop_count > FZN_CHAIN_MAX_HOPS || len < 4u + record_len + hop_count * FZN_HOP_LEN\n",
-		"an estate item with bytes past its chain decodes as one -- sec 781",
+		"\t    || need != len)\n\t\treturn FZN_CONTACT_DEVICE_ERR_SHAPE;\n\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);\n\tif (fzn_contact_devices_wire_fzn_contact_estate_item_view(",
+		"\t    || need > len)\n\t\treturn FZN_CONTACT_DEVICE_ERR_SHAPE;\n\tsitu_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);\n\tif (fzn_contact_devices_wire_fzn_contact_estate_item_view(",
+		"an estate item with bytes past its chain decodes as one -- secs 781, 1388",
 	),
 	(
 		"contact-estate-keep-signed",
@@ -11761,9 +11761,9 @@ SABOTAGES = [
 	(
 		"contact-estate-page-whole",
 		'node/contact_devices.c',
-		"\tif (at != reply_len || (reply[7] && n == 0u))\n\t\treturn 0;\n\tif (reply[8] > q->k)",
-		"\tif (0)\n\t\treturn 0;\n\tif (reply[8] > q->k)",
-		"an estate page with a trailing byte is taken -- sec 781",
+		"ok = r == SITU_OK && need == len ? fzn_contact_devices_wire_fzn_contact_devices_items_view(",
+		"ok = r == SITU_OK && need <= len ? fzn_contact_devices_wire_fzn_contact_devices_items_view(",
+		"an estate page with a trailing byte is taken -- secs 781, 1388",
 	),
 	(
 		"apply-vote-as-admin-first",
@@ -11796,9 +11796,9 @@ SABOTAGES = [
 	(
 		"contact-rows-page-whole",
 		'node/contact_devices.c',
-		"\tif (at != reply_len || (reply[7] && n == 0u))\n\t\treturn 0;\n\tfor (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {",
-		"\tif (0)\n\t\treturn 0;\n\tfor (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {",
-		"a rows page with a trailing byte is taken -- sec 782",
+		"ok = r == SITU_OK && need == len ? fzn_contact_devices_wire_fzn_contact_devices_kept_rows_view(",
+		"ok = r == SITU_OK && need <= len ? fzn_contact_devices_wire_fzn_contact_devices_kept_rows_view(",
+		"a rows page with a trailing byte is taken -- secs 782, 1388",
 	),
 	(
 		"contact-act-lenient-unknown-stands",

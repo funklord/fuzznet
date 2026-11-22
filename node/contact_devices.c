@@ -877,13 +877,20 @@ fzn_contact_device_err_t fzn_contact_estate_item_encode(const fzn_contact_estate
 	    || item->hop_count > FZN_CHAIN_MAX_HOPS)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	n = 1u + 2u + item->record_len + 1u + item->hop_count * FZN_HOP_LEN;
-	if (n > cap)
-		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
-	out[0] = item->kind;
-	fzn_put_be16(out + 1, (uint16_t)item->record_len);
-	memcpy(out + 3, item->record, item->record_len);
-	out[3 + item->record_len] = (uint8_t)item->hop_count;
-	memcpy(out + 4 + item->record_len, item->hops, item->hop_count * FZN_HOP_LEN);
+	/* BUILT BY THE GENERATED CODE, sec 1388, which refuses a kind outside
+	 * 1 to 3. */
+	{
+		uint32_t wrote = 0;
+
+		if (n > cap
+		    || fzn_contact_devices_wire_fzn_contact_estate_item_build(out, (uint32_t)n, item->kind, item->record,
+		                                                              (uint32_t)item->record_len,
+		                                                              (const uint8_t *)item->hops,
+		                                                              (uint32_t)(item->hop_count * FZN_HOP_LEN), &wrote)
+		               != SITU_OK
+		    || wrote != n)
+			return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	}
 	*len = n;
 	return FZN_CONTACT_DEVICE_OK;
 }
@@ -892,34 +899,78 @@ fzn_contact_device_err_t fzn_contact_estate_item_decode(const uint8_t *bytes, si
                                                         fzn_contact_estate_item_t *out)
 {
 	size_t record_len, hop_count;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < 4u)
+	/* READ AS THE SCHEMA SAYS, sec 1388: EXACTLY ITS LENGTH, a kind this
+	 * reads, a record of 1 to 242 bytes and at most 8 hops. */
+	if (len < 4u || len > UINT32_MAX
+	    || fzn_contact_devices_wire_fzn_contact_estate_item_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	record_len = fzn_get_be16(bytes + 1);
-	if (record_len == 0u || record_len > FZN_CONTACT_ESTATE_RECORD_MAX || len < 4u + record_len)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_contact_devices_wire_fzn_contact_estate_item_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_estate_item_validate(v) != SITU_OK)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	hop_count = bytes[3 + record_len];
-	/* EXACTLY ITS LENGTH, and a kind this reads. */
-	if (hop_count > FZN_CHAIN_MAX_HOPS || len != 4u + record_len + hop_count * FZN_HOP_LEN
-	    || bytes[0] < FZN_CONTACT_ESTATE_CHANGE || bytes[0] > FZN_CONTACT_ESTATE_CONFIRM)
+	record_len = fzn_contact_devices_wire_fzn_contact_estate_item_record_len_get(v);
+	hop_count = fzn_contact_devices_wire_fzn_contact_estate_item_hop_count_get(v);
+	if (record_len > FZN_CONTACT_ESTATE_RECORD_MAX || hop_count > FZN_CHAIN_MAX_HOPS)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	out->kind = bytes[0];
+	out->kind = fzn_contact_devices_wire_fzn_contact_estate_item_kind_get(v);
 	out->record_len = record_len;
-	memcpy(out->record, bytes + 3, record_len);
+	memcpy(out->record, fzn_contact_devices_wire_fzn_contact_estate_item_record_ptr(v), record_len);
 	out->hop_count = hop_count;
-	memcpy(out->hops, bytes + 4 + record_len, hop_count * FZN_HOP_LEN);
+	memcpy(out->hops, fzn_contact_devices_wire_fzn_contact_estate_item_hops_ptr(v), hop_count * FZN_HOP_LEN);
 	return FZN_CONTACT_DEVICE_OK;
+}
+
+/* A PAGE OF THE ESTATE'S, read whole as the schema says (sec 1388):
+ * `required` (EXACTLY ITS ENTRIES), the view and `validate` -- version,
+ * type, a `more` of 0 or 1, every entry's length in its bounds -- into
+ * `v`, which points into `m`, the caller's. */
+enum { PAGE_ITEMS = 1, PAGE_ROWS = 2, PAGE_ACTS = 3 };
+
+static int page_view(situ_msg_t *m, const uint8_t *reply, size_t reply_len, size_t head, int which,
+                     situ_view_t *v)
+{
+	uint32_t need = 0, len;
+	situ_err_t r = SITU_ERR_BOUNDS, ok = SITU_ERR_BOUNDS;
+
+	if (!reply || reply_len < head || reply_len > UINT32_MAX)
+		return 0;
+	len = (uint32_t)reply_len;
+	situ_msg_init(m, (uint8_t *)(uintptr_t)reply, len);
+	if (which == PAGE_ITEMS) {
+		r = fzn_contact_devices_wire_fzn_contact_devices_items_required(reply, len, &need);
+		ok = r == SITU_OK && need == len ? fzn_contact_devices_wire_fzn_contact_devices_items_view(m, 0u, len, v)
+		                                 : SITU_ERR_BOUNDS;
+		ok = ok == SITU_OK ? fzn_contact_devices_wire_fzn_contact_devices_items_validate(*v) : ok;
+	} else if (which == PAGE_ROWS) {
+		r = fzn_contact_devices_wire_fzn_contact_devices_kept_rows_required(reply, len, &need);
+		ok = r == SITU_OK && need == len ? fzn_contact_devices_wire_fzn_contact_devices_kept_rows_view(m, 0u, len, v)
+		                                 : SITU_ERR_BOUNDS;
+		ok = ok == SITU_OK ? fzn_contact_devices_wire_fzn_contact_devices_kept_rows_validate(*v) : ok;
+	} else if (which == PAGE_ACTS) {
+		r = fzn_contact_devices_wire_fzn_contact_devices_act_entries_required(reply, len, &need);
+		ok = r == SITU_OK && need == len
+		             ? fzn_contact_devices_wire_fzn_contact_devices_act_entries_view(m, 0u, len, v)
+		             : SITU_ERR_BOUNDS;
+		ok = ok == SITU_OK ? fzn_contact_devices_wire_fzn_contact_devices_act_entries_validate(*v) : ok;
+	}
+	return ok == SITU_OK;
 }
 
 static void estate_query(const fzn_contact_estate_querying_t *q, uint8_t *request,
                          size_t *request_len)
 {
-	request[0] = FZN_CMD_CONTACTS;
-	request[1] = FZN_CONTACT_DEVICES_ESTATE;
-	fzn_put_be32(request + 2, q->from);
+	uint32_t wrote = 0;
+
+	(void)fzn_contact_devices_wire_fzn_contact_devices_estate_build(request, FZN_CONTACT_DEVICES_ESTATE_LEN, FZN_CMD_CONTACTS,
+	                                                                 FZN_CONTACT_DEVICES_ESTATE, q->from, &wrote);
 	*request_len = FZN_CONTACT_DEVICES_ESTATE_LEN;
 }
 
@@ -945,43 +996,49 @@ int fzn_contact_estate_query_step(fzn_contact_estate_querying_t *q, const uint8_
                                   size_t *request_len, int *done)
 {
 	static fzn_contact_estate_item_t item;
-	size_t at, k, n, len;
+	size_t k, n;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint8_t more, kk;
+	int pass;
 
 	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_ESTATE_LEN || !request_len
 	    || !done)
 		return 0;
 	*done = 1;
 	q->live = 0;
-	if (!reply || reply_len < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN
-	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_ITEMS
-	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u || reply[8] == 0u)
+	/* EVERY ITEM READ BEFORE ANY IS TAKEN, sec 1388: the page whole as the
+	 * schema says -- frame, every entry's length and each item's shape --
+	 * then each item decoded once to check and again to take, so a page
+	 * that will not read gives nothing, rather than its first half. */
+	if (!page_view(&m, reply, reply_len, FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN, PAGE_ITEMS, &v)
+	    || fzn_contact_devices_wire_fzn_contact_devices_items_from_get(v) != q->from)
 		return 0;
-	n = reply[6];
-	at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN;
-	/* EVERY ITEM READ BEFORE ANY IS TAKEN: a page that will not read gives
-	 * nothing, rather than its first half. */
-	for (k = 0; k < n; k++) {
-		if (reply_len < at + 2u)
-			return 0;
-		len = fzn_get_be16(reply + at);
-		if (reply_len < at + 2u + len
-		    || fzn_contact_estate_item_decode(reply + at + 2u, len, &item)
-		               != FZN_CONTACT_DEVICE_OK)
-			return 0;
-		at += 2u + len;
-	}
-	if (at != reply_len || (reply[7] && n == 0u))
+	n = fzn_contact_devices_wire_fzn_contact_devices_items_count_get(v);
+	more = fzn_contact_devices_wire_fzn_contact_devices_items_more_get(v);
+	kk = fzn_contact_devices_wire_fzn_contact_devices_items_k_get(v);
+	if (more && n == 0u)
 		return 0;
-	if (reply[8] > q->k)
-		q->k = reply[8];
-	for (at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN, k = 0; k < n; k++) {
-		len = fzn_get_be16(reply + at);
-		(void)fzn_contact_estate_item_decode(reply + at + 2u, len, &item);
-		at += 2u + len;
-		q->take(q->take_ctx, &item);
-		q->count++;
+	for (pass = 0; pass < 2; pass++) {
+		/* THE ESTATE'S k TAKEN once the page has read whole. */
+		if (pass == 1 && kk > q->k)
+			q->k = kk;
+		for (k = 0; k < n; k++) {
+			situ_view_t it;
+
+			if (fzn_contact_devices_wire_fzn_contact_devices_items_items_at(v, (uint32_t)k, &e) != SITU_OK
+			    || fzn_contact_devices_wire_fzn_contact_estate_listed_item_view(e, &it) != SITU_OK
+			    || fzn_contact_estate_item_decode(situ_base(it), fzn_contact_devices_wire_fzn_contact_estate_listed_len_get(e),
+			                                      &item)
+			               != FZN_CONTACT_DEVICE_OK)
+				return 0;
+			if (pass == 1) {
+				q->take(q->take_ctx, &item);
+				q->count++;
+			}
+		}
 	}
-	if (!reply[7] || q->from > UINT32_MAX - n)
+	if (!more || q->from > UINT32_MAX - n)
 		return 1;
 	q->from += (uint32_t)n;
 	*done = 0;
@@ -999,14 +1056,20 @@ size_t fzn_contact_estate_answer(const uint8_t *request, size_t request_len,
 	static uint8_t bytes[FZN_CONTACT_ESTATE_ITEM_MAX];
 	size_t at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN, i, n = 0, len = 0;
 	uint32_t from;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!request || !item_at || !reply || request_len != FZN_CONTACT_DEVICES_ESTATE_LEN
-	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_ESTATE
 	    || reply_cap < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN)
+		return 0;
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1388. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_contact_devices_wire_fzn_contact_devices_estate_view(&m, 0u, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_devices_estate_validate(v) != SITU_OK)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
-	from = fzn_get_be32(request + 2);
+	from = fzn_contact_devices_wire_fzn_contact_devices_estate_from_get(v);
 	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_ITEMS;
 	fzn_put_be32(reply + 2, from);
@@ -1376,9 +1439,10 @@ fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *st
 static void rows_query(const fzn_contact_rows_querying_t *q, uint8_t *request,
                        size_t *request_len)
 {
-	request[0] = FZN_CMD_CONTACTS;
-	request[1] = FZN_CONTACT_DEVICES_KEPT_ESTATE;
-	fzn_put_be32(request + 2, q->from);
+	uint32_t wrote = 0;
+
+	(void)fzn_contact_devices_wire_fzn_contact_devices_kept_estate_build(request, FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN, FZN_CMD_CONTACTS,
+	                                                                 FZN_CONTACT_DEVICES_KEPT_ESTATE, q->from, &wrote);
 	*request_len = FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN;
 }
 
@@ -1402,37 +1466,33 @@ int fzn_contact_rows_query_step(fzn_contact_rows_querying_t *q, const uint8_t *r
                                 size_t reply_len, uint8_t *request, size_t cap,
                                 size_t *request_len, int *done)
 {
-	size_t at, k, n, len;
+	size_t k, n;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint8_t more;
 
 	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN || !request_len
 	    || !done)
 		return 0;
 	*done = 1;
 	q->live = 0;
-	if (!reply || reply_len < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN
-	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_KEPT_ROWS
-	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u)
+	/* EVERY ROW'S LENGTH READ BEFORE ANY IS TAKEN, sec 1388: the page
+	 * whole as the schema says, each row 34 to 1710 bytes. */
+	if (!page_view(&m, reply, reply_len, FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, PAGE_ROWS, &v)
+	    || fzn_contact_devices_wire_fzn_contact_devices_kept_rows_from_get(v) != q->from)
 		return 0;
-	n = reply[6];
-	/* EVERY ROW'S LENGTH READ BEFORE ANY IS TAKEN. */
-	for (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {
-		if (reply_len < at + 2u)
-			return 0;
-		len = fzn_get_be16(reply + at);
-		if (len < FZN_PUBKEY_LEN + 2u || len > FZN_CONTACT_ESTATE_ROW_MAX
-		    || reply_len < at + 2u + len)
-			return 0;
-		at += 2u + len;
-	}
-	if (at != reply_len || (reply[7] && n == 0u))
+	n = fzn_contact_devices_wire_fzn_contact_devices_kept_rows_count_get(v);
+	more = fzn_contact_devices_wire_fzn_contact_devices_kept_rows_more_get(v);
+	if (more && n == 0u)
 		return 0;
-	for (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {
-		len = fzn_get_be16(reply + at);
-		q->take(q->take_ctx, reply + at + 2u, len);
+	for (k = 0; k < n; k++) {
+		if (fzn_contact_devices_wire_fzn_contact_devices_kept_rows_rows_at(v, (uint32_t)k, &e) != SITU_OK)
+			return 0;
+		q->take(q->take_ctx, fzn_contact_devices_wire_fzn_contact_estate_row_owner_ptr(e),
+		        fzn_contact_devices_wire_fzn_contact_estate_row_len_get(e));
 		q->count++;
-		at += 2u + len;
 	}
-	if (!reply[7] || q->from > UINT32_MAX - n)
+	if (!more || q->from > UINT32_MAX - n)
 		return 1;
 	q->from += (uint32_t)n;
 	*done = 0;
@@ -1448,15 +1508,20 @@ size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
 	static uint8_t row[FZN_CONTACT_ESTATE_ROW_MAX];
 	size_t at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, i, n = 0, len = 0;
 	uint32_t from;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!request || !row_at || !reply || request_len != FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN
-	    || request[0] != FZN_CMD_CONTACTS
-	    || request[1] != FZN_CONTACT_DEVICES_KEPT_ESTATE
 	    || reply_cap < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN)
+		return 0;
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1388. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_contact_devices_wire_fzn_contact_devices_kept_estate_view(&m, 0u, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_devices_kept_estate_validate(v) != SITU_OK)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
-	from = fzn_get_be32(request + 2);
+	from = fzn_contact_devices_wire_fzn_contact_devices_kept_estate_from_get(v);
 	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_KEPT_ROWS;
 	fzn_put_be32(reply + 2, from);
@@ -1483,10 +1548,10 @@ size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
 static void acts_query(const fzn_contact_acts_querying_t *q, uint8_t *request,
                        size_t *request_len)
 {
-	request[0] = FZN_CMD_CONTACTS;
-	request[1] = FZN_CONTACT_DEVICES_ACTS;
-	memcpy(request + 2, q->key, FZN_PUBKEY_LEN);
-	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN, q->from);
+	uint32_t wrote = 0;
+
+	(void)fzn_contact_devices_wire_fzn_contact_devices_acts_build(request, FZN_CONTACT_DEVICES_ACTS_LEN, FZN_CMD_CONTACTS,
+	                                                              FZN_CONTACT_DEVICES_ACTS, q->key, q->from, &wrote);
 	*request_len = FZN_CONTACT_DEVICES_ACTS_LEN;
 }
 
@@ -1514,42 +1579,45 @@ int fzn_contact_acts_query_step(fzn_contact_acts_querying_t *q, const uint8_t *r
                                 size_t *request_len, int *done)
 {
 	static fzn_contact_act_t act;
-	size_t at, k, n, len;
+	size_t k, n;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint8_t more;
+	int pass;
 
 	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_ACTS_LEN || !request_len
 	    || !done)
 		return 0;
 	*done = 1;
 	q->live = 0;
-	if (!reply || reply_len < FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN
-	    || reply[0] != FZN_CMD_CONTACTS
-	    || reply[1] != FZN_CONTACT_DEVICES_ACT_ENTRIES || fzn_get_be32(reply + 2) != q->from
-	    || reply[7] > 1u)
+	/* EVERY ENTRY READ BEFORE ANY IS TAKEN, sec 1388: the page whole as
+	 * the schema says -- each entry 2 to 1025 bytes, its spine flag 0 or
+	 * 1 -- and a spine entry exactly a spine's length, the codec's. */
+	if (!page_view(&m, reply, reply_len, FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN, PAGE_ACTS, &v)
+	    || fzn_contact_devices_wire_fzn_contact_devices_act_entries_from_get(v) != q->from)
 		return 0;
-	n = reply[6];
-	/* EVERY ENTRY READ BEFORE ANY IS TAKEN. */
-	for (at = FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN, k = 0; k < n; k++) {
-		if (reply_len < at + 2u)
-			return 0;
-		len = fzn_get_be16(reply + at);
-		if (len < 2u || len > 1u + FZN_CONTACT_ACT_MAX || reply_len < at + 2u + len
-		    || reply[at + 2u] > 1u
-		    || (reply[at + 2u] == 1u && len != 1u + FZN_CONTACT_ACT_SPINE_LEN))
-			return 0;
-		at += 2u + len;
-	}
-	if (at != reply_len || (reply[7] && n == 0u))
+	n = fzn_contact_devices_wire_fzn_contact_devices_act_entries_count_get(v);
+	more = fzn_contact_devices_wire_fzn_contact_devices_act_entries_more_get(v);
+	if (more && n == 0u)
 		return 0;
-	for (at = FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN, k = 0; k < n; k++) {
-		len = fzn_get_be16(reply + at);
-		act.spine = reply[at + 2u];
-		act.len = len - 1u;
-		memcpy(act.bytes, reply + at + 3u, act.len);
-		q->take(q->take_ctx, q->key, &act);
-		q->count++;
-		at += 2u + len;
-	}
-	if (!reply[7] || q->from > UINT32_MAX - n)
+	for (pass = 0; pass < 2; pass++)
+		for (k = 0; k < n; k++) {
+			size_t len;
+
+			if (fzn_contact_devices_wire_fzn_contact_devices_act_entries_entries_at(v, (uint32_t)k, &e) != SITU_OK)
+				return 0;
+			len = fzn_contact_devices_wire_fzn_contact_act_listed_len_get(e);
+			act.spine = fzn_contact_devices_wire_fzn_contact_act_listed_spine_get(e);
+			if (act.spine == 1u && len != 1u + FZN_CONTACT_ACT_SPINE_LEN)
+				return 0;
+			if (pass == 0)
+				continue;
+			act.len = len - 1u;
+			memcpy(act.bytes, fzn_contact_devices_wire_fzn_contact_act_listed_bytes_ptr(e), act.len);
+			q->take(q->take_ctx, q->key, &act);
+			q->count++;
+		}
+	if (!more || q->from > UINT32_MAX - n)
 		return 1;
 	q->from += (uint32_t)n;
 	*done = 0;
@@ -1566,19 +1634,27 @@ size_t fzn_contact_acts_answer(const uint8_t *request, size_t request_len,
 	static fzn_contact_act_t act;
 	size_t at = FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN, i, n = 0;
 	uint32_t from;
+	situ_msg_t m;
+	situ_view_t v;
+	const uint8_t *key;
 
 	if (!request || !act_at || !reply || request_len != FZN_CONTACT_DEVICES_ACTS_LEN
-	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_ACTS
 	    || reply_cap < FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN)
+		return 0;
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1388. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_contact_devices_wire_fzn_contact_devices_acts_view(&m, 0u, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_devices_acts_validate(v) != SITU_OK)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
-	from = fzn_get_be32(request + 2 + FZN_PUBKEY_LEN);
+	from = fzn_contact_devices_wire_fzn_contact_devices_acts_from_get(v);
+	key = fzn_contact_devices_wire_fzn_contact_devices_acts_key_ptr(v);
 	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_ACT_ENTRIES;
 	fzn_put_be32(reply + 2, from);
 	reply[7] = 0u;
-	for (i = from; act_at(ctx, request + 2, i, &act); i++) {
+	for (i = from; act_at(ctx, key, i, &act); i++) {
 		if (act.len == 0u || act.len > FZN_CONTACT_ACT_MAX)
 			break;
 		if (n == 255u || at + 3u + act.len > reply_cap) {

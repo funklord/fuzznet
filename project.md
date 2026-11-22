@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1387
+The newest work is at the end of this file. **Read secs 1287 to 1388
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96359,3 +96359,31 @@ before. **Tests:** the 29 targets linking the contact devices. Sabotage
 
 **Still to come, stage two's second half**: the estate's items, rows, k
 and acts.
+
+## 1388. The estate's items, rows and acts through situ's code; stage two of the contact messages, second half, 2026-11-22
+
+In `node/contact_devices.c`, after sec 1387:
+
+- **An estate item** (`fzn_contact_estate_item_encode`, `_decode`) is
+  built by the generated builder -- the kind 1 to 3 its to refuse -- and
+  read through `required` (EXACTLY ITS LENGTH), the view and `validate`.
+- **The three queries** -- the estate's, the kept rows', a key's acts --
+  are built, and read by their answerers through their views and
+  `validate`; the acts answer takes the key through the query's view.
+- **The three pages** are read through one helper, `page_view` --
+  `required`, the view and `validate` into the caller's message, since a
+  view keeps a pointer to the message it is of -- and each already read
+  every entry before taking any, which holds: the estate page checks and
+  then takes each item through `items_at` and the listed item's view,
+  taking the estate's k between the two passes as before; the rows page
+  hands on each row from its owner; the acts page checks a spine entry's
+  length, the codec's, before any is taken.
+- **Not moved, and why**: the page writers, an entry at a time, and the
+  k exchange (K_SETTING and K_SET), which the schema does not state.
+
+**The seeded fuzzers agree case for case**: estate_fuzz gives the page
+counts -- refused and taken, of each page kind -- it gave before, with
+reachability_fuzz, members_fuzz, reconcile_fuzz and votes_fuzz.
+Sabotage `contact-estate-item-exact-length`, `contact-estate-page-whole`
+and `contact-rows-page-whole` retargeted, the two pages' onto their lines
+of `page_view`.
