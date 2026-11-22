@@ -5297,9 +5297,9 @@ SABOTAGES = [
 	(
 		"notes-sync-purge-erases-for-admitted",
 		"notes/sync.c",
-		"\tif (admits(policy, sender)\n\t    && fzn_notes_erase_note(store, request + 2, NULL) == FZN_NOTES_OK)\n",
-		"\tif (fzn_notes_erase_note(store, request + 2, NULL) == FZN_NOTES_OK)\n",
-		"any node that reaches this one can have its notes erased -- sec 433",
+		"\tif (admits(policy, sender) && fzn_notes_erase_note(store, id, NULL) == FZN_NOTES_OK)\n",
+		"\tif (fzn_notes_erase_note(store, id, NULL) == FZN_NOTES_OK)\n",
+		"any node that reaches this one can have its notes erased -- secs 433, 1393",
 	),
 	(
 		"notes-sync-partner-recorded",

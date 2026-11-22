@@ -27,12 +27,6 @@ const char *fzn_notes_sync_err_str(fzn_notes_sync_err_t err)
 	return "unknown";
 }
 
-static void head(uint8_t *out, uint8_t type)
-{
-	out[0] = FZN_CMD_NOTES;
-	out[1] = type;
-}
-
 static int is_type(const uint8_t *b, size_t len, uint8_t type)
 {
 	return len >= FZN_NOTES_SYNC_HEAD_LEN && b[0] == FZN_CMD_NOTES && b[1] == type;
@@ -249,23 +243,104 @@ static int admits(fzn_notes_policy_t policy, const uint8_t *key)
 	return found;
 }
 
+/* ---- stage two's messages through situ's code, sec 1393 ----------------- */
+
+/* A PURGE, or its ack, built: `erased` < 0 for a purge. */
+static size_t purge_build(uint8_t *out, const uint8_t id[FZN_TREE_ID_LEN], int erased)
+{
+	uint32_t wrote = 0;
+
+	if (erased < 0)
+		return fzn_sync_wire_fzn_notes_sync_purge_build(out, FZN_NOTES_SYNC_PURGE_LEN, FZN_CMD_NOTES,
+		                                                FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_PURGE, id, &wrote)
+		                       == SITU_OK
+		               ? wrote
+		               : 0u;
+	return fzn_sync_wire_fzn_notes_sync_purge_ack_build(out, FZN_NOTES_SYNC_PURGE_ACK_LEN, FZN_CMD_NOTES,
+	                                                    FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_PURGE_ACK, id, (uint8_t)erased,
+	                                                    &wrote)
+	                       == SITU_OK
+	               ? wrote
+	               : 0u;
+}
+
+/* A PURGE ACK READ AS THE SCHEMA SAYS -- `erased` 0 or 1 -- of note `id`
+ * where one is named: 1 with `*erased`. */
+static int ack_read(const uint8_t *b, size_t len, const uint8_t *id, uint8_t *erased)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (!is_type(b, len, FZN_NOTES_SYNC_PURGE_ACK) || len != FZN_NOTES_SYNC_PURGE_ACK_LEN)
+		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)b, (uint32_t)len);
+	if (fzn_sync_wire_fzn_notes_sync_purge_ack_view(&m, 0u, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_purge_ack_validate(v) != SITU_OK
+	    || (id && memcmp(fzn_sync_wire_fzn_notes_sync_purge_ack_id_ptr(v), id, FZN_TREE_ID_LEN) != 0))
+		return 0;
+	*erased = fzn_sync_wire_fzn_notes_sync_purge_ack_erased_get(v);
+	return 1;
+}
+
+/* A LIST OF NOTE IDS -- purges or lacks -- read whole as the schema says:
+ * at most 16, EXACTLY THEM. 1 with `*ids` the first, `*count` of them. */
+static int ids_read(const uint8_t *b, size_t len, uint8_t type, const uint8_t **ids, size_t *count)
+{
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint32_t need = 0;
+	situ_err_t ok;
+
+	if (!is_type(b, len, type) || len < FZN_NOTES_SYNC_LIST_HEAD_LEN || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)b, (uint32_t)len);
+	if (type == FZN_NOTES_SYNC_PURGES) {
+		ok = fzn_sync_wire_fzn_notes_sync_purges_required(b, (uint32_t)len, &need);
+		ok = ok == SITU_OK && need == len ? fzn_sync_wire_fzn_notes_sync_purges_view(&m, 0u, (uint32_t)len, &v)
+		                                  : SITU_ERR_BOUNDS;
+		ok = ok == SITU_OK ? fzn_sync_wire_fzn_notes_sync_purges_validate(v) : ok;
+		if (ok != SITU_OK)
+			return 0;
+		*count = fzn_sync_wire_fzn_notes_sync_purges_count_get(v);
+		ok = *count ? fzn_sync_wire_fzn_notes_sync_purges_ids_at(v, 0u, &e) : SITU_OK;
+	} else {
+		ok = fzn_sync_wire_fzn_notes_sync_lacks_required(b, (uint32_t)len, &need);
+		ok = ok == SITU_OK && need == len ? fzn_sync_wire_fzn_notes_sync_lacks_view(&m, 0u, (uint32_t)len, &v)
+		                                  : SITU_ERR_BOUNDS;
+		ok = ok == SITU_OK ? fzn_sync_wire_fzn_notes_sync_lacks_validate(v) : ok;
+		if (ok != SITU_OK)
+			return 0;
+		*count = fzn_sync_wire_fzn_notes_sync_lacks_count_get(v);
+		ok = *count ? fzn_sync_wire_fzn_notes_sync_lacks_ids_at(v, 0u, &e) : SITU_OK;
+	}
+	if (ok != SITU_OK)
+		return 0;
+	*ids = *count ? situ_base(e) : NULL;
+	return 1;
+}
+
 static size_t answer_purge(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
                            const uint8_t *sender, const uint8_t *request, size_t request_len,
                            uint8_t *reply, size_t cap)
 {
 	uint8_t answer = FZN_NOTES_SYNC_NOT_ERASED;
+	situ_msg_t m;
+	situ_view_t v;
+	const uint8_t *id;
 
+	/* READ AS THE SCHEMA SAYS, sec 1393. */
 	if (request_len != FZN_NOTES_SYNC_PURGE_LEN || cap < FZN_NOTES_SYNC_PURGE_ACK_LEN)
 		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_sync_wire_fzn_notes_sync_purge_view(&m, 0u, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_purge_validate(v) != SITU_OK)
+		return 0;
+	id = fzn_sync_wire_fzn_notes_sync_purge_id_ptr(v);
 	/* ERASED ONLY FOR A WRITER THIS NODE ADMITS, and only when it really
 	 * is gone: a store that cannot remove must not say erased. */
-	if (admits(policy, sender)
-	    && fzn_notes_erase_note(store, request + 2, NULL) == FZN_NOTES_OK)
+	if (admits(policy, sender) && fzn_notes_erase_note(store, id, NULL) == FZN_NOTES_OK)
 		answer = FZN_NOTES_SYNC_ERASED;
-	head(reply, FZN_NOTES_SYNC_PURGE_ACK);
-	memcpy(reply + 2, request + 2, FZN_TREE_ID_LEN);
-	reply[2 + FZN_TREE_ID_LEN] = answer;
-	return FZN_NOTES_SYNC_PURGE_ACK_LEN;
+	return purge_build(reply, id, answer);
 }
 
 /* ---- partners ------------------------------------------------------------- */
@@ -339,7 +414,9 @@ static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sende
 {
 	static uint8_t ids[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
 	static fzn_notes_purge_t p;
+	uint8_t pins[FZN_NOTES_SYNC_PURGES_MAX][FZN_TREE_ID_LEN];
 	size_t count = 0, i, j, n = 0;
+	uint32_t wrote = 0;
 
 	if (cap < FZN_NOTES_SYNC_LIST_HEAD_LEN)
 		return 0;
@@ -354,13 +431,16 @@ static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sende
 				         && fzn_ct_memeq(p.asked[j], sender, FZN_PUBKEY_LEN);
 			if (!pinned || cap - FZN_NOTES_SYNC_LIST_HEAD_LEN < (n + 1u) * FZN_TREE_ID_LEN)
 				continue;
-			memcpy(reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN), p.id,
-			       FZN_TREE_ID_LEN);
+			memcpy(pins[n], p.id, FZN_TREE_ID_LEN);
 			n++;
 		}
-	head(reply, FZN_NOTES_SYNC_PURGES);
-	reply[2] = (uint8_t)n;
-	return FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN);
+	/* BUILT BY THE GENERATED BUILDER, sec 1393. */
+	if (fzn_sync_wire_fzn_notes_sync_purges_build(reply, (uint32_t)cap, FZN_CMD_NOTES,
+	                                              FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_PURGES, (const uint8_t *)pins,
+	                                              (uint32_t)(n * FZN_TREE_ID_LEN), &wrote)
+	    != SITU_OK)
+		return 0;
+	return wrote;
 }
 
 /* PURGE_ACK as a request: `sender` erased a note this store is purging.
@@ -369,21 +449,20 @@ static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sende
 static size_t answer_ack(const fzn_notes_store_t *store, const uint8_t *sender,
                          const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap)
 {
-	uint8_t recorded = FZN_NOTES_SYNC_NOT_ERASED;
+	uint8_t recorded = FZN_NOTES_SYNC_NOT_ERASED, erased = 0;
 	int complete = 0;
+	const uint8_t *id = request + 2;
 
-	if (request_len != FZN_NOTES_SYNC_PURGE_ACK_LEN || cap < FZN_NOTES_SYNC_PURGE_ACK_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1393: `erased` 0 or 1. */
+	if (cap < FZN_NOTES_SYNC_PURGE_ACK_LEN || !ack_read(request, request_len, NULL, &erased))
 		return 0;
-	if (sender && request[2 + FZN_TREE_ID_LEN] == FZN_NOTES_SYNC_ERASED
-	    && fzn_notes_purge_answer(store, request + 2, sender, &complete) == FZN_NOTES_OK) {
+	if (sender && erased == FZN_NOTES_SYNC_ERASED
+	    && fzn_notes_purge_answer(store, id, sender, &complete) == FZN_NOTES_OK) {
 		recorded = FZN_NOTES_SYNC_ERASED;
 		if (complete)
-			(void)fzn_notes_purge_finish(store, request + 2);
+			(void)fzn_notes_purge_finish(store, id);
 	}
-	head(reply, FZN_NOTES_SYNC_PURGE_ACK);
-	memcpy(reply + 2, request + 2, FZN_TREE_ID_LEN);
-	reply[2 + FZN_TREE_ID_LEN] = recorded;
-	return FZN_NOTES_SYNC_PURGE_ACK_LEN;
+	return purge_build(reply, id, recorded);
 }
 
 /* ---- wrap keys, sec 520 ---------------------------------------------------- */
@@ -439,16 +518,28 @@ static size_t answer_wraps(const fzn_notes_store_t *store, const fzn_notes_sync_
                            size_t cap)
 {
 	size_t count, i, at = FZN_NOTES_SYNC_LIST_HEAD_LEN, n = 0;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint32_t need = 0;
+	const uint8_t *asked = NULL;
 
-	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1393: at most 16 ids, EXACTLY THEM. */
+	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || request_len > UINT32_MAX
+	    || fzn_sync_wire_fzn_notes_sync_wraps_query_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
-	count = request[2];
-	if (count > FZN_NOTES_SYNC_WRAPS_MAX
-	    || request_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_TREE_ID_LEN)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_sync_wire_fzn_notes_sync_wraps_query_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_wraps_query_validate(v) != SITU_OK)
+		return 0;
+	count = fzn_sync_wire_fzn_notes_sync_wraps_query_count_get(v);
+	if (count && fzn_sync_wire_fzn_notes_sync_wraps_query_ids_at(v, 0u, &e) == SITU_OK)
+		asked = situ_base(e);
+	if ((count && !asked) || count > FZN_NOTES_SYNC_WRAPS_MAX
 	    || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
 		return 0;
 	for (i = 0; i < count; i++) {
-		const uint8_t *id = request + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN);
+		const uint8_t *id = asked + (i * FZN_TREE_ID_LEN);
 
 		if (!in_scope(scope, id) || fzn_notes_purged(store, id)
 		    || fzn_notes_wrap_get(store, id, reply + at + FZN_TREE_ID_LEN) != FZN_NOTES_OK)
@@ -457,8 +548,13 @@ static size_t answer_wraps(const fzn_notes_store_t *store, const fzn_notes_sync_
 		at += FZN_NOTES_SYNC_WRAP_ENTRY_LEN;
 		n++;
 	}
-	head(reply, FZN_NOTES_SYNC_WRAPS);
-	reply[2] = (uint8_t)n;
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1393, the keys in place. */
+	situ_msg_init(&m, reply, (uint32_t)at);
+	if (fzn_sync_wire_fzn_notes_sync_wraps_view(&m, 0u, (uint32_t)at, &v) != SITU_OK)
+		return 0;
+	fzn_sync_wire_fzn_notes_sync_wraps_version_set(v, FZN_CMD_NOTES);
+	fzn_sync_wire_fzn_notes_sync_wraps_type_set(v, FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_WRAPS);
+	fzn_sync_wire_fzn_notes_sync_wraps_count_set(&m, v, (uint8_t)n);
 	return at;
 }
 
@@ -467,8 +563,9 @@ static size_t answer_lacks(const fzn_notes_store_t *store, size_t request_len, u
                            size_t cap)
 {
 	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
-	uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+	uint8_t key[FZN_NOTE_WRAP_KEY_LEN], lacks[FZN_NOTES_SYNC_WRAPS_MAX][FZN_TREE_ID_LEN];
 	size_t held, i, n = 0;
+	uint32_t wrote = 0;
 
 	if (request_len != FZN_NOTES_SYNC_HEAD_LEN
 	    || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN + (FZN_NOTES_SYNC_WRAPS_MAX * FZN_TREE_ID_LEN))
@@ -478,14 +575,16 @@ static size_t answer_lacks(const fzn_notes_store_t *store, size_t request_len, u
 		if (fzn_notes_purged(store, ids[i])
 		    || fzn_notes_wrap_get(store, ids[i], key) != FZN_NOTES_ERR_ABSENT)
 			continue;
-		memcpy(reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN), ids[i],
-		       FZN_TREE_ID_LEN);
+		memcpy(lacks[n], ids[i], FZN_TREE_ID_LEN);
 		n++;
 	}
 	memset(key, 0, sizeof(key));
-	head(reply, FZN_NOTES_SYNC_LACKS);
-	reply[2] = (uint8_t)n;
-	return FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN);
+	/* BUILT BY THE GENERATED BUILDER, sec 1393. */
+	if (fzn_sync_wire_fzn_notes_sync_lacks_build(reply, (uint32_t)cap, FZN_CMD_NOTES, FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_LACKS,
+	                                             (const uint8_t *)lacks, (uint32_t)(n * FZN_TREE_ID_LEN), &wrote)
+	    != SITU_OK)
+		return 0;
+	return wrote;
 }
 
 /* Take `count` entries of `bytes` for the notes this store indexes. */
@@ -512,16 +611,31 @@ static size_t answer_give(const fzn_notes_store_t *store, const uint8_t *request
                           size_t request_len, uint8_t *reply, size_t cap)
 {
 	size_t count;
+	situ_msg_t m;
+	situ_view_t v, e;
+	uint32_t need = 0, wrote = 0;
+	const uint8_t *keys = NULL;
 
-	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN)
+	/* READ AS THE SCHEMA SAYS, sec 1393: at most 16 keys, EXACTLY THEM. */
+	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN
+	    || request_len > UINT32_MAX
+	    || fzn_sync_wire_fzn_notes_sync_give_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
-	count = request[2];
-	if (count > FZN_NOTES_SYNC_WRAPS_MAX
-	    || request_len
-	               != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_sync_wire_fzn_notes_sync_give_view(&m, 0u, (uint32_t)request_len, &v) != SITU_OK
+	    || fzn_sync_wire_fzn_notes_sync_give_validate(v) != SITU_OK)
 		return 0;
-	head(reply, FZN_NOTES_SYNC_GIVEN);
-	reply[2] = (uint8_t)take_wraps(store, request + FZN_NOTES_SYNC_LIST_HEAD_LEN, count, NULL);
+	count = fzn_sync_wire_fzn_notes_sync_give_count_get(v);
+	if (count && fzn_sync_wire_fzn_notes_sync_give_keys_at(v, 0u, &e) == SITU_OK)
+		keys = situ_base(e);
+	if (count && !keys)
+		return 0;
+	if (fzn_sync_wire_fzn_notes_sync_given_build(reply, FZN_NOTES_SYNC_LIST_HEAD_LEN, FZN_CMD_NOTES,
+	                                             FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_GIVEN,
+	                                             (uint8_t)take_wraps(store, keys, count, NULL), &wrote)
+	    != SITU_OK)
+		return 0;
 	return FZN_NOTES_SYNC_LIST_HEAD_LEN;
 }
 
@@ -991,10 +1105,7 @@ static fzn_notes_sync_err_t purges_next_ack(fzn_notes_purging_t *g, uint8_t *req
 			g->tally.declined++;
 			continue;
 		}
-		head(request, FZN_NOTES_SYNC_PURGE_ACK);
-		memcpy(request + 2, id, FZN_TREE_ID_LEN);
-		request[2 + FZN_TREE_ID_LEN] = FZN_NOTES_SYNC_ERASED;
-		*request_len = FZN_NOTES_SYNC_PURGE_ACK_LEN;
+		*request_len = purge_build(request, id, FZN_NOTES_SYNC_ERASED);
 		g->phase = PURGES_ACK;
 		return FZN_NOTES_SYNC_OK;
 	}
@@ -1036,15 +1147,18 @@ static fzn_notes_sync_err_t purges_next_own(fzn_notes_purging_t *g, uint8_t *req
 			pinned = !p.answered[j] && fzn_ct_memeq(p.asked[j], g->host, FZN_PUBKEY_LEN);
 		if (!pinned)
 			continue;
-		head(request, FZN_NOTES_SYNC_PURGE);
-		memcpy(request + 2, p.id, FZN_TREE_ID_LEN);
-		*request_len = FZN_NOTES_SYNC_PURGE_LEN;
+		*request_len = purge_build(request, p.id, -1);
 		g->tally.asked++;
 		g->phase = PURGES_OWN;
 		return FZN_NOTES_SYNC_OK;
 	}
 	/* THE HOST'S PURGES THAT PIN THIS NODE: erase, then say so. */
-	head(request, FZN_NOTES_SYNC_PURGES_QUERY);
+	{
+		uint32_t wrote = 0;
+
+		(void)fzn_sync_wire_fzn_notes_sync_purges_query_build(request, FZN_NOTES_SYNC_PURGES_QUERY_LEN, FZN_CMD_NOTES,
+		                                                      FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_PURGES_QUERY, &wrote);
+	}
 	*request_len = FZN_NOTES_SYNC_PURGES_QUERY_LEN;
 	g->phase = PURGES_LIST;
 	return FZN_NOTES_SYNC_OK;
@@ -1076,7 +1190,9 @@ fzn_notes_sync_err_t fzn_notes_sync_purges_step(fzn_notes_purging_t *g, const ui
                                                 size_t cap, size_t *request_len, int *done)
 {
 	static fzn_notes_purge_t p;
-	size_t i;
+	size_t i, n = 0;
+	uint8_t erased = 0;
+	const uint8_t *ids = NULL;
 
 	if (!g || g->phase < PURGES_OWN || g->phase > PURGES_ACK || !request
 	    || cap < FZN_NOTES_SYNC_PURGE_ACK_LEN || !request_len || !done)
@@ -1088,13 +1204,11 @@ fzn_notes_sync_err_t fzn_notes_sync_purges_step(fzn_notes_purging_t *g, const ui
 		const uint8_t *id = g->own[g->at];
 		int complete = 0;
 
-		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PURGE_ACK)
-		    || reply_len != FZN_NOTES_SYNC_PURGE_ACK_LEN
-		    || memcmp(reply + 2, id, FZN_TREE_ID_LEN) != 0
-		    || reply[2 + FZN_TREE_ID_LEN] > FZN_NOTES_SYNC_ERASED)
+		/* READ AS THE SCHEMA SAYS, sec 1393: this note's, 0 or 1. */
+		if (!ack_read(reply, reply_len, id, &erased))
 			return purges_end(g, done, FZN_NOTES_SYNC_SHAPE);
 		g->at++;
-		if (reply[2 + FZN_TREE_ID_LEN] != FZN_NOTES_SYNC_ERASED) {
+		if (erased != FZN_NOTES_SYNC_ERASED) {
 			g->tally.refused++;
 			return purges_next_own(g, request, request_len, done);
 		}
@@ -1114,21 +1228,18 @@ fzn_notes_sync_err_t fzn_notes_sync_purges_step(fzn_notes_purging_t *g, const ui
 		return purges_next_own(g, request, request_len, done);
 	}
 	if (g->phase == PURGES_LIST) {
-		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PURGES)
-		    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > FZN_NOTES_SYNC_PURGES_MAX
-		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + ((size_t)reply[2] * FZN_TREE_ID_LEN))
+		/* READ WHOLE AS THE SCHEMA SAYS, sec 1393. */
+		if (!ids_read(reply, reply_len, FZN_NOTES_SYNC_PURGES, &ids, &n) || n > FZN_NOTES_SYNC_PURGES_MAX)
 			return purges_end(g, done, FZN_NOTES_SYNC_SHAPE);
-		g->n_listed = reply[2];
+		g->n_listed = n;
 		for (i = 0; i < g->n_listed; i++)
-			memcpy(g->listed[i], reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN),
-			       FZN_TREE_ID_LEN);
+			memcpy(g->listed[i], ids + (i * FZN_TREE_ID_LEN), FZN_TREE_ID_LEN);
 		g->at = 0;
 		return purges_next_ack(g, request, request_len, done);
 	}
-	/* ACK: the host took this node's erasure. */
-	if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PURGE_ACK)
-	    || reply_len != FZN_NOTES_SYNC_PURGE_ACK_LEN
-	    || memcmp(reply + 2, g->listed[g->at], FZN_TREE_ID_LEN) != 0)
+	/* ACK: the host took this node's erasure; read as the schema says,
+	 * sec 1393, so an `erased` past 1 is refused where it was ignored. */
+	if (!ack_read(reply, reply_len, g->listed[g->at], &erased))
 		return purges_end(g, done, FZN_NOTES_SYNC_SHAPE);
 	g->tally.taken++;
 	g->at++;
@@ -1185,17 +1296,22 @@ static fzn_notes_sync_err_t wraps_next(fzn_notes_wrapping_t *w, uint8_t *request
 		w->count = w->n_lacking - w->from < FZN_NOTES_SYNC_WRAPS_MAX
 		                   ? w->n_lacking - w->from
 		                   : FZN_NOTES_SYNC_WRAPS_MAX;
-		head(request, FZN_NOTES_SYNC_WRAPS_QUERY);
-		request[2] = (uint8_t)w->count;
-		memcpy(request + FZN_NOTES_SYNC_LIST_HEAD_LEN, w->lacking[w->from],
-		       w->count * FZN_TREE_ID_LEN);
+		uint32_t wrote = 0;
+
+		(void)fzn_sync_wire_fzn_notes_sync_wraps_query_build(request, (uint32_t)(FZN_NOTES_SYNC_LIST_HEAD_LEN + w->count * FZN_TREE_ID_LEN),
+		                                                     FZN_CMD_NOTES, FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_WRAPS_QUERY,
+		                                                     (const uint8_t *)w->lacking[w->from],
+		                                                     (uint32_t)(w->count * FZN_TREE_ID_LEN), &wrote);
 		*request_len = FZN_NOTES_SYNC_LIST_HEAD_LEN + (w->count * FZN_TREE_ID_LEN);
 		w->tally.asked += w->count;
 		return FZN_NOTES_SYNC_OK;
 	}
 	if (w->phase == WRAPS_ASKING && w->give) {
 		/* WHAT THE PEER LACKS, given from what this store holds. */
-		head(request, FZN_NOTES_SYNC_LACKS_QUERY);
+		uint32_t wrote = 0;
+
+		(void)fzn_sync_wire_fzn_notes_sync_lacks_query_build(request, FZN_NOTES_SYNC_HEAD_LEN, FZN_CMD_NOTES,
+		                                                     FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_LACKS_QUERY, &wrote);
 		*request_len = FZN_NOTES_SYNC_HEAD_LEN;
 		w->phase = WRAPS_LACKS;
 		return FZN_NOTES_SYNC_OK;
@@ -1250,28 +1366,38 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const ui
 		return wraps_end(w, done, FZN_NOTES_SYNC_NO_ANSWER);
 	if (w->phase == WRAPS_ASKING) {
 		size_t got, j;
+		situ_msg_t m;
+		situ_view_t v, e;
+		uint32_t need = 0;
+		const uint8_t *keys = NULL;
 
-		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_WRAPS)
-		    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > w->count
-		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN
-		                            + ((size_t)reply[2] * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
+		/* READ WHOLE AS THE SCHEMA SAYS, sec 1393: no more than asked,
+		 * EXACTLY THEM. */
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_WRAPS) || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN
+		    || reply_len > UINT32_MAX
+		    || fzn_sync_wire_fzn_notes_sync_wraps_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
 			return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
-		got = reply[2];
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+		if (fzn_sync_wire_fzn_notes_sync_wraps_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+		    || fzn_sync_wire_fzn_notes_sync_wraps_validate(v) != SITU_OK
+		    || (got = fzn_sync_wire_fzn_notes_sync_wraps_count_get(v)) > w->count
+		    || (got && fzn_sync_wire_fzn_notes_sync_wraps_keys_at(v, 0u, &e) != SITU_OK))
+			return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
+		keys = got ? situ_base(e) : NULL;
 		/* ONLY WHAT WAS ASKED: a key for a note not asked about is not
 		 * taken, however this store might index it. */
 		for (j = 0; j < got; j++)
 			if (!listed((const uint8_t (*)[FZN_TREE_ID_LEN])w->lacking + w->from, w->count,
-			            reply + FZN_NOTES_SYNC_LIST_HEAD_LEN
-			                    + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN)))
+			            keys + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN)))
 				return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
 		/* AND SO HELD: what was asked is what `lacking` found, so the claims are not
 		 * read again a page, sec 945. A note purged since, as the loop answers between
 		 * pages, is refused by the put. */
 		for (j = 0; j < got; j++) {
-			const uint8_t *e = reply + FZN_NOTES_SYNC_LIST_HEAD_LEN
-			                   + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN);
+			const uint8_t *k = keys + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN);
 
-			if (fzn_notes_wrap_put(w->store, e, e + FZN_TREE_ID_LEN) == FZN_NOTES_OK)
+			if (fzn_notes_wrap_put(w->store, k, k + FZN_TREE_ID_LEN) == FZN_NOTES_OK)
 				w->tally.taken++;
 			else
 				w->tally.refused++;
@@ -1280,15 +1406,16 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const ui
 		return wraps_next(w, request, request_len, done);
 	}
 	if (w->phase == WRAPS_LACKS) {
-		size_t count, at = FZN_NOTES_SYNC_LIST_HEAD_LEN, n = 0;
+		size_t count = 0, at = FZN_NOTES_SYNC_LIST_HEAD_LEN, n = 0;
+		const uint8_t *ids = NULL;
+		situ_msg_t m;
+		situ_view_t v;
 
-		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_LACKS)
-		    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > FZN_NOTES_SYNC_WRAPS_MAX
-		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + ((size_t)reply[2] * FZN_TREE_ID_LEN))
+		/* READ WHOLE AS THE SCHEMA SAYS, sec 1393. */
+		if (!ids_read(reply, reply_len, FZN_NOTES_SYNC_LACKS, &ids, &count) || count > FZN_NOTES_SYNC_WRAPS_MAX)
 			return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
-		count = reply[2];
 		for (i = 0; i < count; i++) {
-			const uint8_t *id = reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN);
+			const uint8_t *id = ids + (i * FZN_TREE_ID_LEN);
 
 			if (fzn_notes_purged(w->store, id)
 			    || fzn_notes_wrap_get(w->store, id, request + at + FZN_TREE_ID_LEN)
@@ -1302,8 +1429,13 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const ui
 			memset(request, 0, at);
 			return wraps_end(w, done, FZN_NOTES_SYNC_OK);
 		}
-		head(request, FZN_NOTES_SYNC_GIVE);
-		request[2] = (uint8_t)n;
+		/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1393, the keys in place. */
+		situ_msg_init(&m, request, (uint32_t)at);
+		if (fzn_sync_wire_fzn_notes_sync_give_view(&m, 0u, (uint32_t)at, &v) != SITU_OK)
+			return wraps_end(w, done, FZN_NOTES_SYNC_MALFORMED);
+		fzn_sync_wire_fzn_notes_sync_give_version_set(v, FZN_CMD_NOTES);
+		fzn_sync_wire_fzn_notes_sync_give_type_set(v, FZN_SYNC_WIRE_FZN_NOTES_SYNC_TYPE_GIVE);
+		fzn_sync_wire_fzn_notes_sync_give_count_set(&m, v, (uint8_t)n);
 		w->given_n = n;
 		w->given_len = at;
 		*request_len = at;
@@ -1311,10 +1443,21 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const ui
 		return FZN_NOTES_SYNC_OK;
 	}
 	/* GIVING: the keys given, how many taken. */
-	if (!is_type(reply, reply_len, FZN_NOTES_SYNC_GIVEN)
-	    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > w->given_n)
-		return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
-	w->tally.given = reply[2];
+	{
+		situ_msg_t m;
+		situ_view_t v;
+
+		/* READ AS THE SCHEMA SAYS, sec 1393: at most 16, and no more than
+		 * given. */
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_GIVEN) || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN)
+			return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+		if (fzn_sync_wire_fzn_notes_sync_given_view(&m, 0u, &v) != SITU_OK
+		    || fzn_sync_wire_fzn_notes_sync_given_validate(v) != SITU_OK
+		    || fzn_sync_wire_fzn_notes_sync_given_taken_get(v) > w->given_n)
+			return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
+		w->tally.given = fzn_sync_wire_fzn_notes_sync_given_taken_get(v);
+	}
 	return wraps_end(w, done, FZN_NOTES_SYNC_OK);
 }
 

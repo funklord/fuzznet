@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1392
+The newest work is at the end of this file. **Read secs 1287 to 1393
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96517,3 +96517,36 @@ than its count -- is removed: `required` returns TRUNCATED for it, and
 show the guard gone. I first retargeted it onto `need != reply_len`,
 which made it an equivalent mutant; the generated code's readers hold
 shortness three times over.
+
+## 1393. Purges, wraps, lacks and gives through situ's code; stage two of notes sync, 2026-11-22
+
+The rest of `notes/sync.c` after sec 1392, both sides, on
+`notes/sync_wire.situ`'s generated code; the hand `head()` is gone.
+
+- **Purge and its ack**: built by one helper, `purge_build`; a purge
+  read through its view; an ack read by `ack_read`, `erased` 0 or 1 and
+  the note named where one is expected.
+- **Purges and lacks**: built by the generated builders from ids
+  gathered first (at most 16 of 32 bytes on the stack); read whole by
+  `ids_read`, EXACTLY THEIR IDS.
+- **Wraps query, wraps, give, given**: the queries built; the
+  wraps and give pages' heads set through their views with the entries
+  already in place, as the records page is (sec 1392); each read whole,
+  EXACTLY ITS ENTRIES.
+
+**One tightening.** The ack answering a host's own purge was read
+without its `erased` byte; it is now read as the schema says, so a byte
+past 1 is refused there as it already was on the other ack. Every
+answerer writes 0 or 1.
+
+**Not here, stage three**: members and the text push live in
+`node/members.c` and `node/notes.c`. Members found the contract stale:
+the code has spoken `FZN_CMD_MEMBERS`, 9, since sec 1085, while
+`notes/sync_wire.situ` still says `must_eq = 8` for types 11 and 12, and
+`node/members.h` says version 2. Stage three moves the two messages to a
+contract of their own.
+
+**Tests:** notes_sync_test (152), notes_test (730), notebook_view_test
+(1080); notes_sync_fuzz gives its counts of before. Sabotage
+`notes-sync-purge-erases-for-admitted` retargeted onto the id read
+through the view.
