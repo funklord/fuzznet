@@ -93,6 +93,10 @@ typedef struct fzn_search_query {
 	 * hits' facets, carried as it is to every host asked; none when 0. */
 	const uint8_t *filter;
 	size_t filter_len;
+	/* WITHIN ONE CONVERSATION, sec 1400: its 32-byte id -- a group's -- or
+	 * NULL. Carried to every host asked, it only narrows: a store answers
+	 * what it would have, in that conversation alone. */
+	const uint8_t *within;
 	/* WHETHER A HIT IS KEPT, from the filter: installed by whoever read it
 	 * (`fzn_search_ask_filter`), NULL keeping every hit. */
 	int (*keep)(void *ctx, const fzn_search_hit_t *hit);

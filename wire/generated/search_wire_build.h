@@ -131,6 +131,8 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		uint32_t after_key__len,
 		const uint8_t *filter_,
 		uint32_t filter__len,
+		const uint8_t *within_,
+		uint32_t within__len,
 		uint32_t *situ_wrote)
 {
 	situ_msg_t  situ_msg;
@@ -348,6 +350,27 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		situ_put(situ_out + situ_at, filter_, filter__len);
 	}
 	situ_at += filter__len;
+
+	/* within_len: the length of `within_`, which the schema states. */
+	if (within__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)within__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < within__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (within__len != 0u) {
+		if (within_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, within_, within__len);
+	}
+	situ_at += within__len;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how

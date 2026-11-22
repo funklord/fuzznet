@@ -16,6 +16,8 @@ struct store {
 // milliseconds, 0 for open. K the most hits. AFTER the last hit of the page
 // before: its score, time, store and key, when HAS_AFTER. FILTER the
 // facet expression the hits' facets must satisfy, run where the data is.
+// WITHIN a conversation every hit must be in -- a group's id, sec 1400 --
+// its 32 bytes, or none: it only narrows what the asker is answered.
 struct ask {
 	u8    words_len [min = 1];
 	u8    words[words_len];
@@ -33,4 +35,11 @@ struct ask {
 	u8    after_key[after_key_len];
 	u16   filter_len [max = 512];
 	u8    filter[filter_len];        // a facet expression, facet/codec.h's encoding; none when 0 (sec 1319)
+	u8    within_len [max = 32];
+	u8    within[within_len];        // a conversation's id, or none when 0 (sec 1400)
 }
+
+// ONE ENCODING OF A CONVERSATION: all 32 bytes of its id, or none.
+when ask.within_len != 0 && ask.within_len != 32
+	refuse within_not_a_conversation
+	"a conversation is named by its 32 bytes";

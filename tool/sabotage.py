@@ -17835,16 +17835,23 @@ SABOTAGES = [
 	(
 		"search-with-group-reads-its-conversation",
 		"node/search.c",
-		"\tif (memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0) {\n\t\tr->open = 1;\n",
-		"\tif (0) {\n\t\tr->open = 1;\n",
-		"a search with a group finds nothing of the group's own conversation -- sec 1399",
+		"\t\t\tif (q->within && memcmp(p->contact, q->within, FZN_PUBKEY_LEN) != 0)\n",
+		"\t\t\tif (0)\n",
+		"a search with a group finds every conversation's lines -- secs 1399, 1400",
+	),
+	(
+		"search-with-group-asks-its-members",
+		"node/search.c",
+		"\t\tif (held.ask.query.within)\n\t\t\theld.asked += members_asked(",
+		"\t\tif (0)\n\t\t\theld.asked += members_asked(",
+		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
 		"search-with-group-asks-no-host",
 		"node/search.c",
-		"\tif (s->ask_hosts && !(with && is_group(s, with)))\n",
-		"\tif (s->ask_hosts)\n",
-		"a search with a group asks hosts that run it as this user, unscoped -- sec 1399",
+		"\t\theld.ask.query.within = held.ask.within;\n\t\tif (!(len = fzn_search_ask_write(",
+		"\t\tif (!(len = fzn_search_ask_write(",
+		"a search with a group asks this user's hosts unscoped, every conversation answered -- sec 1400",
 	),
 	(
 		"search-reaction-searched",
@@ -17877,8 +17884,8 @@ SABOTAGES = [
 	(
 		"search-contact-told-contacts",
 		"node/search.c",
-		"\tif (asker)\n\t\treturn 1;\n\treturn fzn_contact_each",
-		"\treturn fzn_contact_each",
+		"\tif (asker || q->within)\n\t\treturn 1;\n\treturn fzn_contact_each",
+		"\tif (q->within)\n\t\treturn 1;\n\treturn fzn_contact_each",
 		"a contact answered this user's contacts by a search; node messages_test -- sec 1291",
 	),
 	(
@@ -17947,8 +17954,8 @@ SABOTAGES = [
 	(
 		"search-library-told-contacts",
 		"node/catalog_search.c",
-		"\tif (asker)\n\t\treturn 1;\n",
-		"",
+		"\tif (asker || q->within)\n\t\treturn 1;\n",
+		"\tif (q->within)\n\t\treturn 1;\n",
 		"a contact answered this user's library by a search; node_catalog_test -- sec 1299",
 	),
 	(
@@ -18134,10 +18141,17 @@ SABOTAGES = [
 		"hits merged from other hosts, which carry no facets, filtered again and lost; search_test -- sec 1319",
 	),
 	(
+		"search-within-read-from-the-ask",
+		"search/remote.c",
+		"\t\tout->query.within = out->within;\n",
+		"",
+		"a host asked within a group answers every conversation -- sec 1400",
+	),
+	(
 		"search-filter-not-carried",
 		"search/remote.c",
-		"\t                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, &wrote)",
-		"\t                              NULL, 0u, &wrote)",
+		"\t                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, q->within,\n",
+		"\t                              NULL, 0u, q->within,\n",
 		"an ask sent to another host without its filter, answered unfiltered; remote_test -- sec 1319",
 	),
 	(

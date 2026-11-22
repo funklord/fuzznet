@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1399
+The newest work is at the end of this file. **Read secs 1287 to 1400
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -45,8 +45,9 @@ listener port spans (`150e3106`).
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299); facet filters, the
   engine's, the verb's and the client's (secs 1319, 1324); `with
-  @GROUP` on this host (sec 1399). Left: asking a group's members'
-  hosts, which the round and sec 1291's gate reach only as contacts.
+  @GROUP`, this user's hosts and its members' who are contacts (secs
+  1399-1400). Left: members who are no contact, whom the round and sec
+  1291's gate do not reach; and a member's notes within the group.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -72,7 +73,7 @@ listener port spans (`150e3106`).
   registry holds the contract (sec 1330); reading through it waits on the
   holder (non-minimal spellings, sec 1330). The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
-  `chunk/reassembly.c` until situ answers six gaps (sec 1399).
+  `chunk/reassembly.c` until situ builds four gaps (secs 1399-1400).
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
@@ -96757,10 +96758,10 @@ for it or nothing:
 - **contacts, stickers, the library**: nothing for an asker, as for a
   contact.
 
-**No host is asked.** Its members' hosts are not all this user's contacts
--- the open half, sec 1292 -- and this user's own hosts would run the ask
-as this user, since the ask names no group (`search/search_ask.situ` has
-no such field). A GROUP that is no group here, or a bare `@`, is
+**No host is asked** -- superseded the same day by sec 1400, whose ask
+names the group. Its members' hosts are not all this user's contacts --
+the open half, sec 1292 -- and this user's own hosts would run the ask
+as this user, since the ask named no group then. A GROUP that is no group here, or a bare `@`, is
 malformed. Where a node holds no contacts, `with NAME` is still read as
 words, as it was.
 
@@ -96792,3 +96793,49 @@ a relay's own `ok` and its answer share one message number (awaited again
 under the same key, daemon.c's `session_relayed_answered`), and direct
 and relayed asks take turns as separate exchanges. It is worth taking when
 an exchange waits on a direct and a relayed answer at once.
+
+## 1400. A search within a group, asked of this user's hosts and its members'; situ's answer on reassembly, 2026-11-22
+
+**The search ask names a conversation.** `search/search_ask.situ` gains
+`within` after the filter: a conversation's id -- a group's -- in its 32
+bytes, or none, and a `when` refuses any other count, so an absent one
+has one encoding. situc calls the field compatible. **It only narrows:**
+wherever the ask is answered, each store answers what it would have for
+that asker, within that conversation alone:
+
+- **lines**: none of another conversation; a contact asking still meets
+  `reach_of`, its membership and joining floor included.
+- **notes**, for this user: its own notes shared with the group, the rows
+  filed under the group's id (sec 471). For a contact asking: none yet --
+  a member's notes within one group, from its joining on, is a scope
+  `shared_scope` does not draw apart from its others.
+- **contacts, stickers, the library**: none -- they are in no
+  conversation.
+
+**`with @GROUP` uses it** (or a group's id in hex, which a client passes
+in binary's WITH): this host's stores run as this user within the group;
+the hosts of this estate are asked with the ask naming it; and so are
+the hosts of each member of the group's log who is this user's contact,
+each answering as this user, a member, within it. Sec 1399's group
+asker in `reach_of` is gone, replaced by the conversation narrowing.
+**Not reached:** a member who is no contact.
+
+**Tests:** messages_test (313): the crew's line alone and this user's
+two hosts asked; the ask they were sent names the crew; this user's own
+host asked with it answers the crew's line alone; carol, no member,
+nothing; a band whose log names carol asks her hosts too, 4 in all.
+search_wire_vectors gains `ask_within`; every ask vector its trailing
+length. Sabotage: `search-with-group-reads-its-conversation` onto the
+narrowing, `search-with-group-asks-no-host` onto the ask's naming,
+`search-with-group-asks-its-members` and
+`search-within-read-from-the-ask` new; `search-contact-told-contacts`,
+`search-library-told-contacts` and `search-filter-not-carried`
+retargeted.
+
+**situ answered sec 1399's six reassembly gaps** (session message,
+2026-11-22, recorded in its 26.1123): `NAME_forget(t, key)` is built
+(situ af5ee8d4, all four backends); the clock needs nothing -- deadlines
+compare by wrapping difference, so the low 32 bits of a u64 clock serve
+any timeout under 2^31 units. The per-sender cap, adding from opened
+parts, a piece's own expiry and bounds at init are situ's next work.
+`chunk/reassembly.c` stays until they land.

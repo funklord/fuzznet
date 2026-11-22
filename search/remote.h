@@ -42,6 +42,7 @@ typedef struct fzn_search_ask {
 	fzn_search_hit_t after;
 	uint8_t filter[FZN_SEARCH_FILTER_MAX];
 	size_t filter_len;
+	uint8_t within[32];
 	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
 	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
 	fzn_facet_expr_t expr;

@@ -11891,7 +11891,7 @@ static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const ch
 	                               after ? (const uint8_t *)after->store : NULL,
 	                               after ? (uint32_t)strlen(after->store) : 0, after ? after->key : NULL,
 	                               after ? (uint32_t)after->key_len : 0, filter_len ? filter : NULL,
-	                               (uint32_t)filter_len, &ask_len)
+	                               (uint32_t)filter_len, NULL, 0, &ask_len)
 	        != SITU_OK
 	    || fzn_search_local_local_ask_build(local, sizeof local, (uint8_t)(with && *with ? 1 : 0), key, ask, ask_len,
 	                                        &local_len)

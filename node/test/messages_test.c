@@ -2211,12 +2211,49 @@ static void test_the_search_here(void)
 		      "a search with a name that is no contact searched");
 		CHECK(SEARCH("list search with carol in contacts carol") && replied("ok 0 0"),
 		      "a search with carol listed this user's contacts");
-		/* WITH A GROUP, sec 1399: this host's stores run as the crew -- its
-		 * line, not carol's conversation nor carol the contact -- and no
-		 * host is asked. */
-		CHECK(SEARCH("fetch search with @crew carol") && replied("ok 0") && SEARCH("get search")
-		              && replied("ok 1 0 0 0 0 lines,9d9d") && strstr(reply, "carol%20to%20the%20crew"),
-		      "a search with the crew did not find the crew's line alone, or asked a host");
+		/* WITH A GROUP, secs 1399-1400: this host's stores run within the
+		 * crew's conversation -- its line, not carol's conversation nor
+		 * carol the contact -- and this user's own hosts are asked, the ask
+		 * naming the crew; its members no contact here, none of theirs. */
+		CHECK(SEARCH("fetch search with @crew carol") && replied("ok 2") && !hosts_has_with && SEARCH("get search")
+		              && replied("ok 1 0 2 0 0 lines,9d9d") && strstr(reply, "carol%20to%20the%20crew"),
+		      "a search with the crew did not find the crew's line alone, or did not ask this user's hosts");
+		{
+			static fzn_search_ask_t read;
+			static fzn_search_hit_t got[FZN_SEARCH_K_MAX];
+			uint8_t crew[FZN_PUBKEY_LEN];
+			size_t count = 0;
+			int more = 0;
+
+			memset(crew, 0x9d, sizeof(crew));
+			CHECK(fzn_search_ask_read(hosts_ask, hosts_ask_len, &read) && read.query.within
+			              && !memcmp(read.query.within, crew, FZN_PUBKEY_LEN),
+			      "the ask this user's hosts were sent did not name the crew");
+			len = fzn_node_search_remote(&s, NULL, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 1u
+			              && !memcmp(got[0].key, crew, FZN_PUBKEY_LEN),
+			      "this user's own host, asked within the crew, answered other than the crew's line");
+			len = fzn_node_search_remote(&s, X, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 0u,
+			      "carol, no member of the crew, was answered within it");
+		}
+		/* AND THE HOSTS OF ITS MEMBERS WHO ARE CONTACTS, sec 1400: the band's
+		 * log names carol, so her hosts are asked as well as this user's. */
+		{
+			static fzn_group_t band;
+			char name[] = "band";
+
+			memset(&band, 0, sizeof(band));
+			memset(band.id, 0x9e, sizeof(band.id));
+			memcpy(band.members[0], X, FZN_PUBKEY_LEN);
+			band.n_members = 1;
+			CHECK(fzn_node_group_rename(&A.store_ops, band.id, name, 4u) == FZN_CONTACT_OK
+			              && fzn_group_log_put(&A.store_ops, &band) == FZN_GROUP_LOG_OK,
+			      "fixture: a band whose log names carol");
+			CHECK(SEARCH("fetch search with @band carol") && replied("ok 4") && hosts_has_with
+			              && !memcmp(hosts_with, X, FZN_PUBKEY_LEN),
+			      "a search with the band did not ask carol's hosts as well as this user's");
+		}
 		CHECK(SEARCH("list search with @crew dinner") && replied("ok 0 0"),
 		      "a search with the crew found carol's conversation");
 		CHECK(SEARCH("list search with @nobody dinner") && replied("malformed")

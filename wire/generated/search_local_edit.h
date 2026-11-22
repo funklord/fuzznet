@@ -111,6 +111,9 @@ typedef struct {
 	uint16_t filter_len;
 	const uint8_t *filter;	/* into your backing */
 	uint32_t filter_span;
+	uint8_t within_len;
+	const uint8_t *within;	/* into your backing */
+	uint32_t within_span;
 } fzn_search_local_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -128,6 +131,7 @@ static inline situ_err_t fzn_search_local_ask_edit_backing(const situ_msg_t *msg
 	*need += fzn_search_local_ask_after_store_len(view);
 	*need += fzn_search_local_ask_after_key_len(view);
 	*need += fzn_search_local_ask_filter_len(view);
+	*need += fzn_search_local_ask_within_len(view);
 	return SITU_OK;
 }
 
@@ -189,6 +193,13 @@ static inline situ_err_t fzn_search_local_ask_edit_decode(const situ_msg_t *msg,
 		backing[at + i] = fzn_search_local_ask_filter_ptr(view)[i];
 	}
 	at += out->filter_span;
+	out->within_len = fzn_search_local_ask_within_len_get(view);
+	out->within_span = fzn_search_local_ask_within_len(view);
+	out->within     = backing + at;
+	for (uint32_t i = 0u; i < out->within_span; i++) {
+		backing[at + i] = fzn_search_local_ask_within_ptr(view)[i];
+	}
+	at += out->within_span;
 	(void)at;
 	return SITU_OK;
 }

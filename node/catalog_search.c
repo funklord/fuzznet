@@ -60,7 +60,9 @@ int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_
 
 	if (!c || !q || !emit)
 		return 0;
-	if (asker)
+	/* NOTHING FOR A CONTACT, nor within a conversation (sec 1400): a
+	 * library file is in none. */
+	if (asker || q->within)
 		return 1;
 	for (i = 0; i < c->count; i++) {
 		const fzn_node_catalog_entry_t *e = &c->entries[i];

@@ -228,11 +228,11 @@ static inline situ_err_t fzn_search_wire_store_validate(situ_view_t view)
 
 /* ---- struct ask ---- */
 
-#define FZN_SEARCH_WIRE_ASK_SIZE_MIN   37u
-#define FZN_SEARCH_WIRE_ASK_SIZE_MAX   1003u
+#define FZN_SEARCH_WIRE_ASK_SIZE_MIN   38u
+#define FZN_SEARCH_WIRE_ASK_SIZE_MAX   1036u
 
 /* INVALIDATION: a ask view, and every view derived from
- * it, is invalidated by writing `after_key_len`, `after_store_len`, `filter_len`, `store_count`, `words_len` -- those decide where the
+ * it, is invalidated by writing `after_key_len`, `after_store_len`, `filter_len`, `store_count`, `within_len`, `words_len` -- those decide where the
  * members after them start. Use the setters at the end of this
  * struct's section, which bump the message generation; a stale view
  * is then caught on use in a SITU_CHECKED build.
@@ -931,17 +931,96 @@ static inline uint8_t *fzn_search_wire_ask_filter_ptr(situ_view_t view)
  *              writing a different length moves every member after this one
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
+
+#define FZN_SEARCH_WIRE_ASK_WITHIN_LEN_VALUE_MAX 32u
+
+/** ask.within_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_search_wire_ask_within_len_offset(situ_view_t view)
+{
+	return fzn_search_wire_ask_walked(view, 4u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_search_wire_ask_within_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_search_wire_ask_within_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_search_wire_ask_within_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_search_wire_ask_within_len_offset(view));
+}
+/* No plain setter: `within_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_search_wire_ask_within_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** ask.within : u8  at Dynamic
+ * size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_search_wire_ask_within_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_wire_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (31u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_search_wire_ask_within_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_search_wire_ask_within_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_search_wire_ask_within_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_search_wire_ask_within_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
 /** Where the fields `ask`'s lengths read are, in one pass.
  */
 static inline uint32_t fzn_search_wire_ask_walked(situ_view_t view, uint32_t index)
 {
-	uint32_t marks[4];
+	uint32_t marks[5];
 	uint32_t at = 0u;
 
 	marks[0] = view.limit;
 	marks[1] = view.limit;
 	marks[2] = view.limit;
 	marks[3] = view.limit;
+	marks[4] = view.limit;
 	at = situ_advance_u32(at, 1u, view.limit);
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	marks[0] = at;
@@ -955,6 +1034,9 @@ static inline uint32_t fzn_search_wire_ask_walked(situ_view_t view, uint32_t ind
 	at = situ_advance_u32(at, 1u, view.limit);
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[2], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[2]))[0u]) : (uint64_t)0)))), view.limit);
 	marks[3] = at;
+	at = situ_advance_u32(at, 2u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[3], 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + marks[3]) + 0u)) : (uint64_t)0)))), view.limit);
+	marks[4] = at;
 	return marks[index];
 }
 
@@ -967,16 +1049,17 @@ static inline uint32_t fzn_search_wire_ask_walked(situ_view_t view, uint32_t ind
  */
 static inline uint32_t fzn_search_wire_ask_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 36u)) {
-		return 36u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 37u)) {
+		return 37u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 36u;
+	uint32_t extent = 37u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
 	extent = extent + (fzn_search_wire_ask_stores_span(view));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))));
 	return extent;
 }
 
@@ -991,7 +1074,7 @@ static inline uint32_t fzn_search_wire_ask_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 36u;
+	uint32_t at = 37u;
 	uint32_t pos = 1u;
 	situ_view_t view;
 
@@ -1103,6 +1186,20 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0)));
 
 		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* ask.within: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0)));
+
+		at = situ_need_u32(at, len);
 	}
 
 	*need = at;
@@ -1146,6 +1243,14 @@ static inline void fzn_search_wire_ask_store_count_set(situ_msg_t *msg, situ_vie
 	((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
+static inline void fzn_search_wire_ask_within_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
 static inline void fzn_search_wire_ask_words_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[0u] = (uint8_t)value;
@@ -1173,6 +1278,9 @@ static inline void fzn_search_wire_ask_words_len_set(situ_msg_t *msg, situ_view_
 #define FZN_SEARCH_WIRE_ASK_AFTER_KEY_CHECK 13u
 #define FZN_SEARCH_WIRE_ASK_FILTER_LEN_CHECK 14u
 #define FZN_SEARCH_WIRE_ASK_FILTER_CHECK 15u
+#define FZN_SEARCH_WIRE_ASK_WITHIN_LEN_CHECK 16u
+#define FZN_SEARCH_WIRE_ASK_WITHIN_CHECK 17u
+#define FZN_SEARCH_WIRE_ASK_WITHIN_NOT_A_CONVERSATION_MSG 0u
 static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -1381,6 +1489,36 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 		*which = FZN_SEARCH_WIRE_ASK_FILTER_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* ask.within_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_WITHIN_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.within_len [max = 32] */
+	if (fzn_search_wire_ask_within_len_get(view) > 32) {
+		*which = FZN_SEARCH_WIRE_ASK_WITHIN_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.within: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_within_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_SEARCH_WIRE_ASK_WITHIN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if ((fzn_search_wire_ask_within_len_get(view) != 0) && (fzn_search_wire_ask_within_len_get(view) != 32)) {
+		/* within_not_a_conversation */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
 	return SITU_OK;
 }
 
@@ -1389,6 +1527,33 @@ static inline situ_err_t fzn_search_wire_ask_validate(situ_view_t view)
 	return fzn_search_wire_ask_check(view, NULL);
 }
 
+
+static inline void fzn_search_wire_ask_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse within_not_a_conversation */
+	if ((fzn_search_wire_ask_within_len_get(view) != 0) && (fzn_search_wire_ask_within_len_get(view) != 32)) {
+		if (held < cap) {
+			ids[held] = FZN_SEARCH_WIRE_ASK_WITHIN_NOT_A_CONVERSATION_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}
+
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_search_wire_ask_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_SEARCH_WIRE_ASK_WITHIN_NOT_A_CONVERSATION_MSG 0u
 
 /* ---- struct hit ---- */
 
@@ -2287,6 +2452,8 @@ static inline situ_err_t fzn_search_wire_message_body_ask_view(situ_view_t view,
 #define FZN_SEARCH_WIRE_MESSAGE_BODY_ASK_AFTER_KEY_LEN_VALUE_MAX 48u
 
 #define FZN_SEARCH_WIRE_MESSAGE_BODY_ASK_FILTER_LEN_VALUE_MAX 512u
+
+#define FZN_SEARCH_WIRE_MESSAGE_BODY_ASK_WITHIN_LEN_VALUE_MAX 32u
 
 /* message.body.answer, present when the discriminant selects `op.answer`.
  *

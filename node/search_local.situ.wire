@@ -21,7 +21,7 @@ target buffer
 enum op : u8 unknown=error
   list=128 fetch=129 get=130 page=131 hit=132 fetched=133
 
-struct ask size=37..1003
+struct ask size=38..1036
   @0x0000   1         u8         words_len  min=1
   @0x0001   1..255    u8         words  sized-by=words_len
   ~         1         u8         store_count  max=8
@@ -38,6 +38,9 @@ struct ask size=37..1003
   ~         0..48     u8         after_key  sized-by=after_key_len
   ~         2         u16        filter_len  big max=512
   ~         0..512    u8         filter  sized-by=filter_len
+  ~         1         u8         within_len  max=32
+  ~         0..32     u8         within  sized-by=within_len
+  ask refuses: within_not_a_conversation when ask.within_len != 0 && ask.within_len != 32
 
 struct fetched size=1
   @0x0000   1         u8         asked

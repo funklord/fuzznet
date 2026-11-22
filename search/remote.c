@@ -72,7 +72,7 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
 {
 	uint8_t stores[FZN_SEARCH_ASK_STORES_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX)];
 	uint8_t body[1u + FZN_SEARCH_TEXT_MAX + sizeof(stores) + 8u + 8u + 1u + 1u + 4u + 8u + 1u
-	             + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 2u + FZN_SEARCH_FILTER_MAX];
+	             + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 2u + FZN_SEARCH_FILTER_MAX + 1u + 32u];
 	const fzn_search_hit_t *after = q ? q->after : NULL;
 	uint32_t at = 0, wrote = 0;
 	size_t i, after_store_len = after ? strlen(after->store) : 0u;
@@ -98,7 +98,8 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
 	                              after ? (uint32_t)after->score : 0u, after ? after->time_ms : 0u,
 	                              after ? (const uint8_t *)after->store : NULL, (uint32_t)after_store_len,
 	                              after ? after->key : NULL, after ? (uint32_t)after->key_len : 0u,
-	                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, &wrote)
+	                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, q->within,
+	                              q->within ? 32u : 0u, &wrote)
 	            != SITU_OK
 	    || fzn_search_wire_message_build_ask(out, cap > UINT32_MAX ? UINT32_MAX : (uint32_t)cap, FZN_CMD_SEARCH,
 	                                         body, wrote, &at)
@@ -109,7 +110,7 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
 
 int fzn_search_ask_read(const uint8_t *in, size_t len, fzn_search_ask_t *out)
 {
-	static uint8_t copy[2u * (1u + FZN_SEARCH_TEXT_MAX) + 256u + 2u + FZN_SEARCH_FILTER_MAX];
+	static uint8_t copy[2u * (1u + FZN_SEARCH_TEXT_MAX) + 256u + 2u + FZN_SEARCH_FILTER_MAX + 1u + 32u];
 	situ_msg_t m;
 	situ_view_t v, b, s;
 	uint32_t i, n;
@@ -156,6 +157,12 @@ int fzn_search_ask_read(const uint8_t *in, size_t len, fzn_search_ask_t *out)
 		out->query.after = &out->after;
 	} else if (k || out->after.key_len) {
 		return 0;
+	}
+	/* WITHIN A CONVERSATION, sec 1400: its 32 bytes, the schema's `when`
+	 * having refused any other count. */
+	if (fzn_search_wire_ask_within_len_get(b) == 32u) {
+		memcpy(out->within, fzn_search_wire_ask_within_ptr(b), 32u);
+		out->query.within = out->within;
 	}
 	return fzn_search_ask_filter(out, fzn_search_wire_ask_filter_ptr(b), fzn_search_wire_ask_filter_len_get(b));
 }

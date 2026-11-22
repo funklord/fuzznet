@@ -2711,7 +2711,23 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 	if (asker) {
 		fzn_notes_sync_scope_t scope;
 
+		/* NOT YET WITHIN A GROUP, sec 1400: what a member reads of the
+		 * notes shared with one group, from its joining on, is a scope
+		 * `shared_scope` does not draw apart from its others. The group's
+		 * lines answer it meanwhile. */
+		if (q->within)
+			return 1;
 		shared_scope(n, asker, &scope);
+		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
+	}
+	/* WITHIN A GROUP, sec 1400, for this user: its own notes shared with
+	 * the group, whose share row is filed under the group's id (sec 471).
+	 * The trees others shared here are not drawn apart by group, and are
+	 * left out. */
+	if (q->within) {
+		fzn_notes_sync_scope_t scope;
+
+		shared_scope(n, q->within, &scope);
 		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
 	}
 	{

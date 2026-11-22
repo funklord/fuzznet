@@ -79,14 +79,6 @@ static void reach_of(fzn_node_messages_t *nm, const uint8_t *asker, const uint8_
 		r->open = memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0;
 		return;
 	}
-	/* A SEARCH WITH A GROUP, sec 1399: the asker is the group's id, and
-	 * reads that one conversation, whole -- it is this user's search,
-	 * scoped, and this user reads every line this host holds of it. A
-	 * contact asking is never a group's id: ids are random. */
-	if (memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0) {
-		r->open = 1;
-		return;
-	}
 	/* A LOG THAT WILL NOT READ, or a joining this host cannot see, answers
 	 * nothing: withheld, as sec 804 withholds a share. */
 	if (!nm->m.hash || fzn_group_log_get(nm->m.store, conversation, &g) != FZN_GROUP_LOG_OK
@@ -124,6 +116,9 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 
 			int is_group;
 
+			/* WITHIN ONE CONVERSATION, sec 1400: no other is looked at. */
+			if (q->within && memcmp(p->contact, q->within, FZN_PUBKEY_LEN) != 0)
+				continue;
 			if (!line_words(p, &text, &len) || !(s = fzn_search_score(&q->words, text, len)))
 				continue;
 			is_group = fzn_node_group_name(nm->m.store, p->contact, group_name, &group_len) == FZN_CONTACT_OK;
@@ -220,8 +215,9 @@ static int run_contacts(void *ctx, const fzn_search_query_t *q, const uint8_t *a
 {
 	struct contact_walk w = { emit, emit_ctx, q };
 
-	/* THIS USER'S CONTACTS ARE ITS OWN: nobody else is answered them. */
-	if (asker)
+	/* THIS USER'S CONTACTS ARE ITS OWN: nobody else is answered them. Nor
+	 * are they in a conversation (sec 1400). */
+	if (asker || q->within)
 		return 1;
 	return fzn_contact_each(ctx, contact_one, &w) == FZN_CONTACT_OK;
 }
@@ -508,6 +504,24 @@ int fzn_node_search_is_contact(const fzn_node_search_t *s, const uint8_t key[FZN
 	return s && s->contacts && key && fzn_contact_get(s->contacts, key, &c) == FZN_CONTACT_OK;
 }
 
+/* THE HOSTS OF A GROUP'S MEMBERS WHO ARE THIS USER'S CONTACTS, sec 1400,
+ * asked `ask`: how many. A member's hosts the round keeps only as a
+ * contact's; this user, a member too, is no contact and is passed over. */
+static size_t members_asked(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *group,
+                            unsigned generation)
+{
+	static fzn_group_t g;
+	fzn_contact_t c;
+	size_t i, n = 0;
+
+	if (!s->messages || !s->contacts || fzn_group_log_get(s->messages->m.store, group, &g) != FZN_GROUP_LOG_OK)
+		return 0;
+	for (i = 0; i < g.n_members; i++)
+		if (fzn_contact_get(s->contacts, g.members[i], &c) == FZN_CONTACT_OK)
+			n += s->ask_hosts(s->ask_hosts_ctx, ask, len, g.members[i], generation);
+	return n;
+}
+
 /* IS `key` A GROUP'S ID HERE, sec 1399. */
 static int is_group(const fzn_node_search_t *s, const uint8_t *key)
 {
@@ -528,6 +542,12 @@ int fzn_node_search_list(fzn_node_search_t *s, const uint8_t *ask, size_t len, c
 		return 0;
 	int partial = 0, ok;
 
+	/* WITH A GROUP, sec 1400: within its conversation, as this user. */
+	if (with && is_group(s, with)) {
+		memcpy(a.within, with, FZN_PUBKEY_LEN);
+		a.query.within = a.within;
+		with = NULL;
+	}
 	n = fzn_node_search_stores(s, stores);
 	ok = fzn_search_run_partial(stores, n, &a.query, with, hits, count, more, &partial);
 	*more = (*more ? 1 : 0) | (partial ? 2 : 0);
@@ -540,10 +560,23 @@ int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, 
 	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
 	size_t n;
 
+	static uint8_t narrowed[FZN_SEARCH_TEXT_MAX + 1024u];
+
 	held.live = 0;
 	held.generation++;
 	if (!s || !fzn_search_ask_read(ask, len, &held.ask))
 		return 0;
+	/* WITH A GROUP, sec 1400: within its conversation, as this user, and
+	 * the ask the hosts are sent says so. */
+	if (with && is_group(s, with)) {
+		memcpy(held.ask.within, with, FZN_PUBKEY_LEN);
+		held.ask.query.within = held.ask.within;
+		if (!(len = fzn_search_ask_write(held.ask.words, held.ask.words_len, &held.ask.query, narrowed,
+		                                 sizeof(narrowed))))
+			return 0;
+		ask = narrowed;
+		with = NULL;
+	}
 	held.has_with = with != NULL;
 	if (with)
 		memcpy(held.with, with, FZN_PUBKEY_LEN);
@@ -551,18 +584,21 @@ int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, 
 	/* WITH A CONTACT, sec 1292: what this user and it share, so this
 	 * host's stores run as that contact -- each answering what the
 	 * contact reads here -- and its hosts are asked, which run theirs
-	 * as this user. WITH A GROUP, sec 1399: this host's stores run as the
-	 * group, and nobody is asked -- its members' hosts are not all this
-	 * user's contacts, and this user's own hosts would run as this user,
-	 * an ask naming no group. */
+	 * as this user. WITHIN A GROUP, sec 1400: this host's stores and this
+	 * user's own hosts run as this user within its conversation, and the
+	 * hosts of its members who are this user's contacts as this user, a
+	 * member, within it. A member who is no contact is not reached. */
 	held.partial = 0;
 	if (!fzn_search_run_partial(stores, n, &held.ask.query, with, held.hits, &held.n, &held.more_held, &held.partial)
 	    && !held.n)
 		return 0;
 	held.asked = held.answered = held.late = 0;
 	held.live = 1;
-	if (s->ask_hosts && !(with && is_group(s, with)))
+	if (s->ask_hosts) {
 		held.asked = s->ask_hosts(s->ask_hosts_ctx, ask, len, with, held.generation);
+		if (held.ask.query.within)
+			held.asked += members_asked(s, ask, len, held.ask.query.within, held.generation);
+	}
 	*asked = held.asked;
 	return 1;
 }
@@ -630,6 +666,12 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
 	}
 	if (!parse(s, at, left, 20u, &a, with, &has_with))
 		return (size_t)snprintf(reply, cap, USAGE, "list");
+	/* WITH A GROUP, sec 1400: within its conversation, as this user. */
+	if (has_with && is_group(s, with)) {
+		memcpy(a.within, with, FZN_PUBKEY_LEN);
+		a.query.within = a.within;
+		has_with = 0;
+	}
 	{
 		int partial = 0;
 

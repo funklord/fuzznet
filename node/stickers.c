@@ -1402,8 +1402,9 @@ int fzn_node_stickers_search(void *ctx, const fzn_search_query_t *q, const uint8
 	size_t n = 0, i;
 
 	/* THIS USER'S KEPT PACKS ARE ITS OWN: whether a contact may search them
-	 * is the sticker store's question, the holder's (sec 0). */
-	if (asker)
+	 * is the sticker store's question, the holder's (sec 0). Nor are they in
+	 * any conversation (sec 1400). */
+	if (asker || q->within)
 		return 1;
 	for (i = 0; i < q->words.n && n + q->words.len[i] + 1u < sizeof(typed); i++) {
 		if (n)
