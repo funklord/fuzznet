@@ -1039,6 +1039,13 @@ int fzn_rpc_sticker_ref_read(const char *text, size_t text_len, fzn_sticker_ref_
  */
 int fzn_rpc_message_attach(fzn_rpc_t *c, const char *to, size_t to_len, int is_group,
                             const uint8_t root[32], const char *name, size_t name_len);
+/* The same, IN REPLY TO the line `answers` (its 16-byte id, as a sticker
+ * sent in reply names it): the node writes `fzn:reply/ID ` before the
+ * reference, `add message WHO out ID attach ROOT NAME reply LINE`. sec
+ * 1395, fuzzypickles' ask. */
+int fzn_rpc_message_attach_reply(fzn_rpc_t *c, const char *to, size_t to_len, int is_group,
+                                  const uint8_t root[32], const char *name, size_t name_len,
+                                  const uint8_t answers[16]);
 /* The PACK a node reads a referenced pack by: its whole file reference as
  * 144 hex, root then key then length big-endian. */
 void fzn_rpc_sticker_pack_word(const fzn_sticker_ref_t *ref, uint64_t length, char out[145]);

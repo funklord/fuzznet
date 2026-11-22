@@ -1564,7 +1564,7 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
                   size_t cap)
 {
 	static const char USAGE[] =
-	        "add message WHO out|in ID [at MS] TEXT | file PATH | attach ROOT NAME";
+	        "add message WHO out|in ID [at MS] TEXT | file PATH | attach ROOT NAME [reply LINE]";
 	static char text[FZN_MESSAGE_TEXT_MAX + 1u];
 	uint8_t contact[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN], direction = 0;
 	uint64_t stime = nm->m.now();
@@ -1615,19 +1615,43 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		/* A FILE HELD HERE, SENT AS AN ATTACHMENT, sec 794: its reference
 		 * written by fuzznet, from the key and length it holds. */
 		fzn_attachment_t a;
+		uint8_t answers[FZN_MESSAGE_ID_LEN];
+		int replying = 0;
 
 		memset(&a, 0, sizeof(a));
 		if (!word(&rest, &rest_left, &w, &w_len)
 		    || !parse_hex(w, w_len, a.root, sizeof(a.root))
-		    || !word(&rest, &rest_left, &w, &w_len) || rest_left
+		    || !word(&rest, &rest_left, &w, &w_len)
 		    || !unescape(w, w_len, a.name, FZN_ATTACHMENT_NAME_MAX, &a.name_len))
 			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		/* IN REPLY TO A LINE, sec 1395, fuzzypickles' ask: `reply LINE`
+		 * after the name, the line written `fzn:reply/LINE ` before the
+		 * reference, as a sticker sent in reply is (sec 1355), so it is
+		 * granted and fetched as the plain line is. */
+		if (rest_left) {
+			if (!word(&rest, &rest_left, &w, &w_len) || !is_word(w, w_len, "reply")
+			    || !word(&rest, &rest_left, &w, &w_len)
+			    || !parse_hex(w, w_len, answers, sizeof(answers)) || rest_left)
+				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+			replying = 1;
+		}
 		if (!nm->file_of || !nm->file_of(nm->file_of_ctx, a.root, a.key, &a.size))
 			return say(reply, cap, FZN_REPLY_ERROR, "no such file is held here");
 		if (!fzn_attachment_format(&a, text, sizeof(text), &len))
 			return say(reply, cap, FZN_REPLY_MALFORMED,
 			           "a name an attachment does not carry: 1 to 64 bytes, no separator, "
 			           "control byte, leading dot or edge space");
+		if (replying) {
+			char answered[FZN_MESSAGE_TEXT_MAX + 1u];
+			size_t answered_len = fzn_message_reply_write(answers, text, len, answered,
+			                                              sizeof(answered));
+
+			if (answered_len == 0u || answered_len > FZN_MESSAGE_TEXT_MAX)
+				return refuse(reply, cap, FZN_MESSAGES_ERR_TEXT);
+			memcpy(text, answered, answered_len);
+			len = answered_len;
+			memset(answered, 0, sizeof(answered));
+		}
 	} else if (memchr(at, ' ', left)) {
 		/* TEXT IS ONE ESCAPED WORD, sec 651, a space written %20: a raw
 		 * one let a text that began `file ` be read as the file form, and

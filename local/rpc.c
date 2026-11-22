@@ -1078,7 +1078,7 @@ static int node_message_add(fzn_rpc_t *c, const char *who_prefix, const char *wh
 /* `add message WHO out ID attach ROOT NAME`: the name one escaped word. */
 static int node_message_attach(fzn_rpc_t *c, const char *who_prefix, const char *who,
                                size_t who_len, const uint8_t root[32], const char *name,
-                               size_t name_len) {
+                               size_t name_len, const uint8_t *answers) {
 	if (!who_len || !node_who_fits(who_len) || !name_len || name_len > FZN_ATTACHMENT_NAME_MAX)
 		return encode_failed(c);
 	char hex[33], root_hex[65];
@@ -1093,6 +1093,15 @@ static int node_message_attach(fzn_rpc_t *c, const char *who_prefix, const char 
 	if (fzn_escape((const uint8_t *)name, name_len, arg + at, FZN_REQUEST_MAX - 5u - (size_t)at,
 	               &wrote) != name_len)
 		return encode_failed(c);
+	/* IN REPLY TO A LINE, sec 1395: ` reply LINE` after the name. */
+	if (answers) {
+		char line_hex[33];
+		fzn_hex_encode(answers, 16, line_hex);
+		if (FZN_REQUEST_MAX - 5u - (size_t)at - wrote < 7u + 32u) return encode_failed(c);
+		memcpy(arg + at + wrote, " reply ", 7u);
+		memcpy(arg + at + wrote + 7u, line_hex, 32u);
+		wrote += 7u + 32u;
+	}
 	const char *rest = NULL;
 	size_t rest_len = 0;
 	return node_explain_who(c, fzn_rpc_node(c, "add", arg, (size_t)at + wrote, &rest, &rest_len),
@@ -5271,7 +5280,15 @@ int fzn_rpc_message_attach(fzn_rpc_t *c, const char *to, size_t to_len, int is_g
                             const uint8_t root[32], const char *name, size_t name_len) {
 	int by_verb = 1;
 	const int rc = send_in_binary(c, to, to_len, 1, root, name, name_len, &by_verb);
-	return by_verb ? node_message_attach(c, is_group ? "@" : "", to, to_len, root, name, name_len) : rc;
+	return by_verb ? node_message_attach(c, is_group ? "@" : "", to, to_len, root, name, name_len, NULL) : rc;
+}
+
+int fzn_rpc_message_attach_reply(fzn_rpc_t *c, const char *to, size_t to_len, int is_group,
+                                  const uint8_t root[32], const char *name, size_t name_len,
+                                  const uint8_t answers[16]) {
+	/* BY THE VERB ALONE: the binary send carries no line answered. */
+	if (!answers) return encode_failed(c);
+	return node_message_attach(c, is_group ? "@" : "", to, to_len, root, name, name_len, answers);
 }
 
 int fzn_rpc_group_send(fzn_rpc_t *c, const char *group, size_t group_len, const char *text,

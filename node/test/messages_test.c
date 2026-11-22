@@ -390,6 +390,7 @@ static int replied(const char *start)
 #define ID2 "02020202020202020202020202020202"
 #define ID3 "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
 #define ID4 "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+#define ID5 "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
 #define FILE_ROOT "abababababababababababababababababababababababababababababababab"
 #define FILE_KEY "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
 #define OTHER_ROOT "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
@@ -474,6 +475,28 @@ static void test_the_verbs(void)
 	                                                FILE_ROOT)
 	              && replied("malformed"),
 	      "a name the reference does not carry, a raw space, and no name are refused");
+	/* SEC 1395, fuzzypickles' ask: a file sent in reply to a line, the
+	 * reply's head written before the reference. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID5 " attach " FILE_ROOT " a.txt reply " ID3)
+	              && replied("ok")
+	              && verb(&A, FZN_ORIGIN_SAME_USER, "list message carol")
+	              && strstr(reply, ID5 ",out,-,")
+	              && strstr(reply, "fzn:reply/" ID3 "%20fzn:file/" FILE_ROOT "/" FILE_KEY "/4096%20a.txt"),
+	      "a file sent in reply is the reply's head and then the file's reference");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID4 " attach " FILE_ROOT " a.txt reply 0a0a")
+	              && replied("malformed")
+	              && verb(&A, FZN_ORIGIN_SAME_USER,
+	                      "add message carol out " ID4 " attach " FILE_ROOT " a.txt reply " ID3 " x")
+	              && replied("malformed")
+	              && verb(&A, FZN_ORIGIN_SAME_USER,
+	                      "add message carol out " ID4 " attach " FILE_ROOT " a.txt answer " ID3)
+	              && replied("malformed"),
+	      "a line answered that is no id, a word past it, and another word than reply are refused");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID5 " settled")
+	              && replied("ok"),
+	      "fixture: the reply settled, so what is owed below is as before");
 	A.nm.file_of = NULL;
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
 	           "add message carol out " ID4 " attach " FILE_ROOT " a.txt")

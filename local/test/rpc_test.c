@@ -957,6 +957,31 @@ static void test_group_lines_in_binary(void)
 	}
 }
 
+/* A FILE SENT IN REPLY, sec 1395: by the verb, ` reply LINE` after the
+ * escaped name; and no line answered is refused before anything is asked. */
+static void test_a_file_is_sent_in_reply(void)
+{
+	static const uint8_t root[32] = { 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab,
+	                                  0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab,
+	                                  0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab,
+	                                  0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab };
+	static const uint8_t answers[16] = { 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a,
+	                                     0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a };
+	static const char tail[] = " attach abababababababababababababababababababababababababababababababab"
+	                           " a%20b reply 0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a";
+	struct script s = { { "ok" }, 0, 1, 0, { { 0 } } };
+	size_t n;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_message_attach_reply(&c, "alice", 5, 0, root, "a b", 3, answers) == FZN_RPC_OK
+	              && strncmp(s.asked[0], "add message alice out ", 22) == 0
+	              && (n = strlen(s.asked[0])) > sizeof(tail) - 1u
+	              && strcmp(s.asked[0] + n - (sizeof(tail) - 1u), tail) == 0,
+	      "a file sent in reply was not asked with the line it answers after its name");
+	CHECK(fzn_rpc_message_attach_reply(&c, "alice", 5, 0, root, "a b", 3, NULL) != FZN_RPC_OK,
+	      "a file sent in reply to no line was asked");
+}
+
 /* A LINE SENT IN BINARY, sec 1161: to a key, asked as FZN_CMD_MESSAGES
  * send with the key, a fresh id and the text whole; a key nobody holds is
  * no peer; a contact named by NAME sent by the verb. */
@@ -2557,6 +2582,7 @@ int main(void)
 	test_contact_changes_in_binary();
 	test_contacts_in_binary();
 	test_a_line_is_sent_in_binary();
+	test_a_file_is_sent_in_reply();
 	test_lines_in_binary();
 	test_conversations_in_binary();
 	test_a_file_not_fetched_says_so();

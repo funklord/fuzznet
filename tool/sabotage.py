@@ -10351,6 +10351,13 @@ SABOTAGES = [
 		"a trim leaves no tombstone, so key carriage brings the month back -- sec 531",
 	),
 	(
+		"messages-attach-writes-the-reply",
+		"node/messages.c",
+		"\t\tif (replying) {\n",
+		"\t\tif (0) {\n",
+		"a file sent in reply goes as a plain attachment, the line it answers lost -- sec 1395",
+	),
+	(
 		"node-messages-list-digit-key",
 		"node/messages.c",
 		"\t\tif (!all_digits(w, w_len) || w_len == 2u * FZN_PUBKEY_LEN) {",

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1394
+The newest work is at the end of this file. **Read secs 1287 to 1395
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96582,3 +96582,39 @@ before (4000 cases, 1506 admitted through one); notes_test (730),
 admin_test (377), pair_test (443), apply_test (191), notebook_view_test
 (1080). Sabotage `members-pull-admits-only-on-proof` and
 `notes-text-push-vouches-for-the-sender` retargeted.
+
+## 1395. A file sent in reply; and the host join stays retired, 2026-11-22
+
+From fuzzypickles' inbox message 20261122T0500Z, two things.
+
+**A file sent in reply, built.** Since sec 1355 fuzzypickles sends a
+sticker in reply by writing `fzn:reply/ID ` itself; a file could not go
+that way, as `attach` has the node write the line. Now:
+
+    add message WHO out ID attach ROOT NAME reply LINE
+
+writes `fzn:reply/LINE ` before the reference, through
+`fzn_message_reply_write`, so the line is granted and fetched as the
+plain one is (`fzn_message_own_text`, sec 1355). A LINE that is not 32
+hex digits, a word after it, or another word in place of `reply` is
+malformed; NAME is one escaped word, so the trailing pair cannot be read
+as part of it. The client's call is `fzn_rpc_message_attach_reply`. It
+goes by the verb alone, because the binary send (`messages_local`, sec
+1161) carries no line answered; widening that contract was not worth one
+optional field nobody sends in binary yet.
+
+**Tests:** messages_test (305): a reply's head then the reference; the
+three malformed forms. rpc_test: the verb asked, ` reply LINE` after the
+escaped name; no line answered refused before anything is asked.
+Sabotage `messages-attach-writes-the-reply`.
+
+**The three-step host join stays retired from the views.** fuzzypickles
+asked whether `devices_view` will carry host-join request, approve and
+install, which its own device box offers "for a device with no camera".
+Sec 1127 left it out on purpose as replaced by one-code joining (secs
+896, 1122-1123), and the two reasons the box gives are covered there: the
+join code is a line of text the devices view takes typed or pasted, not
+only from a camera; and the joining device needs no address field,
+because the host answers it at the address its ask came from (sec 896).
+So fuzzypickles can retire the exchange with the box. The RPCs stay in
+the library for now; nothing here asked for their removal.
