@@ -263,6 +263,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
              wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
+             wire/generated/exchange_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -291,7 +292,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c \
                  wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c \
                  wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c \
-                 wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c
+                 wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c \
+                 wire/generated/exchange_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -791,6 +793,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/line_record_vectors \
              $(BUILD_DIR)/wire/test/buckets_row_vectors \
              $(BUILD_DIR)/wire/test/provision_record_vectors \
+             $(BUILD_DIR)/wire/test/exchange_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -1294,7 +1297,7 @@ endif
 # journal since sec 506; and node/notes' suite links it since sec 517, its
 # notes chained into a journal's stream 0.
 FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/store_held.o $(BUILD_DIR)/node/opjournal.o $(BUILD_DIR)/wire/generated/opjournal_row.o \
-                         $(BUILD_DIR)/record/exchange.o \
+                         $(BUILD_DIR)/record/exchange.o $(BUILD_DIR)/wire/generated/exchange_wire.o \
                          $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
                          $(BUILD_DIR)/record/store.o \
                          $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
@@ -2776,7 +2779,7 @@ $(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
 # client asking the server through a function call, over real records and an
 # in-memory store.
 $(BUILD_DIR)/record/test/exchange_test: $(BUILD_DIR)/record/test/exchange_test.o \
-                                        $(BUILD_DIR)/record/exchange.o \
+                                        $(BUILD_DIR)/record/exchange.o $(BUILD_DIR)/wire/generated/exchange_wire.o \
                                         $(BUILD_DIR)/record/sync.o \
                                         $(BUILD_DIR)/record/journal.o \
                                         $(BUILD_DIR)/record/store.o \
@@ -3050,7 +3053,7 @@ $(BUILD_DIR)/record/test/sync_fuzz: $(BUILD_DIR)/record/test/sync_fuzz.o \
 # The journal exchange through a lying peer, sec 689's estate journey:
 # exchange_test's own modules, linked as the daemon links them.
 $(BUILD_DIR)/record/test/exchange_fuzz: $(BUILD_DIR)/record/test/exchange_fuzz.o \
-                                         $(BUILD_DIR)/record/exchange.o \
+                                         $(BUILD_DIR)/record/exchange.o $(BUILD_DIR)/wire/generated/exchange_wire.o \
                                          $(BUILD_DIR)/record/sync.o \
                                          $(BUILD_DIR)/record/journal.o \
                                          $(BUILD_DIR)/record/store.o \
@@ -4691,6 +4694,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE JOURNAL'S EXCHANGE, generated, sec 1384.
+$(BUILD_DIR)/wire/test/exchange_wire_vectors: wire/generated/exchange_wire_vectors.c \
+                                             wire/generated/exchange_wire.c wire/generated/situ.c \
+                                             $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -7916,7 +7926,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               chain/chain_wire.situ provision/provision_record.situ \
               record/store_file.situ catalog/attribute_row.situ \
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
-              record/exchange.situ \
+              record/exchange_wire.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note_row.situ node/opjournal_row.situ messages/line_record.situ \
               messages/keys_wire.situ messages/deliver_wire.situ state/setting_record.situ \
               node/reconcile.situ node/buckets_row.situ \
@@ -8682,6 +8692,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_exchange_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new record/exchange_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_exchange_wire \
+	         --out $(BUILD_DIR)/.gen.new record/exchange_wire.situ record/exchange_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_provision_record --layer edit \
 	         --linked ../chain/hop_record.situ=fzn_hop_record \
 	         --linked ../prekey/prekey_record.situ=fzn_prekey_record \
@@ -8911,6 +8925,7 @@ schema:
 	          line_record.c line_record.h line_record_build.h line_record_edit.h line_record_vectors.c \
 	          buckets_row.c buckets_row.h buckets_row_build.h buckets_row_edit.h buckets_row_vectors.c \
 	          provision_record.c provision_record.h provision_record_edit.h provision_record_vectors.c \
+	          exchange_wire.c exchange_wire.h exchange_wire_build.h exchange_wire_edit.h exchange_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

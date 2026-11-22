@@ -15294,7 +15294,7 @@ SABOTAGES = [
 	(
 		"exchange-push-step-stops-at-a-refusal",
 		"record/exchange.c",
-		"\tif (fzn_get_be16(reply + 6) || fzn_get_be16(reply + 8)) {\n",
+		"\tif (fzn_exchange_wire_fzn_exchange_pushed_refused_get(v) || fzn_exchange_wire_fzn_exchange_pushed_forks_get(v)) {\n",
 		"\tif (0) {\n",
 		"a push goes on offering a stream past a refusal or a fork, every later record refused the same way -- sec 636",
 	),

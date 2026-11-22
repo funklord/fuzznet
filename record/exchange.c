@@ -1,14 +1,20 @@
 /* See exchange.h. */
 
 #include "exchange.h"
+#include "../wire/generated/exchange_wire.h"
+#include "../wire/generated/exchange_wire_build.h"
 
 #include "../wire/bytes.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-/* THE OFFSETS, pinned as literals against `record/exchange.situ`, which
- * `make schema` compares with situ's own reading of it. */
+/* THE OFFSETS, pinned as literals against `record/exchange_wire.situ`, which
+ * `make schema` compares with situ's own reading of it. The queries, the
+ * digest and the pushed answer are written and read through the code situ
+ * generates from it (sec 1384); the pages of records are written a record
+ * at a time and read a record at a time, each admitted as it is read, so
+ * those keep their offsets. */
 _Static_assert(FZN_EXCHANGE_POSITION_LEN == 32u + 4u + 8u, "exchange: a position is not 44 bytes");
 _Static_assert(FZN_EXCHANGE_RECORDS_QUERY_LEN == 2u + 32u + 4u + 8u + 2u,
                "exchange: a records query is not 48 bytes");
@@ -46,7 +52,14 @@ static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request
 	static size_t held_room;
 	size_t total, dropped = 0, from, room, i, at, want;
 
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (request_len != FZN_EXCHANGE_DIGEST_QUERY_LEN || reply_cap < FZN_EXCHANGE_DIGEST_HEAD_LEN)
+		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_exchange_wire_fzn_exchange_digest_query_view(&m, 0u, &v) != SITU_OK
+	    || fzn_exchange_wire_fzn_exchange_digest_query_validate(v) != SITU_OK)
 		return 0;
 	want = journal->used < FZN_SYNC_MAX_POSITIONS ? journal->used : FZN_SYNC_MAX_POSITIONS;
 	/* AN EMPTY JOURNAL ANSWERS TOO, an empty digest: room is had first. */
@@ -67,7 +80,7 @@ static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request
 	total = fzn_sync_digest(journal, held, held_room < FZN_SYNC_MAX_POSITIONS
 	                                               ? held_room : FZN_SYNC_MAX_POSITIONS,
 	                        &dropped);
-	from = fzn_get_be32(request + 2);
+	from = fzn_exchange_wire_fzn_exchange_digest_query_from_get(v);
 	if (from > total)
 		from = total;
 	room = (reply_cap - FZN_EXCHANGE_DIGEST_HEAD_LEN) / FZN_EXCHANGE_POSITION_LEN;
@@ -97,14 +110,21 @@ static size_t answer_records(const fzn_journal_t *journal, fzn_record_store_t *s
 	size_t at = FZN_EXCHANGE_RECORDS_HEAD_LEN, count = 0;
 	fzn_record_t rec;
 
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (request_len != FZN_EXCHANGE_RECORDS_QUERY_LEN || reply_cap < FZN_EXCHANGE_RECORDS_HEAD_LEN)
 		return 0;
-	issuer = request + 2;
-	stream = fzn_get_be32(request + 34);
-	from = fzn_get_be64(request + 38);
-	max = fzn_get_be16(request + 46);
-	if (from == 0u || max == 0u)
+	/* READ AS THE SCHEMA SAYS: a `from` and a `max` of at least 1 the
+	 * generated validate's. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_exchange_wire_fzn_exchange_records_query_view(&m, 0u, &v) != SITU_OK
+	    || fzn_exchange_wire_fzn_exchange_records_query_validate(v) != SITU_OK)
 		return 0;
+	issuer = fzn_exchange_wire_fzn_exchange_records_query_issuer_ptr(v);
+	stream = fzn_exchange_wire_fzn_exchange_records_query_stream_get(v);
+	from = fzn_exchange_wire_fzn_exchange_records_query_from_get(v);
+	max = fzn_exchange_wire_fzn_exchange_records_query_max_get(v);
 	/* ONLY WHAT THE JOURNAL HAS RECEIVED: a record the store holds past the
 	 * position is one this host has not admitted, so it is not offered. */
 	last = fzn_journal_next(journal, issuer, stream) - 1u;
@@ -219,9 +239,12 @@ static int take_records(fzn_journal_t *journal, fzn_record_store_t *store,
 
 static void digest_query(const fzn_exchange_digest_t *d, uint8_t *request, size_t *len)
 {
-	request[0] = (uint8_t)FZN_CMD_EXCHANGE;
-	request[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
-	fzn_put_be32(request + 2, (uint32_t)d->n);
+	uint32_t wrote = 0;
+
+	(void)fzn_exchange_wire_fzn_exchange_digest_query_build(request, FZN_EXCHANGE_DIGEST_QUERY_LEN,
+	                                                        (uint8_t)FZN_CMD_EXCHANGE,
+	                                                        FZN_EXCHANGE_WIRE_FZN_EXCHANGE_TYPE_DIGEST_QUERY,
+	                                                        (uint32_t)d->n, &wrote);
 	*len = FZN_EXCHANGE_DIGEST_QUERY_LEN;
 }
 
@@ -238,15 +261,27 @@ static int digest_take(fzn_exchange_digest_t *d, const uint8_t *reply, size_t re
                        uint8_t *request, size_t *request_len)
 {
 	size_t i, count;
+	situ_msg_t m;
+	situ_view_t v, at;
+	uint32_t need = 0;
 
+	/* THE PAGE READ WHOLE, AS THE SCHEMA SAYS: version, type and every
+	 * position accounted for, `required` against the length. That it
+	 * answers the page asked, and holds no more than is left, the
+	 * codec's. */
 	if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_DIGEST)
-	    || reply_len < FZN_EXCHANGE_DIGEST_HEAD_LEN)
+	    || reply_len < FZN_EXCHANGE_DIGEST_HEAD_LEN || reply_len > UINT32_MAX
+	    || fzn_exchange_wire_fzn_exchange_digest_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+	    || need != reply_len)
 		return -1;
-	d->total = fzn_get_be32(reply + 2);
-	count = fzn_get_be32(reply + 10);
-	if (fzn_get_be32(reply + 6) != d->n
-	    || reply_len != FZN_EXCHANGE_DIGEST_HEAD_LEN + (count * FZN_EXCHANGE_POSITION_LEN)
-	    || count > d->total - d->n || (count == 0u && d->n < d->total))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_exchange_wire_fzn_exchange_digest_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+	    || fzn_exchange_wire_fzn_exchange_digest_validate(v) != SITU_OK)
+		return -1;
+	d->total = fzn_exchange_wire_fzn_exchange_digest_total_get(v);
+	count = fzn_exchange_wire_fzn_exchange_digest_count_get(v);
+	if (fzn_exchange_wire_fzn_exchange_digest_from_get(v) != d->n || count > d->total - d->n
+	    || (count == 0u && d->n < d->total))
 		return -1;
 	/* ROOM FOR WHAT THE PEER SAYS IT HOLDS, up to the ceiling, sec 992. */
 	{
@@ -266,11 +301,11 @@ static int digest_take(fzn_exchange_digest_t *d, const uint8_t *reply, size_t re
 		}
 	}
 	for (i = 0; i < count && d->n < FZN_SYNC_MAX_POSITIONS && d->n < d->room; i++, d->n++) {
-		const uint8_t *at = reply + FZN_EXCHANGE_DIGEST_HEAD_LEN + (i * FZN_EXCHANGE_POSITION_LEN);
-
-		memcpy(d->theirs[d->n].issuer, at, FZN_PUBKEY_LEN);
-		d->theirs[d->n].stream = fzn_get_be32(at + 32u);
-		d->theirs[d->n].received = fzn_get_be64(at + 36u);
+		if (fzn_exchange_wire_fzn_exchange_digest_positions_at(v, (uint32_t)i, &at) != SITU_OK)
+			return -1;
+		memcpy(d->theirs[d->n].issuer, fzn_exchange_wire_fzn_exchange_position_issuer_ptr(at), FZN_PUBKEY_LEN);
+		d->theirs[d->n].stream = fzn_exchange_wire_fzn_exchange_position_stream_get(at);
+		d->theirs[d->n].received = fzn_exchange_wire_fzn_exchange_position_received_get(at);
 	}
 	if (d->n < d->total && d->n < FZN_SYNC_MAX_POSITIONS
 	    && ++d->pages <= FZN_SYNC_MAX_POSITIONS) {
@@ -287,13 +322,12 @@ enum { PULL_DIGEST = 1, PULL_RECORDS = 2, PULL_DONE = 3 };
 static void records_query(const fzn_exchange_pulling_t *p, uint8_t *request, size_t *len)
 {
 	const fzn_sync_request_t *want = &p->plan_out[p->want];
+	uint32_t wrote = 0;
 
-	request[0] = (uint8_t)FZN_CMD_EXCHANGE;
-	request[1] = (uint8_t)FZN_EXCHANGE_RECORDS_QUERY;
-	memcpy(request + 2, want->issuer, FZN_PUBKEY_LEN);
-	fzn_put_be32(request + 34, want->stream);
-	fzn_put_be64(request + 38, p->next);
-	fzn_put_be16(request + 46, (uint16_t)(p->left > 0xffffu ? 0xffffu : p->left));
+	(void)fzn_exchange_wire_fzn_exchange_records_query_build(
+	        request, FZN_EXCHANGE_RECORDS_QUERY_LEN, (uint8_t)FZN_CMD_EXCHANGE,
+	        FZN_EXCHANGE_WIRE_FZN_EXCHANGE_TYPE_RECORDS_QUERY, want->issuer, want->stream, p->next,
+	        (uint16_t)(p->left > 0xffffu ? 0xffffu : p->left), &wrote);
 	*len = FZN_EXCHANGE_RECORDS_QUERY_LEN;
 }
 
@@ -505,12 +539,15 @@ size_t fzn_exchange_take_push(fzn_journal_t *journal, fzn_record_store_t *store,
 		}
 		taken++;
 	}
-	reply[0] = (uint8_t)FZN_CMD_EXCHANGE;
-	reply[1] = (uint8_t)FZN_EXCHANGE_PUSHED;
-	fzn_put_be16(reply + 2, (uint16_t)taken);
-	fzn_put_be16(reply + 4, (uint16_t)held);
-	fzn_put_be16(reply + 6, (uint16_t)refused);
-	fzn_put_be16(reply + 8, (uint16_t)forks);
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_exchange_wire_fzn_exchange_pushed_build(reply, (uint32_t)FZN_EXCHANGE_PUSHED_LEN, (uint8_t)FZN_CMD_EXCHANGE,
+		                                                FZN_EXCHANGE_WIRE_FZN_EXCHANGE_TYPE_PUSHED, (uint16_t)taken,
+		                                                (uint16_t)held, (uint16_t)refused, (uint16_t)forks, &wrote)
+		    != SITU_OK)
+			return 0;
+	}
 	return FZN_EXCHANGE_PUSHED_LEN;
 }
 
@@ -596,6 +633,9 @@ fzn_exchange_err_t fzn_exchange_push_step(fzn_exchange_pushing_t *p, const uint8
                                           size_t reply_len, uint8_t *message, size_t cap,
                                           size_t *message_len, int *done)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!p || !message || cap < FZN_EXCHANGE_REPLY_MIN || !message_len || !done
 	    || (p->phase != PUSH_DIGEST && p->phase != PUSH_OFFERS))
 		return FZN_EXCHANGE_ERR_MALFORMED;
@@ -621,18 +661,23 @@ fzn_exchange_err_t fzn_exchange_push_step(fzn_exchange_pushing_t *p, const uint8
 		next_offer(p, message, cap, message_len, done);
 		return FZN_EXCHANGE_OK;
 	}
-	if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_PUSHED)
-	    || reply_len != FZN_EXCHANGE_PUSHED_LEN) {
+	if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_PUSHED) || reply_len != FZN_EXCHANGE_PUSHED_LEN) {
 		p->phase = PUSH_DONE;
 		return FZN_EXCHANGE_ERR_SHAPE;
 	}
-	p->tally.taken += fzn_get_be16(reply + 2);
-	p->tally.held += fzn_get_be16(reply + 4);
-	p->tally.refused += fzn_get_be16(reply + 6);
-	p->tally.forks += fzn_get_be16(reply + 8);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_exchange_wire_fzn_exchange_pushed_view(&m, 0u, &v) != SITU_OK
+	    || fzn_exchange_wire_fzn_exchange_pushed_validate(v) != SITU_OK) {
+		p->phase = PUSH_DONE;
+		return FZN_EXCHANGE_ERR_SHAPE;
+	}
+	p->tally.taken += fzn_exchange_wire_fzn_exchange_pushed_taken_get(v);
+	p->tally.held += fzn_exchange_wire_fzn_exchange_pushed_held_get(v);
+	p->tally.refused += fzn_exchange_wire_fzn_exchange_pushed_refused_get(v);
+	p->tally.forks += fzn_exchange_wire_fzn_exchange_pushed_forks_get(v);
 	/* A MESSAGE NOT WHOLLY TAKEN ends the stream for the round: whatever
 	 * came after the refusal would be refused too. */
-	if (fzn_get_be16(reply + 6) || fzn_get_be16(reply + 8)) {
+	if (fzn_exchange_wire_fzn_exchange_pushed_refused_get(v) || fzn_exchange_wire_fzn_exchange_pushed_forks_get(v)) {
 		p->at++;
 		offer_bounds(p);
 	}

@@ -1,0 +1,12 @@
+# Golden vectors for record/exchange_wire.situ, written by hand from its
+# layouts: a digest query from position 0; a digest of one position --
+# issuer 11s, stream 3, received 4 -- of one held, from 0; a records query
+# for issuer 11s's stream 3 from sequence 1, at most 2; an empty page of
+# records and an empty push; and a pushed answer of 1 taken.
+
+fzn_exchange_digest_query first 07 01 00 00 00 00
+fzn_exchange_digest one 07 02 00 00 00 01 00 00 00 00 00 00 00 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 03 00 00 00 00 00 00 00 04
+fzn_exchange_records_query two 07 03 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 03 00 00 00 00 00 00 00 01 00 02
+fzn_exchange_records none 07 04 00 00
+fzn_exchange_push none 07 05 00 00
+fzn_exchange_pushed one 07 06 00 01 00 00 00 00 00 00

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1383
+The newest work is at the end of this file. **Read secs 1287 to 1384
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -57357,7 +57357,7 @@ each kind of act onto records of its own.
 **Binary, not a reply line.** A record is up to 700 bytes, which is 1,400
 hex characters, and a reply line is bounded at 1,024 (`FZN_REPLY_MAX`). So
 the exchange is four binary messages over the remote hop, as notes sync is.
-They are stated in `record/exchange.situ`, which is added to `make schema`'s
+They are stated in `record/exchange_wire.situ`, which is added to `make schema`'s
 list:
 
     DIGEST_QUERY   "your positions, from this one"
@@ -58181,7 +58181,7 @@ exchange already moved records per (issuer, stream).
 A hub pulls from nobody it is not paired to, so a member's records reached
 only the members that pull it. Sec 446 met this for notes and gave them a
 push; the journal had the same gap for members' votes. The exchange gains
-two messages, version 5, stated in `record/exchange.situ`:
+two messages, version 5, stated in `record/exchange_wire.situ`:
 
 - **PUSH** carries consecutive records, laid out as RECORDS is.
 - **PUSHED** answers with four counts: taken, held, refused and forked.
@@ -85519,7 +85519,7 @@ Sec 992's "Left": a digest's total, place and length were 16 bits on the wire, s
 65535 streams could not be read whole -- the holder's aim is almost unlimited machines (sec 964),
 and wire changes are free (sec 924). **The exchange is version 7**: DIGEST_QUERY's place and
 DIGEST's total, place and count are 32 bits (`FZN_EXCHANGE_DIGEST_QUERY_LEN` 6,
-`FZN_EXCHANGE_DIGEST_HEAD_LEN` 14), stated in `record/exchange.situ` and its committed `.wire` and
+`FZN_EXCHANGE_DIGEST_HEAD_LEN` 14), stated in `record/exchange_wire.situ` and its committed `.wire` and
 `.map`, regenerated with situ 4931647a. `FZN_SYNC_MAX_POSITIONS` is 1048576, a bound on what a peer
 can make this host examine -- some 46 MB of positions for one that claims them all -- not room set
 aside (sec 992). A version-5 peer and a version-7 one share no exchange message, which the schema
@@ -96252,3 +96252,27 @@ provision_view_test, and the 49 targets linking the card, four of which
 now link the root add's code too. Sabotage `provision-tag-is-not-a-hop`
 (onto the `check` mapping) and `provision-host-shape-checked`
 retargeted.
+
+## 1384. The journal's exchange: queries, digest and pushed answer through situ's code, 2026-11-22
+
+The thirty-third of the 40 layouts: `record/exchange.situ` is
+`record/exchange_wire.situ` (secs 501, 512, 636, 1047). In
+`record/exchange.c` the two queries and the pushed answer are built by
+the generated builders, and read -- the queries by the server, the
+pushed answer by the pusher -- through the view and `validate` (a
+records query's `from` and `max` of at least 1 the schema's now). The
+digest page is read whole through `required`, the view and `validate`,
+each position through `positions_at`; that it answers the page asked and
+holds no more than is left stays the codec's.
+
+**Not moved, and why**: the pages of records -- RECORDS and PUSH -- are
+written a record at a time as the store yields them, and read a record
+at a time, each verified and admitted as it is read, so a page bent at
+its third record has still admitted the first two. A builder wants every
+record in hand, and reading the page whole first would change what a
+bent page admits; both keep their offsets.
+
+**The seeded fuzzers agree case for case**: exchange_fuzz and sync_fuzz
+give the counts they gave before. **Tests:** exchange_wire_vectors (6);
+exchange_test (62), and the 23 targets linking the exchange. Sabotage
+`exchange-push-step-stops-at-a-refusal` retargeted.

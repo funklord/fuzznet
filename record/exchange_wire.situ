@@ -1,6 +1,7 @@
 // The journal's messages: what one host asks another for, and the answer.
-// project.md sec 501. The hand-written codec is record/exchange.c; this is
-// its checked contract, in `make schema`'s list.
+// project.md sec 501. record/exchange.c writes and reads the queries, the
+// digest and the pushed answer through the code situ generates from this
+// (sec 1384); `_wire`, so the generated file's name meets no source's.
 //
 // Binary rather than a reply line, because a record is up to 700 bytes and a
 // line of hex is bounded at 1024 characters (FZN_REPLY_MAX). The first byte is

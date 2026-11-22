@@ -7,7 +7,7 @@
  * shape `get vote` and `get root` each grew, paging and deduplicating and
  * ordering on their own, which sec 500 retires.
  *
- * SIX MESSAGES, BINARY, stated in `record/exchange.situ`:
+ * SIX MESSAGES, BINARY, stated in `record/exchange_wire.situ`:
  *
  *     DIGEST_QUERY   "your positions, from this one"
  *     DIGEST         "these, of this many"
