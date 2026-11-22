@@ -450,4 +450,5 @@ __pycache__/
 /wire/test/deliver_wire_vectors
 /wire/test/keys_wire_vectors
 /wire/test/line_record_vectors
+/wire/test/buckets_row_vectors
 /node/test/settings_registry_test

@@ -11479,17 +11479,24 @@ SABOTAGES = [
 		'copies are fetched whatever the copy rules say -- sec 571',
 	),
 	(
+		'buckets-row-read-as-the-schema',
+		'node/buckets.c',
+		'\t\t    || fzn_buckets_row_fzn_buckets_item_validate(v) != SITU_OK\n',
+		'\t\t    || 0\n',
+		'an item row whose mark is neither 0 nor 1, or whose length is past its bound, read -- sec 1382',
+	),
+	(
 		'buckets-let-go-is-served-as-not-held',
 		'node/buckets.c',
-		'\tif (!what || what == 3 || bytes[I_INDEXED] != 1u)\n\t\treturn FZN_BUCKETS_ABSENT;',
-		'\tif (!what || bytes[I_INDEXED] != 1u)\n\t\treturn FZN_BUCKETS_ABSENT;',
+		'\tif (!what || what == 3 || r.indexed != 1u)\n\t\treturn FZN_BUCKETS_ABSENT;',
+		'\tif (!what || r.indexed != 1u)\n\t\treturn FZN_BUCKETS_ABSENT;',
 		'an item let go is still served, from a row that holds no item -- sec 572',
 	),
 	(
 		'buckets-let-go-writes-the-tombstone',
 		'node/buckets.c',
-		'\tbytes[0] = LET_GO_VERSION;\n\treturn item_save(b, kind, id, bytes, L_LEN) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;',
-		'\tbytes[0] = LET_GO_VERSION;\n\treturn FZN_BUCKETS_OK;',
+		'\treturn item_save(b, kind, id, gone, L_LEN) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;',
+		'\treturn FZN_BUCKETS_OK;',
 		'an item let go is still held and served -- sec 572',
 	),
 	(
@@ -11509,7 +11516,7 @@ SABOTAGES = [
 	(
 		'buckets-let-go-is-restored-by-its-kind',
 		'node/buckets.c',
-		'\t\trow_bytes[I_INDEXED] = 1u;\n\t\tif (!item_save(b, kind, id, row_bytes, row_len))\n\t\t\treturn FZN_BUCKETS_BACKEND;\n\t\tif (added)\n\t\t\t*added = 1;\n\t\treturn FZN_BUCKETS_OK;',
+		'\t\tset_indexed(row_bytes, row_len, 1u);\n\t\tif (!item_save(b, kind, id, row_bytes, row_len))\n\t\t\treturn FZN_BUCKETS_BACKEND;\n\t\tif (added)\n\t\t\t*added = 1;\n\t\treturn FZN_BUCKETS_OK;',
 		'\t\tif (added)\n\t\t\t*added = 1;\n\t\treturn FZN_BUCKETS_OK;',
 		"a log directory moved away and back leaves this host's own segments served as not held for good -- sec 572",
 	),

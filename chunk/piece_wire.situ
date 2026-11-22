@@ -18,7 +18,7 @@ endian big;
 
 struct fzn_erasure_piece {
 	u8   version [must_eq = 1];
-	u8   kind [max = 1];                      // the bucket kind, node/buckets.situ
+	u8   kind [max = 1];                      // the bucket kind, node/buckets_row.situ
 	u8   item_id[32];                         // the item's bucket id
 	u8   host[32];                            // whose item: served to it, sec 599
 	u64  item_len [min = 1, max = 67108864];  // a large item's bound, sec 570

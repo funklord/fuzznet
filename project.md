@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1381
+The newest work is at the end of this file. **Read secs 1287 to 1382
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -61476,7 +61476,7 @@ Sec 564's first stage.
 - **`node/buckets`** holds an append-only kind by (kind, subject, month)
   in three bulk slots: 42 the bucket's count and its ids' sum modulo 2^256,
   43 its ids in chunks of 64 and the gone marks, 44 each item as signed,
-  keyed by its id. Layouts in `node/buckets.situ`. Taking writes the item,
+  keyed by its id. Layouts in `node/buckets_row.situ`. Taking writes the item,
   then the id and count, then a mark on the item; taken again after a crash
   at any of those, it is held and counted once.
 - **The exchange** gains BUCKETS, BUCKET_IDS and ITEM queries in version
@@ -61841,7 +61841,7 @@ segment repacked under entry rules keeps its name and changes its bytes;
 sec 571 left both naming files that no longer hash to their ids.
 
 - **`fzn_buckets_let_go`** turns an item's row into a tombstone
-  (`fzn_buckets_let_go` in `node/buckets.situ`, version 3 in slot 44): its
+  (`fzn_buckets_let_go` in `node/buckets_row.situ`, version 3 in slot 44): its
   bytes or its ref given up, its id left in its bucket. The count and the
   digest do not move, so a peer that holds it still agrees and nothing is
   asked of it; it is still held, so nothing fetches or is pushed it; and it
@@ -62838,7 +62838,7 @@ bucket exchange.
 
 ### A third bucket kind
 
-`pieces = 2` (`node/buckets.situ`; the exchange's kind bound in
+`pieces = 2` (`node/buckets_row.situ`; the exchange's kind bound in
 `node/reconcile.situ` widened to it). An item is one piece's file whole;
 its SUBJECT is the host the piece was placed on to keep, not the host
 whose segment it is, and its month the segment's. So a host wants exactly
@@ -77292,7 +77292,7 @@ covers both.
 
 **Built (`node/records.{h,c}`):**
 - **The kind:** `FZN_BUCKETS_RECORDS` = 3 in `node/buckets.h` and
-  `node/buckets.situ`. Subject is the observing host and month the UTC
+  `node/buckets_row.situ`. Subject is the observing host and month the UTC
   month of the version, as every kind counts months.
   - **`situc` calls the contract breaking, and it is:** an older peer
     refuses a query naming kind 3, as it was written to refuse an
@@ -86522,7 +86522,7 @@ message as before, where `shared_family` kept hand-written ranges of family 2.
 **Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys_wire.situ` and
 `deliver.situ` to 10, `node/contact_devices.situ`'s twelve messages to 11, `node/address.situ`
 to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line_record.situ`
-and `node/buckets.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
+and `node/buckets_row.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
 
 **Found on the way, all tests building family-2 bytes by hand:** members_fuzz's requests (`0 bent
 requests answered` until fixed), admin_test's extension and members queries, its notes request,
@@ -96176,3 +96176,33 @@ short line's row to direction 3 and wants the page to hold the long line
 alone. The run with the other three (`messages-row-is-its-own-line`,
 `messages-position-length-exact`, `messages-mark-state-known`) caught
 each.
+
+## 1382. A node's buckets, items and refs through situ's code, 2026-11-22
+
+The thirty-first of the 40 layouts: `node/buckets.situ` is
+`node/buckets_row.situ` (secs 564-572). `node/buckets.c` writes every
+row with the builder situ generates for it -- a bucket made new, a gone
+row, an item, a ref, its back-pointer, an item let go -- and reads every
+row through its view and `validate`:
+
+- **One reader for an item's three row kinds**, `row_read`: the version
+  names which it is, and that one's `required`, view and `validate` take
+  it, into a `row_read_t` -- what it is, its mark, its head, and the
+  item's bytes or the ref and size. The callers (take, has, item, ref,
+  let go) read the struct, not offsets; a ref of size nought, which the
+  schema does not refuse, stays the codec's.
+- **The mark set through each kind's own view** (`set_indexed`), where
+  the code had written one shared offset whatever the row was.
+- **A bucket's count and sum changed in place** through its view's
+  setter and sum pointer; `bucket_is` and `gone_is` read a bucket and a
+  gone row whole before naming kind, subject and month.
+
+**The seeded fuzzers agree case for case**: members_fuzz,
+reconcile_fuzz and pieces_fuzz give the counts they gave before.
+**Tests:** buckets_row_vectors (6, one of each); buckets_test (86),
+log_buckets_test (70), piece_buckets_test (70), reconcile_test (30),
+records_test (227), and the 20 targets linking the buckets. Sabotage
+`buckets-let-go-is-served-as-not-held`,
+`buckets-let-go-writes-the-tombstone` and
+`buckets-let-go-is-restored-by-its-kind` retargeted,
+`buckets-row-read-as-the-schema` new.

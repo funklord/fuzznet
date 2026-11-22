@@ -1,6 +1,11 @@
-/* See buckets.h. Rows are `node/buckets.situ`'s. */
+/* See buckets.h. Rows are `node/buckets_row.situ`'s, written by the
+ * builders situ generates from it and read through its views and
+ * `validate` (sec 1382); the offsets below are only for the sizes of the
+ * buffers that hold them. */
 
 #include "buckets.h"
+#include "../wire/generated/buckets_row.h"
+#include "../wire/generated/buckets_row_build.h"
 
 #include "../wire/bytes.h"
 
@@ -97,23 +102,68 @@ static int row_of(const fzn_buckets_t *b, const char *domain, fzn_buckets_kind_t
 	return b->hash->hash(b->hash->ctx, row, FZN_PUBKEY_LEN, in, at);
 }
 
-static void put_head(uint8_t *at, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN],
-                     uint32_t month)
+/* A BUCKET'S ROW, its count nought and its sum zero, built. */
+static void bucket_new(uint8_t bytes[B_LEN], fzn_buckets_kind_t kind,
+                       const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month)
 {
-	at[0] = VERSION;
-	at[B_KIND] = (uint8_t)kind;
-	memcpy(at + B_SUBJECT, subject, FZN_PUBKEY_LEN);
-	fzn_put_be32(at + B_MONTH, month);
+	static const uint8_t zero[FZN_BUCKETS_ID_LEN];
+	uint32_t wrote = 0;
+
+	memset(bytes, 0, B_LEN);
+	(void)fzn_buckets_row_fzn_buckets_bucket_build(bytes, B_LEN, VERSION, (fzn_buckets_row_fzn_buckets_kind_t)kind,
+	                                               subject, month, 0u, zero, &wrote);
 }
 
-/* WHAT A ROW SAYS IT IS: this version, this kind, and -- where the caller
- * names them -- this subject and month. */
-static int head_is(const uint8_t *row, size_t len, size_t min, fzn_buckets_kind_t kind,
-                   const uint8_t *subject, int with_month, uint32_t month)
+/* A BUCKET'S ROW, VIEWED, for its count and sum. */
+static situ_view_t bucket_view(uint8_t bytes[B_LEN], situ_msg_t *m)
 {
-	return len >= min && row[0] == VERSION && row[B_KIND] == (uint8_t)kind
-	       && (!subject || memcmp(row + B_SUBJECT, subject, FZN_PUBKEY_LEN) == 0)
-	       && (!with_month || fzn_get_be32(row + B_MONTH) == month);
+	situ_view_t v;
+
+	situ_msg_init(m, bytes, B_LEN);
+	(void)fzn_buckets_row_fzn_buckets_bucket_view(m, 0u, &v);
+	return v;
+}
+
+static uint64_t bucket_count(uint8_t bytes[B_LEN])
+{
+	situ_msg_t m;
+
+	return fzn_buckets_row_fzn_buckets_bucket_count_get(bucket_view(bytes, &m));
+}
+
+/* WHAT A BUCKET'S OR A GONE ROW SAYS IT IS, read as the schema says: the
+ * row whole, this kind, and -- where the caller names them -- this subject
+ * and month. */
+static int bucket_is(uint8_t *row, size_t len, fzn_buckets_kind_t kind, const uint8_t *subject,
+                     int with_month, uint32_t month)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (len != B_LEN)
+		return 0;
+	situ_msg_init(&m, row, (uint32_t)len);
+	return fzn_buckets_row_fzn_buckets_bucket_view(&m, 0u, &v) == SITU_OK
+	       && fzn_buckets_row_fzn_buckets_bucket_validate(v) == SITU_OK
+	       && fzn_buckets_row_fzn_buckets_bucket_kind_get(v) == (fzn_buckets_row_fzn_buckets_kind_t)kind
+	       && (!subject || memcmp(fzn_buckets_row_fzn_buckets_bucket_subject_ptr(v), subject, FZN_PUBKEY_LEN) == 0)
+	       && (!with_month || fzn_buckets_row_fzn_buckets_bucket_month_get(v) == month);
+}
+
+static int gone_is(uint8_t *row, size_t len, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN],
+                   uint32_t month)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (len != G_LEN)
+		return 0;
+	situ_msg_init(&m, row, (uint32_t)len);
+	return fzn_buckets_row_fzn_buckets_gone_view(&m, 0u, &v) == SITU_OK
+	       && fzn_buckets_row_fzn_buckets_gone_validate(v) == SITU_OK
+	       && fzn_buckets_row_fzn_buckets_gone_kind_get(v) == (fzn_buckets_row_fzn_buckets_kind_t)kind
+	       && memcmp(fzn_buckets_row_fzn_buckets_gone_subject_ptr(v), subject, FZN_PUBKEY_LEN) == 0
+	       && fzn_buckets_row_fzn_buckets_gone_month_get(v) == month;
 }
 
 /* The bucket's row, read: 1 held, 0 not held, -1 the store failed or the
@@ -129,7 +179,7 @@ static int bucket_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 		return -1;
 	if (!b->store->load(b->store->ctx, FZN_PERSIST_BUCKET, row, bytes, B_LEN, &len))
 		return 0;
-	return len == B_LEN && head_is(bytes, len, B_LEN, kind, subject, 1, month) ? 1 : -1;
+	return bucket_is(bytes, len, kind, subject, 1, month) ? 1 : -1;
 }
 
 static int digest_of(const fzn_buckets_t *b, const uint8_t bytes[B_LEN],
@@ -143,11 +193,14 @@ static int digest_of(const fzn_buckets_t *b, const uint8_t bytes[B_LEN],
 	return b->hash->hash(b->hash->ctx, digest, FZN_BUCKETS_ID_LEN, in, sizeof(in));
 }
 
-static int fill(const fzn_buckets_t *b, const uint8_t bytes[B_LEN], fzn_bucket_t *out)
+static int fill(const fzn_buckets_t *b, uint8_t bytes[B_LEN], fzn_bucket_t *out)
 {
-	memcpy(out->subject, bytes + B_SUBJECT, FZN_PUBKEY_LEN);
-	out->month = fzn_get_be32(bytes + B_MONTH);
-	out->count = fzn_get_be64(bytes + B_COUNT);
+	situ_msg_t m;
+	situ_view_t v = bucket_view(bytes, &m);
+
+	memcpy(out->subject, fzn_buckets_row_fzn_buckets_bucket_subject_ptr(v), FZN_PUBKEY_LEN);
+	out->month = fzn_buckets_row_fzn_buckets_bucket_month_get(v);
+	out->count = fzn_buckets_row_fzn_buckets_bucket_count_get(v);
 	return digest_of(b, bytes, out->digest);
 }
 
@@ -161,38 +214,110 @@ int fzn_buckets_gone(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	       && row_of(b, "fuzznet.bucket.gone", kind, subject, 1, month, 0, 0u, row)
 	       && b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, bytes, sizeof(bytes),
 	                         &len)
-	       && len == G_LEN && head_is(bytes, len, G_LEN, kind, subject, 1, month);
+	       && gone_is(bytes, len, kind, subject, month);
 }
 
-/* THE ROW OF `id`, read into `out` (ROW_MAX): 1 an item held in it, 2 a
- * ref to one its kind keeps (sec 570), 3 one let go (sec 572), 0 none or
- * not this kind's; its length into `*len`. */
-static int row_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
-                    const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out, size_t *len)
-{
-	uint8_t row[FZN_PUBKEY_LEN];
-	size_t n;
+/* An item's row, read: what it is (1 an item, 2 a ref, 3 let go), its
+ * mark, head, and the item's bytes or the ref and size. Pointers into the
+ * buffer it was read into. */
+typedef struct row_read {
+	int what;
+	uint8_t indexed;
+	const uint8_t *subject;
+	uint32_t month;
+	const uint8_t *data;
+	size_t data_len;
+	uint64_t size;
+} row_read_t;
 
-	*len = 0;
-	if (!row_of(b, "fuzznet.bucket.item", kind, id, 0, 0u, 0, 0u, row)
-	    || !b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_ITEM, row, out, ROW_MAX, len)
-	    || *len <= I_INDEXED || out[B_KIND] != (uint8_t)kind || out[I_INDEXED] > 1u)
+/* ONE ROW READ AS THE SCHEMA SAYS, sec 1382: its version names which of
+ * the three it is, and that one's `required`, view and `validate` take it
+ * -- every byte accounted for, the lengths and the mark in bounds; a ref of
+ * size nought, which the schema does not refuse, the codec's. 0 for none
+ * of them, or another kind's. */
+static int row_read(uint8_t *bytes, size_t len, fzn_buckets_kind_t kind, row_read_t *r)
+{
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
+
+	memset(r, 0, sizeof(*r));
+	if (len < 1u || len > ROW_MAX)
 		return 0;
-	if (out[0] == VERSION && *len >= I_ITEM + 1u) {
-		n = ((size_t)out[I_LEN] << 8) | out[I_LEN + 1u];
-		return n >= 1u && n <= FZN_BUCKETS_ITEM_MAX && *len == I_ITEM + n ? 1 : 0;
+	situ_msg_init(&m, bytes, (uint32_t)len);
+	if (bytes[0] == VERSION) {
+		if (fzn_buckets_row_fzn_buckets_item_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len
+		    || fzn_buckets_row_fzn_buckets_item_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_item_validate(v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_item_kind_get(v) != (fzn_buckets_row_fzn_buckets_kind_t)kind)
+			return 0;
+		r->what = 1;
+		r->indexed = fzn_buckets_row_fzn_buckets_item_indexed_get(v);
+		r->subject = fzn_buckets_row_fzn_buckets_item_subject_ptr(v);
+		r->month = fzn_buckets_row_fzn_buckets_item_month_get(v);
+		r->data = fzn_buckets_row_fzn_buckets_item_item_ptr(v);
+		r->data_len = fzn_buckets_row_fzn_buckets_item_len_get(v);
+		return 1;
 	}
-	if (out[0] == LET_GO_VERSION)
-		return *len == L_LEN ? 3 : 0;
-	if (out[0] == REF_VERSION && *len >= R_REF + 1u) {
-		n = ((size_t)out[R_LEN] << 8) | out[R_LEN + 1u];
-		return n >= 1u && n <= FZN_BUCKETS_REF_MAX && *len == R_REF + n
-		                       && fzn_get_be64(out + R_SIZE) >= 1u
-		                       && fzn_get_be64(out + R_SIZE) <= FZN_BUCKETS_LARGE_MAX
-		               ? 2
-		               : 0;
+	if (bytes[0] == REF_VERSION) {
+		if (fzn_buckets_row_fzn_buckets_ref_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len
+		    || fzn_buckets_row_fzn_buckets_ref_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_ref_validate(v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_ref_kind_get(v) != (fzn_buckets_row_fzn_buckets_kind_t)kind
+		    || fzn_buckets_row_fzn_buckets_ref_size_get(v) < 1u)
+			return 0;
+		r->what = 2;
+		r->indexed = fzn_buckets_row_fzn_buckets_ref_indexed_get(v);
+		r->subject = fzn_buckets_row_fzn_buckets_ref_subject_ptr(v);
+		r->month = fzn_buckets_row_fzn_buckets_ref_month_get(v);
+		r->data = fzn_buckets_row_fzn_buckets_ref_ref_ptr(v);
+		r->data_len = fzn_buckets_row_fzn_buckets_ref_len_get(v);
+		r->size = fzn_buckets_row_fzn_buckets_ref_size_get(v);
+		return 2;
+	}
+	if (bytes[0] == LET_GO_VERSION) {
+		if (len != L_LEN || fzn_buckets_row_fzn_buckets_let_go_view(&m, 0u, &v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_let_go_validate(v) != SITU_OK
+		    || fzn_buckets_row_fzn_buckets_let_go_kind_get(v) != (fzn_buckets_row_fzn_buckets_kind_t)kind)
+			return 0;
+		r->what = 3;
+		r->indexed = fzn_buckets_row_fzn_buckets_let_go_indexed_get(v);
+		r->subject = fzn_buckets_row_fzn_buckets_let_go_subject_ptr(v);
+		r->month = fzn_buckets_row_fzn_buckets_let_go_month_get(v);
+		return 3;
 	}
 	return 0;
+}
+
+/* THE MARK SET on a row of any of the three, by its own view. */
+static void set_indexed(uint8_t *bytes, size_t len, uint8_t indexed)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	situ_msg_init(&m, bytes, (uint32_t)len);
+	if (bytes[0] == VERSION && fzn_buckets_row_fzn_buckets_item_view(&m, 0u, (uint32_t)len, &v) == SITU_OK)
+		fzn_buckets_row_fzn_buckets_item_indexed_set(v, indexed);
+	else if (bytes[0] == REF_VERSION && fzn_buckets_row_fzn_buckets_ref_view(&m, 0u, (uint32_t)len, &v) == SITU_OK)
+		fzn_buckets_row_fzn_buckets_ref_indexed_set(v, indexed);
+	else if (bytes[0] == LET_GO_VERSION && fzn_buckets_row_fzn_buckets_let_go_view(&m, 0u, &v) == SITU_OK)
+		fzn_buckets_row_fzn_buckets_let_go_indexed_set(v, indexed);
+}
+
+/* THE ROW OF `id`, read into `out` (ROW_MAX) and parsed into `r`: 1 an
+ * item held in it, 2 a ref to one its kind keeps (sec 570), 3 one let go
+ * (sec 572), 0 none or not this kind's; its length into `*len`. */
+static int row_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                    const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out, size_t *len, row_read_t *r)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	*len = 0;
+	memset(r, 0, sizeof(*r));
+	if (!row_of(b, "fuzznet.bucket.item", kind, id, 0, 0u, 0, 0u, row)
+	    || !b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_ITEM, row, out, ROW_MAX, len))
+		return 0;
+	return row_read(out, *len, kind, r);
 }
 
 static int item_save(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -246,6 +371,7 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	uint64_t count;
 	size_t in_chunk, held_len = 0;
 	int held, indexed = 0;
+	row_read_t was;
 
 	if (fzn_buckets_gone(b, kind, subject, month))
 		return FZN_BUCKETS_GONE;
@@ -255,11 +381,11 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	 * restored where it stands, its id counted already (sec 572). Only a
 	 * kind's own keeping comes here for such an id: a let-go id is held, so
 	 * nothing fetches or is pushed it. */
-	switch (row_load(b, kind, id, held_row, &held_len)) {
+	switch (row_load(b, kind, id, held_row, &held_len, &was)) {
 	case 3:
-		if (held_row[I_INDEXED] != 1u)
+		if (was.indexed != 1u)
 			break;
-		row_bytes[I_INDEXED] = 1u;
+		set_indexed(row_bytes, row_len, 1u);
 		if (!item_save(b, kind, id, row_bytes, row_len))
 			return FZN_BUCKETS_BACKEND;
 		if (added)
@@ -267,7 +393,7 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 		return FZN_BUCKETS_OK;
 	case 1:
 	case 2:
-		if (held_row[I_INDEXED] == 1u)
+		if (was.indexed == 1u)
 			return FZN_BUCKETS_OK;
 		break;
 	default:
@@ -276,11 +402,9 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	held = bucket_load(b, kind, subject, month, bucket);
 	if (held < 0)
 		return FZN_BUCKETS_BACKEND;
-	if (!held) {
-		memset(bucket, 0, sizeof(bucket));
-		put_head(bucket, kind, subject, month);
-	}
-	count = fzn_get_be64(bucket + B_COUNT);
+	if (!held)
+		bucket_new(bucket, kind, subject, month);
+	count = bucket_count(bucket);
 	if (count / FZN_BUCKETS_CHUNK >= UINT32_MAX)
 		return FZN_BUCKETS_FULL;
 	/* THE ROW, THEN THE ID AND COUNT, THEN THE MARK. A crash before the
@@ -288,7 +412,7 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	 * id written over, since a chunk is read only as far as the count. One
 	 * after the count, before the mark, leaves its id the last counted,
 	 * which this finds rather than counting it twice. */
-	row_bytes[I_INDEXED] = 0u;
+	set_indexed(row_bytes, row_len, 0u);
 	if (!item_save(b, kind, id, row_bytes, row_len))
 		return FZN_BUCKETS_BACKEND;
 	if (count > 0u) {
@@ -312,13 +436,18 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 		    || !b->store->save(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, chunk,
 		                       (in_chunk + 1u) * FZN_BUCKETS_ID_LEN))
 			return FZN_BUCKETS_BACKEND;
-		fzn_put_be64(bucket + B_COUNT, count + 1u);
-		sum_add(bucket + B_SUM, id);
+		{
+			situ_msg_t m;
+			situ_view_t v = bucket_view(bucket, &m);
+
+			fzn_buckets_row_fzn_buckets_bucket_count_set(v, count + 1u);
+			sum_add(fzn_buckets_row_fzn_buckets_bucket_sum_ptr(v), id);
+		}
 		if (!row_of(b, "fuzznet.bucket", kind, subject, 1, month, 0, 0u, row)
 		    || !b->store->save(b->store->ctx, FZN_PERSIST_BUCKET, row, bucket, B_LEN))
 			return FZN_BUCKETS_BACKEND;
 	}
-	row_bytes[I_INDEXED] = 1u;
+	set_indexed(row_bytes, row_len, 1u);
 	if (!item_save(b, kind, id, row_bytes, row_len))
 		return FZN_BUCKETS_BACKEND;
 	if (added)
@@ -332,17 +461,17 @@ fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 {
 	static uint8_t row_bytes[ROW_MAX];
 	uint8_t id[FZN_BUCKETS_ID_LEN];
+	uint32_t wrote = 0;
 
 	if (added)
 		*added = 0;
 	if (!ready(b, kind) || !subject || !item || len == 0u || len > FZN_BUCKETS_ITEM_MAX
-	    || !fzn_buckets_id(b->hash, item, len, id))
+	    || !fzn_buckets_id(b->hash, item, len, id)
+	    || fzn_buckets_row_fzn_buckets_item_build(row_bytes, ROW_MAX, VERSION, (fzn_buckets_row_fzn_buckets_kind_t)kind,
+	                                              subject, month, 0u, item, (uint32_t)len, &wrote)
+	               != SITU_OK)
 		return FZN_BUCKETS_MALFORMED;
-	put_head(row_bytes, kind, subject, month);
-	row_bytes[I_LEN] = (uint8_t)(len >> 8);
-	row_bytes[I_LEN + 1u] = (uint8_t)len;
-	memcpy(row_bytes + I_ITEM, item, len);
-	return take(b, kind, subject, month, id, row_bytes, I_ITEM + len, added);
+	return take(b, kind, subject, month, id, row_bytes, wrote, added);
 }
 
 fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -352,30 +481,29 @@ fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t
 {
 	uint8_t row_bytes[R_REF + FZN_BUCKETS_REF_MAX];
 	fzn_buckets_err_t err;
+	uint32_t wrote = 0;
 
 	if (added)
 		*added = 0;
 	if (!ready(b, kind) || !subject || !id || !ref || ref_len == 0u
-	    || ref_len > FZN_BUCKETS_REF_MAX || size == 0u || size > FZN_BUCKETS_LARGE_MAX)
+	    || ref_len > FZN_BUCKETS_REF_MAX || size == 0u || size > FZN_BUCKETS_LARGE_MAX
+	    || fzn_buckets_row_fzn_buckets_ref_build(row_bytes, (uint32_t)sizeof(row_bytes), REF_VERSION,
+	                                             (fzn_buckets_row_fzn_buckets_kind_t)kind, subject, month, 0u, size,
+	                                             ref, (uint32_t)ref_len, &wrote)
+	               != SITU_OK)
 		return FZN_BUCKETS_MALFORMED;
-	put_head(row_bytes, kind, subject, month);
-	row_bytes[0] = REF_VERSION;
-	fzn_put_be64(row_bytes + R_SIZE, size);
-	row_bytes[R_LEN] = (uint8_t)(ref_len >> 8);
-	row_bytes[R_LEN + 1u] = (uint8_t)ref_len;
-	memcpy(row_bytes + R_REF, ref, ref_len);
-	err = take(b, kind, subject, month, id, row_bytes, R_REF + ref_len, added);
+	err = take(b, kind, subject, month, id, row_bytes, wrote, added);
 	if (err != FZN_BUCKETS_OK)
 		return err;
 	/* AND WHAT THE REF WAS TAKEN AS, so a scan knows the file. sec 571. */
 	{
 		uint8_t key[FZN_BUCKETS_ID_LEN], row[FZN_PUBKEY_LEN], br[BR_LEN];
+		uint32_t br_len = 0;
 
-		br[0] = VERSION;
-		br[B_KIND] = (uint8_t)kind;
-		memcpy(br + BR_ID, id, FZN_BUCKETS_ID_LEN);
-		fzn_put_be64(br + BR_SIZE, size);
-		if (!b->hash->hash(b->hash->ctx, key, sizeof(key), ref, ref_len)
+		if (fzn_buckets_row_fzn_buckets_byref_build(br, BR_LEN, VERSION, (fzn_buckets_row_fzn_buckets_kind_t)kind, id,
+		                                            size, &br_len)
+		            != SITU_OK
+		    || !b->hash->hash(b->hash->ctx, key, sizeof(key), ref, ref_len)
 		    || !row_of(b, "fuzznet.bucket.byref", kind, key, 0, 0u, 0, 0u, row)
 		    || !b->store->save(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, br, sizeof(br)))
 			return FZN_BUCKETS_BACKEND;
@@ -389,6 +517,8 @@ fzn_buckets_err_t fzn_buckets_by_ref(const fzn_buckets_t *b, fzn_buckets_kind_t 
 {
 	uint8_t key[FZN_BUCKETS_ID_LEN], row[FZN_PUBKEY_LEN], br[BR_LEN];
 	size_t len = 0;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!ready(b, kind) || !ref || ref_len == 0u || ref_len > FZN_BUCKETS_REF_MAX || !id
 	    || !size)
@@ -396,11 +526,16 @@ fzn_buckets_err_t fzn_buckets_by_ref(const fzn_buckets_t *b, fzn_buckets_kind_t 
 	if (!b->hash->hash(b->hash->ctx, key, sizeof(key), ref, ref_len)
 	    || !row_of(b, "fuzznet.bucket.byref", kind, key, 0, 0u, 0, 0u, row))
 		return FZN_BUCKETS_BACKEND;
-	if (!b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, br, sizeof(br), &len)
-	    || len != BR_LEN || br[0] != VERSION || br[B_KIND] != (uint8_t)kind)
+	if (!b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, br, sizeof(br), &len) || len != BR_LEN)
 		return FZN_BUCKETS_ABSENT;
-	memcpy(id, br + BR_ID, FZN_BUCKETS_ID_LEN);
-	*size = fzn_get_be64(br + BR_SIZE);
+	/* READ AS THE SCHEMA SAYS, sec 1382. */
+	situ_msg_init(&m, br, BR_LEN);
+	if (fzn_buckets_row_fzn_buckets_byref_view(&m, 0u, &v) != SITU_OK
+	    || fzn_buckets_row_fzn_buckets_byref_validate(v) != SITU_OK
+	    || fzn_buckets_row_fzn_buckets_byref_kind_get(v) != (fzn_buckets_row_fzn_buckets_kind_t)kind)
+		return FZN_BUCKETS_ABSENT;
+	memcpy(id, fzn_buckets_row_fzn_buckets_byref_id_ptr(v), FZN_BUCKETS_ID_LEN);
+	*size = fzn_buckets_row_fzn_buckets_byref_size_get(v);
 	return FZN_BUCKETS_OK;
 }
 
@@ -409,8 +544,9 @@ int fzn_buckets_has(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 {
 	static uint8_t bytes[ROW_MAX];
 	size_t len = 0;
+	row_read_t r;
 
-	return ready(b, kind) && id && row_load(b, kind, id, bytes, &len) && bytes[I_INDEXED] == 1u;
+	return ready(b, kind) && id && row_load(b, kind, id, bytes, &len, &r) && r.indexed == 1u;
 }
 
 fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -420,27 +556,27 @@ fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t ki
 {
 	static uint8_t bytes[ROW_MAX];
 	size_t n = 0;
+	row_read_t r;
 	int what;
 
 	if (!ready(b, kind) || !id || !out || !len)
 		return FZN_BUCKETS_MALFORMED;
 	*len = 0;
-	what = row_load(b, kind, id, bytes, &n);
+	what = row_load(b, kind, id, bytes, &n, &r);
 	/* LET GO, it is served as not held: what a node holding none of it
 	 * would answer. */
-	if (!what || what == 3 || bytes[I_INDEXED] != 1u)
+	if (!what || what == 3 || r.indexed != 1u)
 		return FZN_BUCKETS_ABSENT;
 	if (subject)
-		memcpy(subject, bytes + B_SUBJECT, FZN_PUBKEY_LEN);
+		memcpy(subject, r.subject, FZN_PUBKEY_LEN);
 	if (month)
-		*month = fzn_get_be32(bytes + B_MONTH);
+		*month = r.month;
 	if (what == 2)
 		return FZN_BUCKETS_LARGE;
-	n -= I_ITEM;
-	if (n > cap)
+	if (r.data_len > cap)
 		return FZN_BUCKETS_MALFORMED;
-	memcpy(out, bytes + I_ITEM, n);
-	*len = n;
+	memcpy(out, r.data, r.data_len);
+	*len = r.data_len;
 	return FZN_BUCKETS_OK;
 }
 
@@ -451,16 +587,17 @@ fzn_buckets_err_t fzn_buckets_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 {
 	static uint8_t bytes[ROW_MAX];
 	size_t n = 0;
+	row_read_t r;
 
 	if (!ready(b, kind) || !id || !ref || !ref_len || !size)
 		return FZN_BUCKETS_MALFORMED;
 	*ref_len = 0;
 	*size = 0;
-	if (row_load(b, kind, id, bytes, &n) != 2 || bytes[I_INDEXED] != 1u)
+	if (row_load(b, kind, id, bytes, &n, &r) != 2 || r.indexed != 1u)
 		return FZN_BUCKETS_ABSENT;
-	*ref_len = n - R_REF;
-	memcpy(ref, bytes + R_REF, *ref_len);
-	*size = fzn_get_be64(bytes + R_SIZE);
+	*ref_len = r.data_len;
+	memcpy(ref, r.data, r.data_len);
+	*size = r.size;
 	return FZN_BUCKETS_OK;
 }
 
@@ -468,19 +605,25 @@ fzn_buckets_err_t fzn_buckets_let_go(const fzn_buckets_t *b, fzn_buckets_kind_t 
                                      const uint8_t id[FZN_BUCKETS_ID_LEN])
 {
 	static uint8_t bytes[ROW_MAX];
+	uint8_t gone[L_LEN];
 	size_t n = 0;
+	row_read_t r;
+	uint32_t wrote = 0;
 	int what;
 
 	if (!ready(b, kind) || !id)
 		return FZN_BUCKETS_MALFORMED;
-	what = row_load(b, kind, id, bytes, &n);
-	if (!what || bytes[I_INDEXED] != 1u)
+	what = row_load(b, kind, id, bytes, &n, &r);
+	if (!what || r.indexed != 1u)
 		return FZN_BUCKETS_ABSENT;
 	if (what == 3)
 		return FZN_BUCKETS_OK;
 	/* THE HEAD KEPT, the bytes or the ref gone: its id stays counted. */
-	bytes[0] = LET_GO_VERSION;
-	return item_save(b, kind, id, bytes, L_LEN) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;
+	if (fzn_buckets_row_fzn_buckets_let_go_build(gone, L_LEN, LET_GO_VERSION, (fzn_buckets_row_fzn_buckets_kind_t)kind,
+	                                             r.subject, r.month, 1u, &wrote)
+	    != SITU_OK)
+		return FZN_BUCKETS_BACKEND;
+	return item_save(b, kind, id, gone, L_LEN) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;
 }
 
 fzn_buckets_err_t fzn_buckets_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -496,8 +639,7 @@ fzn_buckets_err_t fzn_buckets_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t 
 	if (held < 0)
 		return FZN_BUCKETS_BACKEND;
 	if (!held) {
-		memset(bytes, 0, sizeof(bytes));
-		put_head(bytes, kind, subject, month);
+		bucket_new(bytes, kind, subject, month);
 	}
 	return fill(b, bytes, out) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;
 }
@@ -538,9 +680,16 @@ static int list_one(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
 	}
 	/* ANOTHER KIND'S, OR NOT A BUCKET: passed over. A gone bucket's row
 	 * left by a crash part way through its drop is not offered. */
-	if (len != B_LEN || !head_is(bytes, len, B_LEN, l->kind, NULL, 0, 0u)
-	    || fzn_buckets_gone(l->b, l->kind, bytes + B_SUBJECT, fzn_get_be32(bytes + B_MONTH)))
+	if (!bucket_is(bytes, len, l->kind, NULL, 0, 0u))
 		return 1;
+	{
+		situ_msg_t m;
+		situ_view_t v = bucket_view(bytes, &m);
+
+		if (fzn_buckets_gone(l->b, l->kind, fzn_buckets_row_fzn_buckets_bucket_subject_ptr(v),
+		                     fzn_buckets_row_fzn_buckets_bucket_month_get(v)))
+			return 1;
+	}
 	if (l->held >= *l->room) {
 		size_t want = *l->room ? 2u * *l->room : 64u;
 		fzn_bucket_t *more;
@@ -647,7 +796,7 @@ fzn_buckets_err_t fzn_buckets_ids(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 		return FZN_BUCKETS_BACKEND;
 	if (!held || fzn_buckets_gone(b, kind, subject, month))
 		return FZN_BUCKETS_OK;
-	n = fzn_get_be64(bucket + B_COUNT);
+	n = bucket_count(bucket);
 	*total = n;
 	for (at = from; at < n && got < max;) {
 		uint32_t c = (uint32_t)(at / FZN_BUCKETS_CHUNK);
@@ -674,7 +823,14 @@ fzn_buckets_err_t fzn_buckets_drop(const fzn_buckets_t *b, fzn_buckets_kind_t ki
 
 	if (!ready(b, kind) || !subject || !b->store->remove)
 		return FZN_BUCKETS_MALFORMED;
-	put_head(gone, kind, subject, month);
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_buckets_row_fzn_buckets_gone_build(gone, G_LEN, VERSION, (fzn_buckets_row_fzn_buckets_kind_t)kind,
+		                                           subject, month, &wrote)
+		    != SITU_OK)
+			return FZN_BUCKETS_MALFORMED;
+	}
 	if (!row_of(b, "fuzznet.bucket.gone", kind, subject, 1, month, 0, 0u, row)
 	    || !b->store->save(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, gone, sizeof(gone)))
 		return FZN_BUCKETS_BACKEND;
@@ -683,7 +839,7 @@ fzn_buckets_err_t fzn_buckets_drop(const fzn_buckets_t *b, fzn_buckets_kind_t ki
 		return FZN_BUCKETS_BACKEND;
 	if (!held)
 		return FZN_BUCKETS_OK;
-	n = fzn_get_be64(bucket + B_COUNT);
+	n = bucket_count(bucket);
 	for (c = 0; c * FZN_BUCKETS_CHUNK < n; c++) {
 		long len = chunk_load(b, kind, subject, month, (uint32_t)c, chunk);
 		size_t k;

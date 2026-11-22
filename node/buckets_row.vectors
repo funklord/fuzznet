@@ -1,0 +1,12 @@
+# Golden vectors for node/buckets_row.situ, written by hand from its
+# layouts: a message bucket of contact 11s for month 2, holding 1 item,
+# its sum 22s; that bucket gone; an item of 3 bytes in it, indexed; a ref
+# to a 5-byte log item named "p/1"; the ref's back-pointer, item 33s; and
+# an item let go.
+
+fzn_buckets_bucket one 01 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 00 00 00 00 00 00 00 01 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22
+fzn_buckets_gone gone 01 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02
+fzn_buckets_item three 01 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 01 00 03 61 62 63
+fzn_buckets_ref log 02 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 01 00 00 00 00 00 00 00 05 00 03 70 2F 31
+fzn_buckets_byref back 01 01 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 00 00 00 00 00 00 00 05
+fzn_buckets_let_go gone 03 00 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 02 01

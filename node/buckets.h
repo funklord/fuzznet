@@ -46,7 +46,7 @@
 #define FZN_BUCKETS_REF_MAX 256u
 #define FZN_BUCKETS_LARGE_MAX (64u * 1024u * 1024u)
 
-/* `node/buckets.situ`'s fzn_buckets_kind. Logs and telemetry join here. */
+/* `node/buckets_row.situ`'s fzn_buckets_kind. Logs and telemetry join here. */
 typedef enum fzn_buckets_kind {
 	FZN_BUCKETS_MESSAGES = 0,
 	/* A host's packed log segments, its subject the source host. sec 570. */

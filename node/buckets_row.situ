@@ -1,7 +1,8 @@
 // What a node holds of an append-only kind -- message lines now, logs and
 // telemetry later -- by bucket: a kind, a subject and a month. project.md
-// sec 564. The hand-written codec is node/buckets.c; this is its checked
-// contract, in `make schema`'s list.
+// sec 564. node/buckets.c writes every row with the builders situ
+// generates from this and reads it through its views and `validate` (sec
+// 1382); `_row`, so the generated file's name meets no source's.
 //
 // An item is a signed artifact kept whole, and its id is the hash of its
 // bytes. A bucket's ids sit in chunks of 64, in the order they were taken.

@@ -262,7 +262,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
-             wire/generated/line_record.c \
+             wire/generated/line_record.c wire/generated/buckets_row.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -290,7 +290,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c \
                  wire/generated/piece_wire_vectors.c wire/generated/gather_wire_vectors.c \
                  wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c \
-                 wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c
+                 wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c \
+                 wire/generated/buckets_row_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -788,6 +789,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/deliver_wire_vectors \
              $(BUILD_DIR)/wire/test/keys_wire_vectors \
              $(BUILD_DIR)/wire/test/line_record_vectors \
+             $(BUILD_DIR)/wire/test/buckets_row_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -4691,6 +4693,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# A NODE'S BUCKETS, ITEMS AND REFS, generated, sec 1382.
+$(BUILD_DIR)/wire/test/buckets_row_vectors: wire/generated/buckets_row_vectors.c \
+                                           wire/generated/buckets_row.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A CONVERSATION LINE, ITS MARKS, READ POSITIONS AND CALLS, generated, sec 1380.
 $(BUILD_DIR)/wire/test/line_record_vectors: wire/generated/line_record_vectors.c \
                                            wire/generated/line_record.c wire/generated/situ.c \
@@ -5439,7 +5448,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 # A node's conversations, sec 527: the verbs, absorbing, and keys carried
 # between three devices, a hub among them.
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                   $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/wire/generated/messages_local.o \
                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
@@ -5474,7 +5483,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # What node/apply.c needs linked, and its tests with it: apply_test and
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
-                   $(BUILD_DIR)/node/buckets.o \
+                   $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                    $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
@@ -5539,7 +5548,7 @@ $(BUILD_DIR)/messages/test/line_fuzz: $(BUILD_DIR)/messages/test/line_fuzz.o \
 # Keys carried between the user's devices through a lying member, sec
 # 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5565,7 +5574,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
 
 # A contact's delivery through a lying contact, sec 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5621,7 +5630,7 @@ $(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
                                      $(BUILD_DIR)/wire/generated/objects.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/node/rate.o \
-                                     $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
@@ -5664,7 +5673,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
                                      $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o \
                                      $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
@@ -5677,7 +5686,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
 # A value changed by the estate's k, sec 909.
 $(BUILD_DIR)/node/test/votes_test: $(BUILD_DIR)/node/test/votes_test.o \
                                      $(BUILD_DIR)/node/votes.o \
-                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/wire/generated/line_record.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o \
@@ -5697,7 +5706,7 @@ $(BUILD_DIR)/node/test/responsible_test: $(BUILD_DIR)/node/test/responsible_test
 
 # An item as erasure-coded pieces on disk, sec 595.
 $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
-                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/buckets.o \
+                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                     $(BUILD_DIR)/chunk/erasure.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5707,7 +5716,7 @@ $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
 # journey 3, retention and logs.
 $(BUILD_DIR)/node/test/pieces_fuzz: $(BUILD_DIR)/node/test/pieces_fuzz.o \
                                     $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/wire/generated/piece_wire.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/chunk/erasure.o \
-                                    $(BUILD_DIR)/node/buckets.o \
+                                    $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                     $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5780,7 +5789,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
+              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o $(BUILD_DIR)/node/reconcile.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/wire/generated/deliver_wire.o $(BUILD_DIR)/wire/generated/keys_wire.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
@@ -6183,7 +6192,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
               $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
                                       $(BUILD_DIR)/node/holdings.o \
-                                      $(BUILD_DIR)/node/buckets.o \
+                                      $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/wire/generated/buckets_row.o \
                                       $(BUILD_DIR)/node/reconcile.o \
                                       $(BUILD_DIR)/node/apply.o \
                                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
@@ -7900,7 +7909,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               record/exchange.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note_row.situ node/opjournal_row.situ messages/line_record.situ \
               messages/keys_wire.situ messages/deliver_wire.situ state/setting_record.situ \
-              node/reconcile.situ node/buckets.situ \
+              node/reconcile.situ node/buckets_row.situ \
               log/entry_record.situ log/cause_wire.situ log/gather_wire.situ chunk/piece_wire.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
@@ -8663,6 +8672,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_buckets_row --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/buckets_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_buckets_row \
+	         --out $(BUILD_DIR)/.gen.new node/buckets_row.situ node/buckets_row.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_line_record --layer edit \
 	         --out $(BUILD_DIR)/.gen.new messages/line_record.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_line_record \
@@ -8878,6 +8891,7 @@ schema:
 	          deliver_wire.c deliver_wire.h deliver_wire_build.h deliver_wire_edit.h deliver_wire_vectors.c \
 	          keys_wire.c keys_wire.h keys_wire_build.h keys_wire_vectors.c \
 	          line_record.c line_record.h line_record_build.h line_record_edit.h line_record_vectors.c \
+	          buckets_row.c buckets_row.h buckets_row_build.h buckets_row_edit.h buckets_row_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
