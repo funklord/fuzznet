@@ -29,9 +29,9 @@ reason habit was not enough.
 
 ---
 
-## 0. Resuming work here: the latest fold, 2026-11-20
+## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1398
+The newest work is at the end of this file. **Read secs 1287 to 1399
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -44,8 +44,9 @@ listener port spans (`150e3106`).
   answered what it reads (sec 1291); `fetch search with CONTACT` asks
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299); facet filters, the
-  engine's, the verb's and the client's (secs 1319, 1324). Left: `with
-  @GROUP` (the library's facets: sec 1331; notes': sec 1332).
+  engine's, the verb's and the client's (secs 1319, 1324); `with
+  @GROUP` on this host (sec 1399). Left: asking a group's members'
+  hosts, which the round and sec 1291's gate reach only as contacts.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -64,14 +65,14 @@ listener port spans (`150e3106`).
   1288): the last three -- a pack from a file, a file described, the
   admin grant -- in secs 1308-1310; the search's list and fetch, which
   sec 1310 missed, in sec 1318.
-- **situ, measured** (sec 1311): every generated file matches its HEAD;
-  40 layouts still have hand-written codecs though all but one build
-  today; the settings registry is not adopted. For its scheduler to own
-  request and reply: a match after authentication, and a datagram
-  reassembly layer -- **the holder's to ask of situ, or not**. **Also the
-  holder's**: whether to start moving the 40 layouts onto generated code,
-  which first needs a naming rule (a generated file's basename meets its
-  codec's) and changes consumers' source lists.
+- **situ** (sec 1311, measured 2026-11-20; the holder's go of sec 1312):
+  **every layout is on generated code** (the naming rule, sec 1313;
+  the last, persist, secs 1396-1398), but for persist's two-byte head and
+  its single-field bodies, kept by decision (sec 1398). The settings
+  registry holds the contract (sec 1330); reading through it waits on the
+  holder (non-minimal spellings, sec 1330). The scheduler matches a reply
+  after authentication through situ's driver (sec 1375). Reassembly stays
+  `chunk/reassembly.c` until situ answers six gaps (sec 1399).
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
@@ -93730,8 +93731,8 @@ the scope: a typo must not widen a search the user meant to narrow.
 
 **Open:** `with @GROUP`, asking a group's members' hosts. A member who
 is no contact of this user is not reached by the round, and is refused
-by sec 1291's gate, which knows contacts alone; and the local half needs
-a filter by conversation the store interface does not carry yet. The
+by sec 1291's gate, which knows contacts alone. The local half is built,
+sec 1399. The
 catalogue as a store, and `get search` in binary and the views, remain.
 
 **Tests:** messages_test -- `fetch search with carol` asks carol's hosts
@@ -95420,7 +95421,7 @@ conversation table, regenerated here; nothing calls it yet. situ also
 found and fixed (f9a10238) a later piece checked only against its own
 count -- fuzznet's key holds the count, so its frames were never exposed.
 **Whether `chunk/reassembly.c` (648 lines) moves onto the generated table
-is fuzznet's, open.**
+is fuzznet's:** not yet, six gaps sent to situ, sec 1399.
 
 **26.1126, a relayed exchange** (fuzznet's scheduler item 6), was
 designed for review; fuzznet answered (situ inbox 20261121T1300Z): one
@@ -95430,8 +95431,8 @@ under its first deadline; never more than two keys, a second relay hop
 being refused here. situ then built it (e86265e4):
 `_track_also_key_from(drive, key, peer, id)`, each key a slot of the
 pending table (sized past one per exchange with a second `_init`), a
-match under either ending both. **Adopting it is part of sec 1341's open
-asks-table work.**
+match under either ending both. **Nothing here to adopt it for yet,**
+sec 1399.
 
 
 ## 1351. A setting built by situ's builders, one per arm, 2026-11-21
@@ -96740,3 +96741,54 @@ of before; contact_test, rules_test, files_test, notes_store_test,
 notes_sync_test, notes_test, retention_view_test and the rest of the 32
 links pass. Sabotage `received-list-filed-under-own-key` and
 `received-forget-only-that-sharer` retargeted onto the row's parts.
+
+## 1399. A search with a group; situ's reassembly table measured; a relayed exchange needs no second key, 2026-11-22
+
+**`list|fetch search with @GROUP WORDS`, built: this host's stores run as
+the group.** The asker is the group's id, and each store already answers
+for it or nothing:
+
+- **lines**: `reach_of` opens the group's own conversation, whole. It is
+  this user's search, scoped, so no joining floor applies. A contact asking
+  is never a group's id, since ids are random.
+- **notes**: `shared_scope` with the group's id seeds the share rows
+  filed under it -- a group share is one row under the group's id (sec
+  471) -- so the notes this user shared with the group are found.
+- **contacts, stickers, the library**: nothing for an asker, as for a
+  contact.
+
+**No host is asked.** Its members' hosts are not all this user's contacts
+-- the open half, sec 1292 -- and this user's own hosts would run the ask
+as this user, since the ask names no group (`search/search_ask.situ` has
+no such field). A GROUP that is no group here, or a bare `@`, is
+malformed. Where a node holds no contacts, `with NAME` is still read as
+words, as it was.
+
+**Tests:** messages_test (308): with the crew, its line alone and `ok 0`
+hosts; carol's dinner lines not found; `@nobody` and `@` malformed.
+Sabotage `search-with-group-reads-its-conversation` and
+`search-with-group-asks-no-host`.
+
+**situ's reassembly table (26.1123) measured against
+`chunk/reassembly.c`** (sec 1350's open question). Moving now would lose
+six things fuzznet relies on, sent to situ's inbox (20261122T1804Z):
+
+1. the cap on slots one sender holds (the DoS bound, reassembly.c:344);
+2. forgetting an abandoned exchange's slot (node/caller.c:374);
+3. adding from parts already opened and admitted -- the gate does not
+   outlive wire/seal.c's open, and admit.c reassembles last on purpose;
+4. a piece's own expiry bounding its slot (reassembly.c:468);
+5. sizes from the caller at init -- seven instances, embedded profiles,
+   and the holder's rule that bounds are caller-supplied (2026-10-23);
+6. a 64-bit clock, the least of them.
+
+Not a gap: the whole message is valid until the next `_add`, and both
+callers are done with it by then. **Until situ answers, fuzznet keeps its
+own table.**
+
+**A relayed exchange (situ 26.1126, `_track_also_key_from`): nothing to
+adopt it for yet.** It is for one exchange awaiting two keys at once. Here
+a relay's own `ok` and its answer share one message number (awaited again
+under the same key, daemon.c's `session_relayed_answered`), and direct
+and relayed asks take turns as separate exchanges. It is worth taking when
+an exchange waits on a direct and a relayed answer at once.

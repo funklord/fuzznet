@@ -2211,6 +2211,17 @@ static void test_the_search_here(void)
 		      "a search with a name that is no contact searched");
 		CHECK(SEARCH("list search with carol in contacts carol") && replied("ok 0 0"),
 		      "a search with carol listed this user's contacts");
+		/* WITH A GROUP, sec 1399: this host's stores run as the crew -- its
+		 * line, not carol's conversation nor carol the contact -- and no
+		 * host is asked. */
+		CHECK(SEARCH("fetch search with @crew carol") && replied("ok 0") && SEARCH("get search")
+		              && replied("ok 1 0 0 0 0 lines,9d9d") && strstr(reply, "carol%20to%20the%20crew"),
+		      "a search with the crew did not find the crew's line alone, or asked a host");
+		CHECK(SEARCH("list search with @crew dinner") && replied("ok 0 0"),
+		      "a search with the crew found carol's conversation");
+		CHECK(SEARCH("list search with @nobody dinner") && replied("malformed")
+		              && SEARCH("list search with @ dinner") && replied("malformed"),
+		      "a search with a group that is none searched");
 		/* KEYED BY BOTH ENDS, sec 1294: carol's conversation by this user's
 		 * root XOR hers, as her hosts key it by hers XOR this user's. */
 		{

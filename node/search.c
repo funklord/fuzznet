@@ -79,6 +79,14 @@ static void reach_of(fzn_node_messages_t *nm, const uint8_t *asker, const uint8_
 		r->open = memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0;
 		return;
 	}
+	/* A SEARCH WITH A GROUP, sec 1399: the asker is the group's id, and
+	 * reads that one conversation, whole -- it is this user's search,
+	 * scoped, and this user reads every line this host holds of it. A
+	 * contact asking is never a group's id: ids are random. */
+	if (memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0) {
+		r->open = 1;
+		return;
+	}
 	/* A LOG THAT WILL NOT READ, or a joining this host cannot see, answers
 	 * nothing: withheld, as sec 804 withholds a share. */
 	if (!nm->m.hash || fzn_group_log_get(nm->m.store, conversation, &g) != FZN_GROUP_LOG_OK
@@ -314,10 +322,11 @@ static int cursor_of(const uint8_t *w, size_t n, fzn_search_hit_t *h)
 	return number(f[3], len[3], &h->time_ms);
 }
 
-/* THE ROWS AND THEIR SPACE: what a search line takes, `[with NAME] [in
- * STORE]... [after CURSOR] WORDS`, read into `a` with K, and the contact
- * NAME names into `with` (`*has_with` set); 1, or 0 for a line of the wrong
- * shape -- a NAME that is no contact here included. */
+/* THE ROWS AND THEIR SPACE: what a search line takes, `[with NAME|@GROUP]
+ * [in STORE]... [after CURSOR] WORDS`, read into `a` with K, and the contact
+ * NAME names, or the group @GROUP does (sec 1399), into `with` (`*has_with`
+ * set); 1, or 0 for a line of the wrong shape -- a NAME that is no contact
+ * here, or a GROUP no group, included. */
 static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a,
                  uint8_t with[FZN_PUBKEY_LEN], int *has_with)
 {
@@ -336,9 +345,25 @@ static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, siz
 
 		if (!word(&at, &left, &w, &n))
 			return 0;
-		if (is(w, n, "with") && !*has_with && s->contacts && word(&at, &left, &w, &n)) {
+		if (is(w, n, "with") && !*has_with && word(&at, &left, &w, &n)) {
 			fzn_contact_t c;
 
+			/* `@GROUP`, sec 1399, a group by its name; any other word a
+			 * contact's. */
+			if (n && w[0] == '@') {
+				if (n < 2u || !s->messages
+				    || fzn_node_group_find(s->messages->m.store, (const char *)w + 1, n - 1u, with)
+				               != FZN_CONTACT_OK)
+					return 0;
+				*has_with = 1;
+				continue;
+			}
+			/* NO CONTACTS HERE: `with` is a word searched for, as it was. */
+			if (!s->contacts) {
+				at = save;
+				left = save_left;
+				break;
+			}
 			if (fzn_contact_find(s->contacts, (const char *)w, n, &c) != FZN_CONTACT_OK)
 				return 0;
 			memcpy(with, c.key, FZN_PUBKEY_LEN);
@@ -483,6 +508,15 @@ int fzn_node_search_is_contact(const fzn_node_search_t *s, const uint8_t key[FZN
 	return s && s->contacts && key && fzn_contact_get(s->contacts, key, &c) == FZN_CONTACT_OK;
 }
 
+/* IS `key` A GROUP'S ID HERE, sec 1399. */
+static int is_group(const fzn_node_search_t *s, const uint8_t *key)
+{
+	char name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t name_len = 0;
+
+	return s->messages && fzn_node_group_name(s->messages->m.store, key, name, &name_len) == FZN_CONTACT_OK;
+}
+
 int fzn_node_search_list(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
                          fzn_search_hit_t *hits, size_t *count, int *more)
 {
@@ -517,14 +551,17 @@ int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, 
 	/* WITH A CONTACT, sec 1292: what this user and it share, so this
 	 * host's stores run as that contact -- each answering what the
 	 * contact reads here -- and its hosts are asked, which run theirs
-	 * as this user. */
+	 * as this user. WITH A GROUP, sec 1399: this host's stores run as the
+	 * group, and nobody is asked -- its members' hosts are not all this
+	 * user's contacts, and this user's own hosts would run as this user,
+	 * an ask naming no group. */
 	held.partial = 0;
 	if (!fzn_search_run_partial(stores, n, &held.ask.query, with, held.hits, &held.n, &held.more_held, &held.partial)
 	    && !held.n)
 		return 0;
 	held.asked = held.answered = held.late = 0;
 	held.live = 1;
-	if (s->ask_hosts)
+	if (s->ask_hosts && !(with && is_group(s, with)))
 		held.asked = s->ask_hosts(s->ask_hosts_ctx, ask, len, with, held.generation);
 	*asked = held.asked;
 	return 1;
@@ -547,7 +584,7 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
                              size_t cap)
 {
 	static const char USAGE[] =
-	        "malformed %s search [with CONTACT] [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
+	        "malformed %s search [with CONTACT|@GROUP] [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
 	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
 	static fzn_search_ask_t a;
 	fzn_node_search_t *s = ctx;

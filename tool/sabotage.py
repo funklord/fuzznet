@@ -17833,6 +17833,20 @@ SABOTAGES = [
 		"a text lacking a word asked for is found; search_test -- sec 1287",
 	),
 	(
+		"search-with-group-reads-its-conversation",
+		"node/search.c",
+		"\tif (memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0) {\n\t\tr->open = 1;\n",
+		"\tif (0) {\n\t\tr->open = 1;\n",
+		"a search with a group finds nothing of the group's own conversation -- sec 1399",
+	),
+	(
+		"search-with-group-asks-no-host",
+		"node/search.c",
+		"\tif (s->ask_hosts && !(with && is_group(s, with)))\n",
+		"\tif (s->ask_hosts)\n",
+		"a search with a group asks hosts that run it as this user, unscoped -- sec 1399",
+	),
+	(
 		"search-reaction-searched",
 		"node/search.c",
 		"\tif (!p->readable || !p->text_len\n\t    || fzn_message_reaction_parse(p->text, p->text_len, id, &at, &n))\n",
