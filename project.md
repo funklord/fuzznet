@@ -96111,5 +96111,9 @@ instead of `!=` lets by:
 - `messages-contact-text-exact` could not fire: sec 1377 capped a
   DELIVER at its longest before `required` took it whole, so the cap and
   the schema's `text_len [max = 512]` were the same guard twice. The cap
-  goes -- only an overflow bound stays -- and the schema's is the one,
-  which the entry now breaks.
+  went (93fd3132), leaving the schema's -- and a second run showed the
+  entry still survives, for a reason that holds: `fzn_messages_write`
+  refuses a text past 512 itself (`fzn_message_parts_for`), and both
+  paths answer nothing, so no test can tell them apart. The entry is
+  removed, an equivalent mutant; the schema's bound stays at the
+  boundary, the store's behind it.

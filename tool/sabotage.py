@@ -13386,13 +13386,6 @@ SABOTAGES = [
 		"a host that keeps no messages is offered every line in turn, each refused -- sec 613",
 	),
 	(
-		"messages-contact-text-exact",
-		"node/messages.c",
-		"\t\t    || fzn_deliver_wire_fzn_message_deliver_validate(v) != SITU_OK)\n",
-		"\t\t    || 0)\n",
-		"a delivery whose length lies is filed with bytes past its end, or cut short -- sec 613",
-	),
-	(
 		"messages-contact-refused-files-nothing",
 		"node/messages.c",
 		"\tif (keeps) {\n\t\t/* HELD ALREADY IS HELD",
