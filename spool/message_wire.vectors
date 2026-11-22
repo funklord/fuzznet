@@ -1,0 +1,9 @@
+# Golden vectors for spool/message_wire.situ, written by hand from its
+# layouts: asking after blob 11s; holding 4 leaves of it, cookie 22s, the
+# range 0 for 4; wanting leaf 1 for 2 under transfer 7; and DATA of one
+# leaf -- leaf 3, no proof -- of 2 bytes.
+
+fzn_msg_have_query ask 01 01 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
+fzn_msg_have holds 01 02 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 04 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04
+fzn_msg_want span 01 03 00 00 00 07 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 02
+fzn_msg_data one 01 04 00 00 00 07 00 00 00 00 00 00 00 03 00 00 00 00 00 00 00 01 00 00 00 00 02 61 62

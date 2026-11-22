@@ -1,6 +1,8 @@
 /* The filestore vocabulary's bytes. The reasoning is in message.h. */
 
 #include "message.h"
+#include "../wire/generated/message_wire.h"
+#include "../wire/generated/message_wire_build.h"
 
 #include <string.h>
 
@@ -57,11 +59,14 @@ static fzn_msg_err_t check_header(const uint8_t *bytes, size_t len, size_t need,
 	return FZN_MSG_OK;
 }
 
-static void put_header(uint8_t *out, fzn_msg_type_t type)
-{
-	out[FZN_MSG_OFF_VERSION] = (uint8_t)FZN_CMD_FILES;
-	out[FZN_MSG_OFF_TYPE] = (uint8_t)type;
-}
+/* WRITTEN AND READ BY THE CODE situ GENERATES from
+ * `spool/message_wire.situ` (sec 1385): the queries and WANT by its
+ * builders, HAVE and DATA -- a run of ranges, and leaves that arrive
+ * apart -- through its edit layer, and all four read through its views'
+ * getters. Each refusal keeps its own answer and its order, which is the
+ * codec's: EMPTY, TOO_LARGE and MALFORMED say different things to a
+ * caller, and the bounds a blob's size puts on a span are the codec's
+ * too. */
 
 fzn_msg_err_t fzn_msg_peek(const uint8_t *bytes, size_t len, fzn_msg_type_t *out_type)
 {
@@ -86,11 +91,14 @@ fzn_msg_err_t fzn_msg_have_query_encode(const uint8_t root[FZN_BLOB_HASH_LEN], u
 {
 	if (!root || !out || !out_len)
 		return FZN_MSG_ERR_MALFORMED;
+	uint32_t wrote = 0;
+
 	if (out_cap < FZN_MSG_HAVE_QUERY_LEN)
 		return FZN_MSG_ERR_TOO_LARGE;
-
-	put_header(out, FZN_MSG_HAVE_QUERY);
-	memcpy(out + FZN_MSG_HAVE_OFF_ROOT, root, FZN_BLOB_HASH_LEN);
+	if (fzn_message_wire_fzn_msg_have_query_build(out, FZN_MSG_HAVE_QUERY_LEN, FZN_CMD_FILES,
+	                                              FZN_MESSAGE_WIRE_FZN_MSG_TYPE_HAVE_QUERY, root, &wrote)
+	    != SITU_OK)
+		return FZN_MSG_ERR_MALFORMED;
 	*out_len = FZN_MSG_HAVE_QUERY_LEN;
 	return FZN_MSG_OK;
 }
@@ -112,7 +120,15 @@ fzn_msg_err_t fzn_msg_have_query_parse(const uint8_t *bytes, size_t len,
 	if (len != FZN_MSG_HAVE_QUERY_LEN)
 		return FZN_MSG_ERR_MALFORMED;
 
-	memcpy(out_root, bytes + FZN_MSG_HAVE_OFF_ROOT, FZN_BLOB_HASH_LEN);
+	{
+		situ_msg_t m;
+		situ_view_t v;
+
+		situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+		if (fzn_message_wire_fzn_msg_have_query_view(&m, 0u, &v) != SITU_OK)
+			return FZN_MSG_ERR_MALFORMED;
+		memcpy(out_root, fzn_message_wire_fzn_msg_have_query_root_ptr(v), FZN_BLOB_HASH_LEN);
+	}
 	return FZN_MSG_OK;
 }
 
@@ -149,15 +165,26 @@ fzn_msg_err_t fzn_msg_have_encode(const uint8_t root[FZN_BLOB_HASH_LEN], uint64_
 			return FZN_MSG_ERR_MALFORMED;
 	}
 
-	put_header(out, FZN_MSG_HAVE);
-	memcpy(out + FZN_MSG_HAVE_OFF_ROOT, root, FZN_BLOB_HASH_LEN);
-	fzn_put_be64(out + FZN_MSG_HAVE_OFF_LEAF_COUNT, leaf_count);
-	memcpy(out + FZN_MSG_HAVE_OFF_COOKIE, cookie, FZN_MSG_COOKIE_LEN);
-	fzn_put_be16(out + FZN_MSG_HAVE_OFF_RANGE_COUNT, (uint16_t)range_count);
-	for (at = 0; at < range_count; at++) {
-		uint8_t *p = out + FZN_MSG_HAVE_OFF_RANGES + at * FZN_MSG_RANGE_LEN;
-		fzn_put_be64(p, ranges[at].first);
-		fzn_put_be64(p + 8, ranges[at].count);
+	{
+		situ_msg_t m;
+		situ_view_t v, r;
+
+		memset(out, 0, need);
+		situ_msg_init(&m, out, (uint32_t)need);
+		if (fzn_message_wire_fzn_msg_have_view(&m, 0u, (uint32_t)need, &v) != SITU_OK)
+			return FZN_MSG_ERR_MALFORMED;
+		fzn_message_wire_fzn_msg_have_version_set(v, FZN_CMD_FILES);
+		fzn_message_wire_fzn_msg_have_type_set(v, FZN_MESSAGE_WIRE_FZN_MSG_TYPE_HAVE);
+		memcpy(fzn_message_wire_fzn_msg_have_root_ptr(v), root, FZN_BLOB_HASH_LEN);
+		fzn_message_wire_fzn_msg_have_leaf_count_set(v, leaf_count);
+		memcpy(fzn_message_wire_fzn_msg_have_cookie_ptr(v), cookie, FZN_MSG_COOKIE_LEN);
+		fzn_message_wire_fzn_msg_have_range_count_set(&m, v, (uint16_t)range_count);
+		for (at = 0; at < range_count; at++) {
+			if (fzn_message_wire_fzn_msg_have_ranges_at(v, (uint32_t)at, &r) != SITU_OK)
+				return FZN_MSG_ERR_MALFORMED;
+			fzn_message_wire_fzn_msg_range_first_set(r, ranges[at].first);
+			fzn_message_wire_fzn_msg_range_count_set(r, ranges[at].count);
+		}
 	}
 
 	*out_len = need;
@@ -172,14 +199,19 @@ fzn_msg_err_t fzn_msg_have_parse(const uint8_t *bytes, size_t len,
 	fzn_msg_err_t err;
 	uint64_t leaf_count;
 	size_t range_count, at;
+	situ_msg_t m;
+	situ_view_t v, r;
 
 	if (!out_root || !out_leaf_count || !out_cookie || !out_ranges || !out_count)
 		return FZN_MSG_ERR_MALFORMED;
 	err = check_header(bytes, len, FZN_MSG_HAVE_OFF_RANGES, FZN_MSG_HAVE);
 	if (err != FZN_MSG_OK)
 		return err;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len);
+	if (fzn_message_wire_fzn_msg_have_view(&m, 0u, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len, &v) != SITU_OK)
+		return FZN_MSG_ERR_MALFORMED;
 
-	range_count = fzn_get_be16(bytes + FZN_MSG_HAVE_OFF_RANGE_COUNT);
+	range_count = fzn_message_wire_fzn_msg_have_range_count_get(v);
 	if (range_count == 0u)
 		return FZN_MSG_ERR_EMPTY;
 	if (range_count > FZN_MSG_MAX_RANGES)
@@ -192,14 +224,17 @@ fzn_msg_err_t fzn_msg_have_parse(const uint8_t *bytes, size_t len,
 	if (range_count > cap)
 		return FZN_MSG_ERR_TOO_LARGE;
 
-	leaf_count = fzn_get_be64(bytes + FZN_MSG_HAVE_OFF_LEAF_COUNT);
+	leaf_count = fzn_message_wire_fzn_msg_have_leaf_count_get(v);
 	if (leaf_count == 0u || leaf_count > FZN_SPOOL_MAX_LEAVES)
 		return FZN_MSG_ERR_MALFORMED;
 
 	for (at = 0; at < range_count; at++) {
-		const uint8_t *p = bytes + FZN_MSG_HAVE_OFF_RANGES + at * FZN_MSG_RANGE_LEN;
-		uint64_t first = fzn_get_be64(p);
-		uint64_t count = fzn_get_be64(p + 8);
+		uint64_t first, count;
+
+		if (fzn_message_wire_fzn_msg_have_ranges_at(v, (uint32_t)at, &r) != SITU_OK)
+			return FZN_MSG_ERR_MALFORMED;
+		first = fzn_message_wire_fzn_msg_range_first_get(r);
+		count = fzn_message_wire_fzn_msg_range_count_get(r);
 
 		if (count == 0u)
 			return FZN_MSG_ERR_EMPTY;
@@ -211,8 +246,8 @@ fzn_msg_err_t fzn_msg_have_parse(const uint8_t *bytes, size_t len,
 		out_ranges[at].count = count;
 	}
 
-	memcpy(out_root, bytes + FZN_MSG_HAVE_OFF_ROOT, FZN_BLOB_HASH_LEN);
-	memcpy(out_cookie, bytes + FZN_MSG_HAVE_OFF_COOKIE, FZN_MSG_COOKIE_LEN);
+	memcpy(out_root, fzn_message_wire_fzn_msg_have_root_ptr(v), FZN_BLOB_HASH_LEN);
+	memcpy(out_cookie, fzn_message_wire_fzn_msg_have_cookie_ptr(v), FZN_MSG_COOKIE_LEN);
 	*out_leaf_count = leaf_count;
 	*out_count = range_count;
 	return FZN_MSG_OK;
@@ -232,13 +267,15 @@ fzn_msg_err_t fzn_msg_want_encode(uint32_t transfer, const uint8_t cookie[FZN_MS
 		return FZN_MSG_ERR_MALFORMED;
 	if (out_cap < FZN_MSG_WANT_LEN)
 		return FZN_MSG_ERR_TOO_LARGE;
+	{
+		uint32_t wrote = 0;
 
-	put_header(out, FZN_MSG_WANT);
-	fzn_put_be32(out + FZN_MSG_WANT_OFF_TRANSFER, transfer);
-	memcpy(out + FZN_MSG_WANT_OFF_COOKIE, cookie, FZN_MSG_COOKIE_LEN);
-	memcpy(out + FZN_MSG_WANT_OFF_ROOT, root, FZN_BLOB_HASH_LEN);
-	fzn_put_be64(out + FZN_MSG_WANT_OFF_FIRST, first);
-	fzn_put_be64(out + FZN_MSG_WANT_OFF_COUNT, count);
+		if (fzn_message_wire_fzn_msg_want_build(out, FZN_MSG_WANT_LEN, FZN_CMD_FILES,
+		                                        FZN_MESSAGE_WIRE_FZN_MSG_TYPE_WANT, transfer, cookie, root, first,
+		                                        count, &wrote)
+		    != SITU_OK)
+			return FZN_MSG_ERR_MALFORMED;
+	}
 	*out_len = FZN_MSG_WANT_LEN;
 	return FZN_MSG_OK;
 }
@@ -250,6 +287,8 @@ fzn_msg_err_t fzn_msg_want_parse(const uint8_t *bytes, size_t len, uint32_t *out
 {
 	fzn_msg_err_t err;
 	uint64_t first, count;
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!out_transfer || !out_cookie || !out_root || !out_first || !out_count)
 		return FZN_MSG_ERR_MALFORMED;
@@ -258,20 +297,23 @@ fzn_msg_err_t fzn_msg_want_parse(const uint8_t *bytes, size_t len, uint32_t *out
 		return err;
 	if (len != FZN_MSG_WANT_LEN)
 		return FZN_MSG_ERR_MALFORMED;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_message_wire_fzn_msg_want_view(&m, 0u, &v) != SITU_OK)
+		return FZN_MSG_ERR_MALFORMED;
 
-	count = fzn_get_be64(bytes + FZN_MSG_WANT_OFF_COUNT);
+	count = fzn_message_wire_fzn_msg_want_count_get(v);
 	if (count == 0u)
 		return FZN_MSG_ERR_EMPTY;
 	if (count > FZN_MSG_MAX_SPAN)
 		return FZN_MSG_ERR_TOO_LARGE;
 
-	first = fzn_get_be64(bytes + FZN_MSG_WANT_OFF_FIRST);
+	first = fzn_message_wire_fzn_msg_want_first_get(v);
 	if (first > FZN_SPOOL_MAX_LEAVES || count > FZN_SPOOL_MAX_LEAVES - first)
 		return FZN_MSG_ERR_MALFORMED;
 
-	*out_transfer = fzn_get_be32(bytes + FZN_MSG_WANT_OFF_TRANSFER);
-	memcpy(out_cookie, bytes + FZN_MSG_WANT_OFF_COOKIE, FZN_MSG_COOKIE_LEN);
-	memcpy(out_root, bytes + FZN_MSG_WANT_OFF_ROOT, FZN_BLOB_HASH_LEN);
+	*out_transfer = fzn_message_wire_fzn_msg_want_transfer_get(v);
+	memcpy(out_cookie, fzn_message_wire_fzn_msg_want_cookie_ptr(v), FZN_MSG_COOKIE_LEN);
+	memcpy(out_root, fzn_message_wire_fzn_msg_want_root_ptr(v), FZN_BLOB_HASH_LEN);
 	*out_first = first;
 	*out_count = count;
 	return FZN_MSG_OK;
@@ -318,24 +360,35 @@ fzn_msg_err_t fzn_msg_data_encode(uint32_t transfer, uint64_t first, uint64_t co
 	if (out_cap < need)
 		return FZN_MSG_ERR_TOO_LARGE;
 
-	put_header(out, FZN_MSG_DATA);
-	fzn_put_be32(out + FZN_MSG_DATA_OFF_TRANSFER, transfer);
-	fzn_put_be64(out + FZN_MSG_DATA_OFF_FIRST, first);
-	fzn_put_be64(out + FZN_MSG_DATA_OFF_COUNT, count);
-	out[FZN_MSG_DATA_OFF_PROOF_COUNT] = (uint8_t)proof_count;
+	if (need > UINT32_MAX)
+		return FZN_MSG_ERR_TOO_LARGE;
+	{
+		situ_msg_t m;
+		situ_view_t v;
+		uint8_t *lens;
 
-	p = out + FZN_MSG_DATA_OFF_PROOF;
-	if (proof_count > 0u) {
-		memcpy(p, proof, (size_t)proof_count * FZN_BLOB_HASH_LEN);
-		p += (size_t)proof_count * FZN_BLOB_HASH_LEN;
-	}
-	for (at = 0; at < count; at++) {
-		fzn_put_be32(p, (uint32_t)sealed_len[at]);
-		p += 4;
-	}
-	for (at = 0; at < count; at++) {
-		memcpy(p, sealed[at], sealed_len[at]);
-		p += sealed_len[at];
+		memset(out, 0, need);
+		situ_msg_init(&m, out, (uint32_t)need);
+		if (fzn_message_wire_fzn_msg_data_view(&m, 0u, (uint32_t)need, &v) != SITU_OK)
+			return FZN_MSG_ERR_MALFORMED;
+		fzn_message_wire_fzn_msg_data_version_set(v, FZN_CMD_FILES);
+		fzn_message_wire_fzn_msg_data_type_set(v, FZN_MESSAGE_WIRE_FZN_MSG_TYPE_DATA);
+		fzn_message_wire_fzn_msg_data_transfer_set(v, transfer);
+		fzn_message_wire_fzn_msg_data_first_set(v, first);
+		fzn_message_wire_fzn_msg_data_count_set(&m, v, count);
+		fzn_message_wire_fzn_msg_data_proof_count_set(&m, v, (uint8_t)proof_count);
+		if (proof_count > 0u)
+			memcpy(situ_base(v) + FZN_MSG_DATA_OFF_PROOF, proof, (size_t)proof_count * FZN_BLOB_HASH_LEN);
+		/* EACH LEAF'S LENGTH where the schema places the run, then the
+		 * leaves, one after the other, where it places the payload. */
+		lens = situ_base(v) + fzn_message_wire_fzn_msg_data_leaf_len_offset(v);
+		for (at = 0; at < count; at++)
+			situ_put_be32(lens + at * 4u, (uint32_t)sealed_len[at]);
+		p = fzn_message_wire_fzn_msg_data_payload_ptr(v);
+		for (at = 0; at < count; at++) {
+			memcpy(p, sealed[at], sealed_len[at]);
+			p += sealed_len[at];
+		}
 	}
 
 	*out_len = need;
@@ -351,7 +404,10 @@ fzn_msg_err_t fzn_msg_data_parse(const uint8_t *bytes, size_t len, uint32_t *out
 	uint64_t first, count;
 	unsigned proof_count;
 	size_t at, need, body;
-	const uint8_t *lens, *p;
+	const uint8_t *p;
+
+	situ_msg_t m;
+	situ_view_t v;
 
 	if (!out_transfer || !out_first || !out_count || !out_proof || !out_proof_count ||
 	    !out_sealed || !out_sealed_len)
@@ -359,8 +415,13 @@ fzn_msg_err_t fzn_msg_data_parse(const uint8_t *bytes, size_t len, uint32_t *out
 	err = check_header(bytes, len, FZN_MSG_DATA_OFF_PROOF, FZN_MSG_DATA);
 	if (err != FZN_MSG_OK)
 		return err;
+	if (len > UINT32_MAX)
+		return FZN_MSG_ERR_TOO_LARGE;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_message_wire_fzn_msg_data_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return FZN_MSG_ERR_MALFORMED;
 
-	count = fzn_get_be64(bytes + FZN_MSG_DATA_OFF_COUNT);
+	count = fzn_message_wire_fzn_msg_data_count_get(v);
 	if (count == 0u)
 		return FZN_MSG_ERR_EMPTY;
 	if (count > FZN_MSG_MAX_SPAN)
@@ -368,11 +429,11 @@ fzn_msg_err_t fzn_msg_data_parse(const uint8_t *bytes, size_t len, uint32_t *out
 	if (count > cap)
 		return FZN_MSG_ERR_TOO_LARGE;
 
-	first = fzn_get_be64(bytes + FZN_MSG_DATA_OFF_FIRST);
+	first = fzn_message_wire_fzn_msg_data_first_get(v);
 	if (first > FZN_SPOOL_MAX_LEAVES || count > FZN_SPOOL_MAX_LEAVES - first)
 		return FZN_MSG_ERR_MALFORMED;
 
-	proof_count = bytes[FZN_MSG_DATA_OFF_PROOF_COUNT];
+	proof_count = fzn_message_wire_fzn_msg_data_proof_count_get(v);
 	if (proof_count > FZN_MSG_MAX_PROOF)
 		return FZN_MSG_ERR_TOO_LARGE;
 
@@ -383,10 +444,9 @@ fzn_msg_err_t fzn_msg_data_parse(const uint8_t *bytes, size_t len, uint32_t *out
 	if (len < need)
 		return FZN_MSG_ERR_MALFORMED;
 
-	lens = bytes + FZN_MSG_DATA_OFF_PROOF + (size_t)proof_count * FZN_BLOB_HASH_LEN;
 	body = 0;
 	for (at = 0; at < count; at++) {
-		uint32_t one = fzn_get_be32(lens + at * 4u);
+		uint32_t one = fzn_message_wire_fzn_msg_data_leaf_len_get(v, (uint32_t)at);
 
 		if (one == 0u)
 			return FZN_MSG_ERR_MALFORMED;
@@ -413,14 +473,14 @@ fzn_msg_err_t fzn_msg_data_parse(const uint8_t *bytes, size_t len, uint32_t *out
 	if (len != need + body)
 		return FZN_MSG_ERR_MALFORMED;
 
-	p = lens + (size_t)count * 4u;
+	p = fzn_message_wire_fzn_msg_data_payload_ptr(v);
 	for (at = 0; at < count; at++) {
-		out_sealed_len[at] = fzn_get_be32(lens + at * 4u);
+		out_sealed_len[at] = fzn_message_wire_fzn_msg_data_leaf_len_get(v, (uint32_t)at);
 		out_sealed[at] = p;
 		p += out_sealed_len[at];
 	}
 
-	*out_transfer = fzn_get_be32(bytes + FZN_MSG_DATA_OFF_TRANSFER);
+	*out_transfer = fzn_message_wire_fzn_msg_data_transfer_get(v);
 	*out_first = first;
 	*out_count = count;
 	*out_proof = proof_count > 0u ? bytes + FZN_MSG_DATA_OFF_PROOF : NULL;

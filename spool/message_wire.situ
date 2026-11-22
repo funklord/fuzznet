@@ -1,7 +1,9 @@
 // The spool sync-protocol vocabulary as situ schemas -- converted from the
 // hand-written C in spool/message.h / spool/message.c the way chain/hop.situ
 // and chain/manifest.situ were. Measured against the committed FZN_MSG_OFF_*
-// constants before anything is generated.
+// constants before anything is generated. spool/message.c writes and reads
+// all four through the code situ generates from this (sec 1385); `_wire`, so
+// the generated file's name meets no source's.
 //
 // FOUR MESSAGES, ONE STRUCT EACH, over a shared (version, type) prefix. Two
 // are fixed length (have_query, want) and two are variable (have, data). The

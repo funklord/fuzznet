@@ -263,7 +263,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/attribute_row.c wire/generated/piece_wire.c wire/generated/gather_wire.c \
              wire/generated/note_row.c wire/generated/deliver_wire.c wire/generated/keys_wire.c \
              wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
-             wire/generated/exchange_wire.c \
+             wire/generated/exchange_wire.c wire/generated/message_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -293,7 +293,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/note_row_vectors.c wire/generated/deliver_wire_vectors.c \
                  wire/generated/keys_wire_vectors.c wire/generated/line_record_vectors.c \
                  wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c \
-                 wire/generated/exchange_wire_vectors.c
+                 wire/generated/exchange_wire_vectors.c wire/generated/message_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -794,6 +794,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/buckets_row_vectors \
              $(BUILD_DIR)/wire/test/provision_record_vectors \
              $(BUILD_DIR)/wire/test/exchange_wire_vectors \
+             $(BUILD_DIR)/wire/test/message_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2283,7 +2284,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/state/state.o \
               $(BUILD_DIR)/log/log.o $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
               $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/spool/spool.o \
-              $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/message.o \
+              $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
               $(BUILD_DIR)/spool/scrub.o \
               $(BUILD_DIR)/spool/transfer.o \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
@@ -2577,7 +2578,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/blob/levels.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
                                    $(BUILD_DIR)/spool/spool.o \
-                                   $(BUILD_DIR)/spool/message.o \
+                                   $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
                                    $(BUILD_DIR)/spool/plan.o \
                                    $(BUILD_DIR)/spool/transfer.o \
                                    $(BUILD_DIR)/contact/contact.o \
@@ -2608,7 +2609,7 @@ $(BUILD_DIR)/node/test/shelf_test: $(BUILD_DIR)/node/test/shelf_test.o \
                                    $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
                                    $(BUILD_DIR)/spool/spool.o \
-                                   $(BUILD_DIR)/spool/message.o \
+                                   $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
                                    $(BUILD_DIR)/spool/plan.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/local/peer.o \
@@ -2873,7 +2874,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/local/vocabulary.o \
                                     $(BUILD_DIR)/record/ledger.o \
                                     $(BUILD_DIR)/chain/chain_store.o \
-                                    $(BUILD_DIR)/spool/message.o \
+                                    $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
                                     $(BUILD_DIR)/spool/transfer.o \
                                     $(BUILD_DIR)/spool/scrub.o \
                                     $(BUILD_DIR)/spool/spool.o \
@@ -3251,7 +3252,7 @@ $(BUILD_DIR)/spool/test/plan_test: $(BUILD_DIR)/spool/test/plan_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/spool/test/message_test: $(BUILD_DIR)/spool/test/message_test.o \
-                                      $(BUILD_DIR)/spool/message.o \
+                                      $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o $(BUILD_DIR)/wire/generated/situ.o \
                                       $(BUILD_DIR)/spool/plan.o \
                                       $(BUILD_DIR)/spool/spool.o \
                                       $(BUILD_DIR)/blob/blob.o \
@@ -4393,7 +4394,7 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/spool/test/message_fuzz: $(BUILD_DIR)/spool/test/message_fuzz.o \
-                                      $(BUILD_DIR)/spool/message.o
+                                      $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -4694,6 +4695,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE SPOOL'S MESSAGES, generated, sec 1385.
+$(BUILD_DIR)/wire/test/message_wire_vectors: wire/generated/message_wire_vectors.c \
+                                            wire/generated/message_wire.c wire/generated/situ.c \
+                                            $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5774,7 +5782,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
                        $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o $(BUILD_DIR)/spool/spool_file.o \
-                       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
+                       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
                        $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/transfer.o \
                        $(BUILD_DIR)/blob/blob.o
 
@@ -6246,7 +6254,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                                       $(BUILD_DIR)/disclose/disclose.o \
                                       $(BUILD_DIR)/blob/blob.o \
-                                      $(BUILD_DIR)/spool/message.o \
+                                      $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o \
                                       $(BUILD_DIR)/spool/transfer.o \
                                       $(BUILD_DIR)/spool/scrub.o \
                                       $(BUILD_DIR)/spool/plan.o \
@@ -7921,7 +7929,7 @@ SITU_DIR ?=
 # adopted as checked contracts (committed .wire/.map, pinned by `schema`),
 # with the hand-written codec still producing the bytes. sec 304-305.
 SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_record.situ \
-              prekey/prekey_record.situ persist/persist.situ spool/message.situ \
+              prekey/prekey_record.situ persist/persist.situ spool/message_wire.situ \
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain_wire.situ provision/provision_record.situ \
               record/store_file.situ catalog/attribute_row.situ \
@@ -8692,6 +8700,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_message_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new spool/message_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_message_wire \
+	         --out $(BUILD_DIR)/.gen.new spool/message_wire.situ spool/message_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_exchange_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new record/exchange_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_exchange_wire \
@@ -8926,6 +8938,7 @@ schema:
 	          buckets_row.c buckets_row.h buckets_row_build.h buckets_row_edit.h buckets_row_vectors.c \
 	          provision_record.c provision_record.h provision_record_edit.h provision_record_vectors.c \
 	          exchange_wire.c exchange_wire.h exchange_wire_build.h exchange_wire_edit.h exchange_wire_vectors.c \
+	          message_wire.c message_wire.h message_wire_build.h message_wire_edit.h message_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

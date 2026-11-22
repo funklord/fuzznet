@@ -1811,15 +1811,15 @@ SABOTAGES = [
 	(
 		"message-have-leaf-count-is-inclusive",
 		"spool/message.c",
-		"\tleaf_count = fzn_get_be64(bytes + FZN_MSG_HAVE_OFF_LEAF_COUNT);\n\tif (leaf_count == 0u || leaf_count > FZN_SPOOL_MAX_LEAVES)",
-		"\tleaf_count = fzn_get_be64(bytes + FZN_MSG_HAVE_OFF_LEAF_COUNT);\n\tif (leaf_count == 0u || leaf_count >= FZN_SPOOL_MAX_LEAVES)",
+		"\tleaf_count = fzn_message_wire_fzn_msg_have_leaf_count_get(v);\n\tif (leaf_count == 0u || leaf_count > FZN_SPOOL_MAX_LEAVES)",
+		"\tleaf_count = fzn_message_wire_fzn_msg_have_leaf_count_get(v);\n\tif (leaf_count == 0u || leaf_count >= FZN_SPOOL_MAX_LEAVES)",
 		"a HAVE for a blob of exactly FZN_SPOOL_MAX_LEAVES leaves is the largest one this host can hold and must parse. The null-argument test drove one past the ceiling; the endpoint was unbuilt, so > could tighten to >= and drop a peer's advertisement of the maximal blob unseen. sec 309",
 	),
 	(
 		"message-data-span-end-is-inclusive",
 		"spool/message.c",
-		"\tfirst = fzn_get_be64(bytes + FZN_MSG_DATA_OFF_FIRST);\n\tif (first > FZN_SPOOL_MAX_LEAVES || count > FZN_SPOOL_MAX_LEAVES - first)",
-		"\tfirst = fzn_get_be64(bytes + FZN_MSG_DATA_OFF_FIRST);\n\tif (first > FZN_SPOOL_MAX_LEAVES || count >= FZN_SPOOL_MAX_LEAVES - first)",
+		"\tfirst = fzn_message_wire_fzn_msg_data_first_get(v);\n\tif (first > FZN_SPOOL_MAX_LEAVES || count > FZN_SPOOL_MAX_LEAVES - first)",
+		"\tfirst = fzn_message_wire_fzn_msg_data_first_get(v);\n\tif (first > FZN_SPOOL_MAX_LEAVES || count >= FZN_SPOOL_MAX_LEAVES - first)",
 		"a DATA span ending exactly at FZN_SPOOL_MAX_LEAVES -- the tail of the largest legal blob -- is bounded by count > MAX - first, which admits first + count == MAX. Every DATA fixture sat near the bottom of the address space, so >= would refuse the ceiling span and drop those leaves. sec 309",
 	),
 	(
