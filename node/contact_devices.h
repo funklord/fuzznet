@@ -1,7 +1,7 @@
 /*
  * A CONTACT'S DEVICES, as this node reaches them and is reached by them,
  * project.md sec 614: step 2b-ii of sec 610, laid out as
- * `node/contact_devices.situ`.
+ * `node/contact_devices_wire.situ`.
  *
  * A pairing is one device to one host (`node/pair.h`), so delivering
  * between two users -- any device of the sender, any listed host of the
@@ -131,7 +131,7 @@ fzn_contact_device_err_t fzn_contact_device_list(const fzn_persist_ops_t *store,
 fzn_contact_device_err_t fzn_contact_device_remove(const fzn_persist_ops_t *store,
                                                    const uint8_t key[FZN_PUBKEY_LEN]);
 
-/* ---- the messages, `node/contact_devices.situ` ---------------------------
+/* ---- the messages, `node/contact_devices_wire.situ` ---------------------------
  *
  * Notes-sync's version byte and type space, after delivery's 28:
  *

@@ -6,7 +6,7 @@
 // until sec 1081 gave the second use the same message.
 //
 // What the schema cannot say and the reader checks: an address is letters, digits
-// and `.-:`, as a contact device's is (node/contact_devices.situ).
+// and `.-:`, as a contact device's is (node/contact_devices_wire.situ).
 
 target buffer;
 endian big;

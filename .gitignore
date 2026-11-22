@@ -454,4 +454,5 @@ __pycache__/
 /wire/test/provision_record_vectors
 /wire/test/exchange_wire_vectors
 /wire/test/message_wire_vectors
+/wire/test/contact_devices_wire_vectors
 /node/test/settings_registry_test

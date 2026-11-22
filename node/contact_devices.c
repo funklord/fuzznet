@@ -1,5 +1,7 @@
 /* A contact's devices: project.md sec 614, and the header. */
 #include "contact_devices.h"
+#include "../wire/generated/contact_devices_wire.h"
+#include "../wire/generated/contact_devices_wire_build.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -62,26 +64,24 @@ static int address_ok(const char *a, size_t len)
 fzn_contact_device_err_t fzn_contact_device_encode(const fzn_contact_device_t *d, uint8_t *out,
                                                    size_t cap, size_t *len)
 {
-	size_t n, at;
+	size_t n;
+	uint32_t wrote = 0;
 
 	if (!d || !out || !len || d->hop_count > FZN_CHAIN_MAX_HOPS
 	    || (d->port == 0u) != (d->address_len == 0u)
 	    || (d->address_len && !address_ok(d->address, d->address_len)))
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	n = FZN_CONTACT_DEVICE_HEAD_LEN + 1u + d->address_len + 2u + 1u + d->hop_count * FZN_HOP_LEN;
-	if (n > cap)
+	/* BUILT BY THE CODE situ GENERATES from `node/contact_devices_wire.situ`
+	 * (sec 1386), the hop count from the hops' length. */
+	if (n > cap
+	    || fzn_contact_devices_wire_fzn_contact_device_build(out, (uint32_t)n, FZN_CONTACT_DEVICE_VERSION, d->owner,
+	                                                         d->record, (const uint8_t *)d->address,
+	                                                         (uint32_t)d->address_len, d->port, (const uint8_t *)d->hops,
+	                                                         (uint32_t)(d->hop_count * FZN_HOP_LEN), &wrote)
+	               != SITU_OK
+	    || wrote != n)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
-	out[0] = FZN_CONTACT_DEVICE_VERSION;
-	memcpy(out + 1, d->owner, FZN_PUBKEY_LEN);
-	memcpy(out + 1 + FZN_PUBKEY_LEN, d->record, FZN_PREKEY_LEN_TOTAL);
-	at = FZN_CONTACT_DEVICE_HEAD_LEN;
-	out[at++] = (uint8_t)d->address_len;
-	memcpy(out + at, d->address, d->address_len);
-	at += d->address_len;
-	fzn_put_be16(out + at, d->port);
-	at += 2u;
-	out[at++] = (uint8_t)d->hop_count;
-	memcpy(out + at, d->hops, d->hop_count * FZN_HOP_LEN);
 	*len = n;
 	return FZN_CONTACT_DEVICE_OK;
 }
@@ -90,34 +90,43 @@ fzn_contact_device_err_t fzn_contact_device_decode(const uint8_t *bytes, size_t 
                                                    fzn_contact_device_t *out)
 {
 	fzn_prekey_record_t record;
-	size_t at, address_len, hop_count;
+	size_t address_len, hop_count;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < FZN_CONTACT_DEVICE_HEAD_LEN + 1u || bytes[0] != FZN_CONTACT_DEVICE_VERSION)
+	/* READ AS THE SCHEMA SAYS, sec 1386: version, an address of at most
+	 * 253 bytes, at most 8 hops and EXACTLY ITS LENGTH the generated
+	 * code's; the prekey record that it opens, an address with a port or
+	 * neither, and the address's characters the codec's. */
+	if (len < FZN_CONTACT_DEVICE_HEAD_LEN + 1u || len > UINT32_MAX
+	    || fzn_contact_devices_wire_fzn_contact_device_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	memcpy(out->owner, bytes + 1, FZN_PUBKEY_LEN);
-	memcpy(out->record, bytes + 1 + FZN_PUBKEY_LEN, FZN_PREKEY_LEN_TOTAL);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_contact_devices_wire_fzn_contact_device_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_device_validate(v) != SITU_OK)
+		return FZN_CONTACT_DEVICE_ERR_SHAPE;
+	memcpy(out->owner, fzn_contact_devices_wire_fzn_contact_device_owner_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(out->record, fzn_contact_devices_wire_fzn_contact_device_record_ptr(v), FZN_PREKEY_LEN_TOTAL);
 	if (fzn_prekey_open(out->record, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	at = FZN_CONTACT_DEVICE_HEAD_LEN;
-	address_len = bytes[at++];
-	if (address_len > FZN_CONTACT_DEVICE_ADDRESS_MAX || len < at + address_len + 3u)
+	address_len = fzn_contact_devices_wire_fzn_contact_device_address_len_get(v);
+	hop_count = fzn_contact_devices_wire_fzn_contact_device_hop_count_get(v);
+	if (address_len > FZN_CONTACT_DEVICE_ADDRESS_MAX || hop_count > FZN_CHAIN_MAX_HOPS)
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	memcpy(out->address, bytes + at, address_len);
+	memcpy(out->address, fzn_contact_devices_wire_fzn_contact_device_address_ptr(v), address_len);
 	out->address[address_len] = '\0';
 	out->address_len = address_len;
-	at += address_len;
-	out->port = fzn_get_be16(bytes + at);
-	at += 2u;
-	hop_count = bytes[at++];
-	/* EXACTLY ITS LENGTH, and an address with a port or neither. */
-	if (hop_count > FZN_CHAIN_MAX_HOPS || len != at + hop_count * FZN_HOP_LEN
-	    || (out->port == 0u) != (address_len == 0u)
+	out->port = fzn_contact_devices_wire_fzn_contact_device_port_get(v);
+	/* An address with a port or neither. */
+	if ((out->port == 0u) != (address_len == 0u)
 	    || (address_len && !address_ok(out->address, address_len)))
 		return FZN_CONTACT_DEVICE_ERR_SHAPE;
-	memcpy(out->hops, bytes + at, hop_count * FZN_HOP_LEN);
+	memcpy(out->hops, fzn_contact_devices_wire_fzn_contact_device_hops_ptr(v), hop_count * FZN_HOP_LEN);
 	out->hop_count = hop_count;
 	return FZN_CONTACT_DEVICE_OK;
 }
@@ -260,23 +269,35 @@ int fzn_contact_devices_offer_request(const fzn_contact_device_t *d, uint8_t *re
                                       size_t cap, size_t *request_len)
 {
 	size_t len = 0;
+	situ_msg_t m;
+	situ_view_t v;
 
+	/* THE ENTRY ENCODED IN ITS PLACE, then the head set through the
+	 * offer's view (sec 1386). */
 	if (!d || !request || cap < 2u || !request_len
 	    || fzn_contact_device_encode(d, request + 2, cap - 2u, &len) != FZN_CONTACT_DEVICE_OK)
 		return 0;
-	request[0] = FZN_CMD_CONTACTS;
-	request[1] = FZN_CONTACT_DEVICES_OFFER;
+	situ_msg_init(&m, request, (uint32_t)(2u + len));
+	if (fzn_contact_devices_wire_fzn_contact_devices_offer_view(&m, 0u, (uint32_t)(2u + len), &v) != SITU_OK)
+		return 0;
+	fzn_contact_devices_wire_fzn_contact_devices_offer_version_set(v, FZN_CMD_CONTACTS);
+	fzn_contact_devices_wire_fzn_contact_devices_offer_type_set(v, FZN_CONTACT_DEVICES_OFFER);
 	*request_len = 2u + len;
 	return 1;
 }
 
 int fzn_contact_devices_offer_reply(const uint8_t *reply, size_t reply_len)
 {
-	if (!reply || reply_len != FZN_CONTACT_DEVICES_TAKEN_LEN
-	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_TAKEN
-	    || reply[2] > 1u)
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (!reply || reply_len != FZN_CONTACT_DEVICES_TAKEN_LEN)
 		return -1;
-	return reply[2];
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)reply, (uint32_t)reply_len);
+	if (fzn_contact_devices_wire_fzn_contact_devices_taken_view(&m, 0u, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_devices_taken_validate(v) != SITU_OK)
+		return -1;
+	return fzn_contact_devices_wire_fzn_contact_devices_taken_taken_get(v);
 }
 
 int fzn_contact_devices_offer(const fzn_contact_device_t *d, fzn_contact_devices_ask_t ask,
@@ -297,18 +318,21 @@ size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_l
                                         void *ctx, uint8_t *reply, size_t reply_cap)
 {
 	static fzn_contact_device_t d;
+	uint32_t wrote = 0;
+	uint8_t taken;
 
 	if (!request || !take || !reply || request_len < 2u
 	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_OFFER
 	    || reply_cap < FZN_CONTACT_DEVICES_TAKEN_LEN)
 		return 0;
-	reply[0] = FZN_CMD_CONTACTS;
-	reply[1] = FZN_CONTACT_DEVICES_TAKEN;
-	reply[2] = fzn_contact_device_decode(request + 2, request_len - 2u, &d)
-	                           == FZN_CONTACT_DEVICE_OK
-	                   && take(ctx, &d)
-	           ? 1u
-	           : 0u;
+	taken = fzn_contact_device_decode(request + 2, request_len - 2u, &d) == FZN_CONTACT_DEVICE_OK
+	                && take(ctx, &d)
+	                ? 1u
+	                : 0u;
+	if (fzn_contact_devices_wire_fzn_contact_devices_taken_build(reply, FZN_CONTACT_DEVICES_TAKEN_LEN, FZN_CMD_CONTACTS,
+	                                                             FZN_CONTACT_DEVICES_TAKEN, taken, &wrote)
+	    != SITU_OK)
+		return 0;
 	return FZN_CONTACT_DEVICES_TAKEN_LEN;
 }
 
@@ -317,10 +341,11 @@ size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_l
 static void devices_query(const fzn_contact_devices_querying_t *q, uint8_t *request,
                           size_t *request_len)
 {
-	request[0] = FZN_CMD_CONTACTS;
-	request[1] = FZN_CONTACT_DEVICES_QUERY;
-	request[2] = (uint8_t)q->from;
-	request[3] = (uint8_t)q->whose;
+	uint32_t wrote = 0;
+
+	(void)fzn_contact_devices_wire_fzn_contact_devices_query_build(request, FZN_CONTACT_DEVICES_QUERY_LEN, FZN_CMD_CONTACTS,
+	                                                               FZN_CONTACT_DEVICES_QUERY, (uint8_t)q->from,
+	                                                               (uint8_t)q->whose, &wrote);
 	*request_len = FZN_CONTACT_DEVICES_QUERY_LEN;
 }
 
@@ -423,22 +448,29 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
 	static fzn_contact_device_t d;
 	int (*entry_at)(void *, size_t, fzn_contact_device_t *);
 	size_t at = FZN_CONTACT_DEVICES_LIST_HEAD_LEN, i, n = 0, len;
+	situ_msg_t m;
+	situ_view_t v;
 
-	if (!request || !reply || request_len != FZN_CONTACT_DEVICES_QUERY_LEN
-	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_QUERY)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1386: version, type and
+	 * `whose` 0 or 1 the generated validate's. */
+	if (!request || !reply || request_len != FZN_CONTACT_DEVICES_QUERY_LEN)
 		return 0;
-	entry_at = request[3] == FZN_CONTACT_DEVICES_HOSTS  ? hosts_at
-	           : request[3] == FZN_CONTACT_DEVICES_KEPT ? kept_at
-	                                                     : NULL;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_contact_devices_wire_fzn_contact_devices_query_view(&m, 0u, &v) != SITU_OK
+	    || fzn_contact_devices_wire_fzn_contact_devices_query_validate(v) != SITU_OK)
+		return 0;
+	entry_at = fzn_contact_devices_wire_fzn_contact_devices_query_whose_get(v) == FZN_CONTACT_DEVICES_HOSTS
+	                   ? hosts_at
+	                   : kept_at;
 	if (!entry_at || reply_cap < FZN_CONTACT_DEVICES_LIST_HEAD_LEN)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
 	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_LIST;
-	reply[2] = request[2];
+	reply[2] = fzn_contact_devices_wire_fzn_contact_devices_query_from_get(v);
 	reply[4] = 0u;
-	for (i = request[2]; entry_at(ctx, i, &d); i++) {
+	for (i = fzn_contact_devices_wire_fzn_contact_devices_query_from_get(v); entry_at(ctx, i, &d); i++) {
 		if (n == 255u
 		    || fzn_contact_device_encode(&d, reply + at + 2u,
 		                                 reply_cap > at + 2u ? reply_cap - at - 2u : 0u, &len)

@@ -1,7 +1,9 @@
-// A contact's device, project.md sec 614: step 2b-ii of sec 610. The
-// hand-written codec is node/contact_devices.c; this is its checked
-// contract, in `make schema`'s list. Persist slot 49 holds one per device,
-// and the contact messages carry them.
+// A contact's device, project.md sec 614: step 2b-ii of sec 610.
+// node/contact_devices.c writes and reads the device entry, its offer and
+// answer and the device query through the code situ generates from this
+// (sec 1386); the pages and the estate's messages are still its own.
+// `_wire`, so the generated file's name meets no source's. Persist slot 49
+// holds one per device, and the contact messages carry them.
 //
 // AN ENTRY SAYS this prekey record's host is a device of the user whose
 // root is `owner`: the root itself with no chain, or the grantee of the

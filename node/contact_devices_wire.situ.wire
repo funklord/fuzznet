@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: contact_devices.situ
+# schema: contact_devices_wire.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.

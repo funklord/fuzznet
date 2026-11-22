@@ -5,7 +5,7 @@
 //
 // Each act names its group, its place in the log and the hash of the act
 // before it, and carries its signer's proof -- a contact device entry
-// (node/contact_devices.situ), held whole and read through that layout:
+// (node/contact_devices_wire.situ), held whole and read through that layout:
 // the user's root, the host's prekey record and the root's chain to it.
 // SIGNED BY THAT HOST, over every byte before the signature; the tag is the
 // signed-object tag 150. The group's id is the hash of its create act.
@@ -17,7 +17,7 @@
 target buffer;
 endian big;
 
-import "contact_devices.situ";
+import "contact_devices_wire.situ";
 
 struct fzn_group_act {
 	u8   version [must_eq = 1];

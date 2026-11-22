@@ -5,7 +5,7 @@
 //
 // What a user hands a stranger so the stranger can ask for contact: a host
 // of the user and its proof of membership from the user's root (a contact
-// device entry, node/contact_devices.situ), up to four seeds shaped as a
+// device entry, node/contact_devices_wire.situ), up to four seeds shaped as a
 // routing manifest's entries, a name, an expiry. SIGNED BY THE HOST the
 // entry names, over every byte before the signature; the tag is the
 // signed-object tag 148, so no other object's signature can be one.
@@ -21,7 +21,7 @@
 target buffer;
 endian big;
 
-import "contact_devices.situ";
+import "contact_devices_wire.situ";
 
 struct fzn_contact_card_seed {
 	u8   address_len [min = 1, max = 253];

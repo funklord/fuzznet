@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1385
+The newest work is at the end of this file. **Read secs 1287 to 1386
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -63982,7 +63982,7 @@ user grants its contacts capabilities too and a contact is not a device.
 A host's entry carries its `net/address`. Kept one per device, newest
 record first, core because it decides whom a node pairs.
 
-Laid out in `node/contact_devices.situ`, with four messages in notes-sync's
+Laid out in `node/contact_devices_wire.situ`, with four messages in notes-sync's
 type space after delivery's 28:
 
 - **OFFER 29 / TAKEN 30**: a contact offers one of its user's devices; the
@@ -75210,7 +75210,7 @@ here, since whether the grant lies before the line is the contact's act
 log's to say. That fails open, as everything did before.
 
 **What was built:**
-- **Two messages** in `node/contact_devices.situ`, after the devices':
+- **Two messages** in `node/contact_devices_wire.situ`, after the devices':
   REVOKED asks for a page from a 32-bit `from`, and RECORDS answers with
   whole 242-byte records, sixteen to a page. Numbered 33 and 34 here,
   which `node/types.h` gives messages' HOLDS and HOLDING; 49 and 50 since
@@ -75504,7 +75504,7 @@ revocation is what this node did before sec 776.
   covers those, and the larger of the two is kept.
 
 **Built:**
-- **Messages** ESTATE 51 and ITEMS 52 (`node/contact_devices.situ`). An
+- **Messages** ESTATE 51 and ITEMS 52 (`node/contact_devices_wire.situ`). An
   item is a kind (root change or quorum setting, vote, confirmation), its
   record and its signer's chain. The page carries the answerer's k.
 - **Answering:** a contact's host lists its slot 13 root changes and
@@ -85874,7 +85874,7 @@ place a number must be written, and it drifted, as `types.h`'s comment says it d
 (49 and 51).
 
 **Moved:** `FZN_TYPE_RELAY_SESSION` to 62, `K_SETTING` and `K_SET` to 63 and 64 -- the pair with no
-situ contract, the act log's being pinned in `node/contact_devices.situ`. A wire change, free (sec
+situ contract, the act log's being pinned in `node/contact_devices_wire.situ`. A wire change, free (sec
 924). `types_test` lists all three now; against the numbers before, its check fails. That the list
 is kept by hand is sec 1061's to end: one table per family, from which the check reads.
 
@@ -86520,7 +86520,7 @@ local verb `call NAME` is still the procedure call's; its rename to `rrpc` is th
 message as before, where `shared_family` kept hand-written ranges of family 2.
 
 **Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys_wire.situ` and
-`deliver.situ` to 10, `node/contact_devices.situ`'s twelve messages to 11, `node/address.situ`
+`deliver.situ` to 10, `node/contact_devices_wire.situ`'s twelve messages to 11, `node/address.situ`
 to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line_record.situ`
 and `node/buckets_row.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
 
@@ -94703,7 +94703,7 @@ chosen, then playing. Sabotages `apng-first-frame-only`,
 sec 1313's rule), and says more than it did -- its kind one of the ten
 (`[min = 1, max = 10]`), its payload at most 4096, and **its signer held
 as the contact device entry it is** (`u8 signer[signer_len] [holds =
-fzn_contact_device]`, importing `node/contact_devices.situ`), so the
+fzn_contact_device]`, importing `node/contact_devices_wire.situ`), so the
 generated `validate` descends into the signer's own layout. `node/group_act.c`
 builds the act with the generated builder -- signed over every byte
 before the signature, built first with a zero one -- and reads it through
@@ -94970,7 +94970,7 @@ generated code. Sabotage `memo-file-any-length`.
 The fifth of the 40 layouts: `node/contact_card.situ` is
 `node/contact_card_record.situ` (a signed record), and says more than it
 did -- its host **held** as the contact device entry it is (`[holds =
-fzn_contact_device]`, importing `node/contact_devices.situ`), and a seed's
+fzn_contact_device]`, importing `node/contact_devices_wire.situ`), and a seed's
 address in `net/address`'s letters (`[chars = "a-zA-Z0-9.:-"]`).
 `node/contact_card.c` builds a card -- each seed by the generated seed
 builder, the card round them -- signs every byte before the signature,
@@ -96302,3 +96302,31 @@ message_wire_vectors (4, one of each); message_test (292), spool_test
 (364), spool_file_test (118), files_test (129), network_test, and the
 targets linking the spool. Sabotage `message-have-leaf-count-is-inclusive`
 and `message-data-span-end-is-inclusive` retargeted.
+
+## 1386. A contact's device, its offer and the device query through situ's code; stage one of the contact messages, 2026-11-22
+
+The thirty-fifth of the 40 layouts, begun: `node/contact_devices.situ` is
+`node/contact_devices_wire.situ` (secs 610, 614), and its importer
+`node/group_act_record.situ` follows the rename, its generated code
+unchanged. In `node/contact_devices.c`, stage one:
+
+- **A device entry** (`fzn_contact_device_encode`, `_decode`): built by
+  the generated builder, the hop count from the hops' length, and read
+  through `required` (exactly its length), the view and `validate` --
+  version, an address of at most 253 bytes, at most 8 hops. That the
+  prekey record opens, an address with a port or neither, and the
+  address's characters stay the codec's.
+- **The offer** written by encoding the entry in its place and setting
+  the head through the offer's view; **its answer** built and read
+  (`taken` 0 or 1 the schema's); **the device query** built, and read by
+  the answerer through the view and `validate` (`whose` 0 or 1).
+
+**Stage two, not yet**: the device pages (LIST), the revocations, the
+estate's items, rows, k and acts -- the other fourteen structs, each
+page filled an entry at a time.
+
+**The seeded fuzzers agree case for case**: card_fuzz, estate_fuzz and
+reachability_fuzz give the counts they gave before. **Tests:**
+contact_devices_wire_vectors (4); contact_test, contact_devices_test and
+the 29 targets linking the contact devices. Sabotage
+`contact-device-exact-length` retargeted onto `required`.

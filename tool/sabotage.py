@@ -13444,8 +13444,8 @@ SABOTAGES = [
 	(
 		"contact-device-exact-length",
 		"node/contact_devices.c",
-		"\tif (hop_count > FZN_CHAIN_MAX_HOPS || len != at + hop_count * FZN_HOP_LEN\n",
-		"\tif (hop_count > FZN_CHAIN_MAX_HOPS || len < at + hop_count * FZN_HOP_LEN\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_device_required(bytes, (uint32_t)len, &need) != SITU_OK\n\t    || need != len)\n",
+		"\t    || fzn_contact_devices_wire_fzn_contact_device_required(bytes, (uint32_t)len, &need) != SITU_OK\n\t    || need > len)\n",
 		"an entry with trailing bytes decodes, two encodings of one entry -- sec 614",
 	),
 	(
