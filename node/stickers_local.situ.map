@@ -54,10 +54,23 @@ struct kept_row size=33 atomic=NonAtomic
   kept_row.root                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   kept_row.estate                        offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
 
-struct message size=2..1109 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct match_ask size=4..1284 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  match_ask.context_len                  offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  match_ask.context                      offset=AbsoluteStatic(0x02) size=Bounded(0, 256) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  match_ask.typed_len                    offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  match_ask.typed                        offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct match_row size=45..300 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  match_row.root                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  match_row.id                           offset=AbsoluteStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  match_row.score                        offset=AbsoluteStatic(0x28) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  match_row.description_len              offset=AbsoluteStatic(0x2C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  match_row.description                  offset=AbsoluteStatic(0x2D) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct message size=2..1286 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 1107) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 1284) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.packs                     offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.pack_row                  offset=AbsoluteStatic(0x02) size=Bounded(43, 298) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
   message.body.pack_row.root             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
@@ -129,6 +142,17 @@ struct message size=2..1109 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.recent_row.id             offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   message.body.recent_row.description_len offset=AbsoluteStatic(0x2A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.recent_row.description    offset=AbsoluteStatic(0x2B) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.match                     offset=AbsoluteStatic(0x02) size=Bounded(4, 1284) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.match.context_len         offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.match.context             offset=AbsoluteStatic(0x04) size=Bounded(0, 256) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.match.typed_len           offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.match.typed               offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.match_row                 offset=AbsoluteStatic(0x02) size=Bounded(45, 300) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.match_row.root            offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.match_row.id              offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.match_row.score           offset=AbsoluteStatic(0x2A) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.match_row.description_len offset=AbsoluteStatic(0x2E) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.match_row.description     offset=AbsoluteStatic(0x2F) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct nothing size=0
 

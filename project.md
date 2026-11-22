@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1401
+The newest work is at the end of this file. **Read secs 1287 to 1402
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -55,9 +55,9 @@ listener port spans (`150e3106`).
   1301; in the picker, 1314), a pop-up one across the log (sec 1302), an effect one behind it (sec
   1315), a Recent tab (sec 1317), the reply's line as the matcher's context (sec
   1321). Raster animation
-  and the picker's (sec 1322). Left: (i) a binary `list sticker
-  match`, which waits on a measurement that the text verb is too slow
-  (sec 1272).
+  and the picker's (sec 1322). The binary `list sticker
+  match` too (sec 1402), owed by sec 1208 rather than waiting on a
+  measurement.
 - **The holder's: mandate the clock's unit?** (sec 368; sec 1323) situ's
   replay nonce form states one, so the nonce set moves onto situ only once
   fuzznet says seconds (fuzznetd's) or leaves it to agreement.
@@ -87804,7 +87804,8 @@ drawn for it. A subject's own row is not a side and is not kept.
 
 **Left out on purpose:** identity reset, which removes this host's keys,
 and host join by request, which one-code joining (secs 896, 1122-1123)
-replaced. A backup to a directory remains, a line and a button, and is
+replaced -- superseded by the holder in sec 1208: join by request is
+wanted, and was built anew (secs 1216, 1288). A backup to a directory remains, a line and a button, and is
 small enough to wait for a page that wants it.
 
 **Tests:** `forks_view_test`, eight checks against a scripted node: two
@@ -96617,16 +96618,18 @@ three malformed forms. rpc_test: the verb asked, ` reply LINE` after the
 escaped name; no line answered refused before anything is asked.
 Sabotage `messages-attach-writes-the-reply`.
 
-**The three-step host join stays retired from the views.** fuzzypickles
-asked whether `devices_view` will carry host-join request, approve and
-install, which its own device box offers "for a device with no camera".
-Sec 1127 left it out on purpose as replaced by one-code joining (secs
-896, 1122-1123), and the two reasons the box gives are covered there: the
-join code is a line of text the devices view takes typed or pasted, not
-only from a camera; and the joining device needs no address field,
-because the host answers it at the address its ask came from (sec 896).
-So fuzzypickles can retire the exchange with the box. The RPCs stay in
-the library for now; nothing here asked for their removal.
+**The three-step host join is not coming to devices_view -- corrected
+the same day.** fuzznet's first answer cited sec 1127's "left out on
+purpose", which the holder superseded in sec 1208 ("join by request is
+wanted"). What replaced the manual exchange is that join by request,
+built anew: a device finds a host on its network and asks to join, and a
+host of the user lets it in from a list (secs 1216, 1288; the view's
+step J3, `613f0bdc`). It covers both of the box's reasons -- no camera
+and no code carried by hand, and no address typed. So fuzznet's view
+carries a request path, the new one, and fuzzypickles can still retire
+the manual exchange with its box. The RPCs (`fzn_rpc_host_join_request`,
+`_approve`, `_install`) stay in the library for now; nothing asked for
+their removal.
 
 ## 1396. persist.c's own blobs through situ's code; stage one of persist, 2026-11-22
 
@@ -96867,3 +96870,31 @@ shared with the asker alone.
 the first; this user within family the first; within a group nobody
 shared with, nothing for either. Sabotage
 `notes-within-group-passes-own-rows`.
+
+## 1402. The stickers fitting a line, in binary, 2026-11-22
+
+Sec 0 held the binary `list sticker match` back "on a measurement that
+the text verb is too slow" (sec 1272). That contradicts the holder's sec
+1208, "no protocol part is to stay text", which no later entry narrowed;
+the holder's decision is the one followed.
+
+**`node/stickers_local.situ` gains `match` (142) and `match_row` (143).**
+The ask carries CONTEXT, the words of the line answered (none for a plain
+match), and TYPED, the line's last words raw. A row carries the pack's
+root, the sticker's id, its score and its description. The node answers
+with `fzn_node_stickers_match`, or `_answer` where a context is given, a
+row each in the matcher's order and then a STATUS -- the two text verbs
+in one request. `fzn_rpc_sticker_match` and `_answer` ask it first,
+trimmed as before (the line's last 1024 bytes, the answered line's first
+256, a control byte as a space, nothing asked for blank lines), and fall
+back to the verb for a node that speaks only text.
+
+situc calls the new ops breaking: an older node refuses them, as it
+refused `recent` when that was added. Wire changes are free (sec 924).
+
+**Tests:** files_test (131), a kept pack's sticker found for "hello
+there" in binary, a match row and ok; rpc_test, the ask's bytes (the
+context's length and words, the break sent as a space) and a row read
+whole. The conversation and picker views' text-scripted tests pass
+through the fallback. Sabotage `stickers-binary-answers-a-match` and
+`rpc-sticker-match-reads-its-rows`.

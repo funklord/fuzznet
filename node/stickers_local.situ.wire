@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134 reference=135 referenced=136 art=137 drawn=138 put=139 recent=140 recent_row=141
+  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134 reference=135 referenced=136 art=137 drawn=138 put=139 recent=140 recent_row=141 match=142 match_row=143
 
 struct art_ask size=85..1107
   @0x0000   81        sticker_ask sticker  big
@@ -59,10 +59,23 @@ struct kept_row size=33
   @0x0000   32        u8         root  big
   @0x0020   1         u8         estate  max=1
 
-struct message size=2..1109
+struct match_ask size=4..1284
+  @0x0000   2         u16        context_len  big max=256
+  @0x0002   0..256    u8         context  sized-by=context_len
+  ~         2         u16        typed_len  big max=1024
+  ~         0..1024   u8         typed  sized-by=typed_len
+
+struct match_row size=45..300
+  @0x0000   32        u8         root  big
+  @0x0020   8         u64        id  big
+  @0x0028   4         u32        score  big
+  @0x002c   1         u8         description_len
+  @0x002d   0..255    u8         description  sized-by=description_len
+
+struct message size=2..1286
   @0x0000   1         u8         cmd  must_eq=22
   @0x0001   1         op         op
-  @0x0002   0..1107   variant    body
+  @0x0002   0..1284   variant    body
   body switch: op
   body case 128: packs nothing
   body case 129: pack_row pack_row
@@ -78,6 +91,8 @@ struct message size=2..1109
   body case 139: put put_ask
   body case 140: recent nothing
   body case 141: recent_row recent_row
+  body case 142: match match_ask
+  body case 143: match_row match_row
   body case default: error
 
 struct nothing size=0

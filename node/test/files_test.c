@@ -16,6 +16,8 @@
 #include "../files.h"
 #include "../stickers.h"
 #include "../stickers_binary.h"
+#include "../../wire/generated/stickers_local.h"
+#include "../../wire/generated/stickers_local_build.h"
 #include "../../sticker/pack.h"
 #include "../../hex/hex.h"
 #include "../../contact/contact.h"
@@ -1005,6 +1007,30 @@ static void test_a_pack_file_is_kept_by_its_bytes(fzn_node_files_t *files)
 		CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, reply, sizeof(reply)) > 67u
 		              && !strncmp(reply + 3u, first, 64u),
 		      "one pack file put twice was two blobs");
+	}
+	/* THE STICKERS FITTING A LINE, IN BINARY, sec 1402: the kept pack's
+	 * sticker for "hello there", a match row and then ok. */
+	{
+		uint8_t ask[64], req[80];
+		uint32_t ask_len = 0, req_len = 0;
+		situ_msg_t sm;
+		situ_view_t sv, sb;
+
+		memset(&sbin, 0, sizeof(sbin));
+		CHECK(fzn_stickers_local_match_ask_build(ask, sizeof(ask), NULL, 0u, (const uint8_t *)"hello there", 11u,
+		                                         &ask_len)
+		                      == SITU_OK
+		              && fzn_stickers_local_message_build_match(req, sizeof(req), 22u, ask, ask_len, &req_len)
+		                         == SITU_OK
+		              && fzn_node_stickers_binary(&st, req, req_len, sbin_put, NULL) && sbin.n == 2u
+		              && sbin.m[0][1] == 143u && sbin.m[1][0] == 0x13 && sbin.m[1][1] == 0,
+		      "a line asked in binary was not answered a match row and ok");
+		situ_msg_init(&sm, sbin.m[0], FZN_NODE_STICKERS_BINARY_MAX);
+		CHECK(fzn_stickers_local_message_view(&sm, 0u, FZN_NODE_STICKERS_BINARY_MAX, &sv) == SITU_OK
+		              && fzn_stickers_local_message_body_match_row_view(sv, &sb) == SITU_OK
+		              && fzn_stickers_local_match_row_id_get(sb) == 3u
+		              && fzn_stickers_local_match_row_score_get(sb) > 0u,
+		      "the match row was not sticker 3 with a score");
 	}
 	/* AN OLD PACK IS THE CONVERTER'S, sec 1278: by path or by reference,
 	 * refused, the program named. */

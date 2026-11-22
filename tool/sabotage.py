@@ -3676,6 +3676,20 @@ SABOTAGES = [
 		"a replace cut between the kept act and its group leaves the act stored under the replaced act's group, held for ever when offered again -- sec 844",
 	),
 	(
+		"stickers-binary-answers-a-match",
+		"node/stickers_binary.c",
+		"\tif (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_MATCH)\n\t\treturn match(st, v, put, put_ctx);\n",
+		"",
+		"a line asked in binary is refused, and every client falls back to the text verb -- sec 1402",
+	),
+	(
+		"rpc-sticker-match-reads-its-rows",
+		"local/rpc.c",
+		"\t\ta.matched = out;\n",
+		"",
+		"the stickers fitting a line, answered in binary, are refused as unreadable -- sec 1402",
+	),
+	(
 		"stickers-own-user-only",
 		"node/stickers.c",
 		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied stickers are this node's own user's\\n\");\n",

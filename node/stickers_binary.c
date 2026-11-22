@@ -286,6 +286,54 @@ static int recent(const fzn_node_stickers_t *st, fzn_node_stickers_put_t put, vo
 	return status(put, put_ctx, FZN_STATUS_OK, NULL);
 }
 
+/* THE STICKERS FITTING A LINE, sec 1402: a match row each, the best
+ * first, then ok. */
+struct match_put {
+	fzn_node_stickers_put_t put;
+	void *put_ctx;
+	int ok;
+};
+
+static void match_one(void *ctx, const fzn_node_sticker_match_t *hit)
+{
+	struct match_put *w = ctx;
+	uint8_t row[FZN_NODE_STICKERS_BINARY_MAX], out[FZN_NODE_STICKERS_BINARY_MAX + 8u];
+	uint32_t row_len = 0, n = 0;
+
+	if (!w->ok)
+		return;
+	if (hit->description_len > FZN_STICKER_DESC_MAX
+	    || fzn_stickers_local_match_row_build(row, sizeof(row), hit->root, hit->id, (uint32_t)hit->score,
+	                                          (const uint8_t *)hit->description, (uint32_t)hit->description_len,
+	                                          &row_len)
+	               != SITU_OK
+	    || fzn_stickers_local_message_build_match_row(out, sizeof(out), (uint8_t)FZN_CMD_STICKERS, row, row_len, &n)
+	               != SITU_OK
+	    || !w->put(w->put_ctx, out, n))
+		w->ok = 0;
+}
+
+static int match(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_stickers_put_t put, void *put_ctx)
+{
+	struct match_put w = { put, put_ctx, 1 };
+	situ_view_t b;
+	size_t context_len, typed_len;
+	int r;
+
+	if (fzn_stickers_local_message_body_match_view(v, &b) != SITU_OK)
+		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a stickers request");
+	context_len = fzn_stickers_local_match_ask_context_len_get(b);
+	typed_len = fzn_stickers_local_match_ask_typed_len_get(b);
+	r = context_len ? fzn_node_stickers_answer(st, (const char *)fzn_stickers_local_match_ask_context_ptr(b),
+	                                           context_len, (const char *)fzn_stickers_local_match_ask_typed_ptr(b),
+	                                           typed_len, match_one, &w)
+	                : fzn_node_stickers_match(st, (const char *)fzn_stickers_local_match_ask_typed_ptr(b), typed_len,
+	                                          match_one, &w);
+	if (!r)
+		return status(put, put_ctx, FZN_STATUS_ERROR, "the kept packs would not list");
+	return w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);
+}
+
 int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, size_t len,
                              fzn_node_stickers_put_t put, void *put_ctx)
 {
@@ -307,6 +355,8 @@ int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, 
 		return pack_write(st, v, put, put_ctx);
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_RECENT)
 		return recent(st, put, put_ctx);
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_MATCH)
+		return match(st, v, put, put_ctx);
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCE
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_ART)
 		return sticker_read(st, v, put, put_ctx);

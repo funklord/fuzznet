@@ -1597,6 +1597,34 @@ static void test_location_status_in_binary(void)
 	      "a fix supplied was not read in binary as sampling from platform");
 }
 
+static void test_stickers_for_a_line_in_binary(void)
+{
+	static fzn_rpc_sticker_match_resp_t out;
+
+	/* IN BINARY, sec 1402: asked as a match with the line's break as a
+	 * space and the answered line's words, a row read whole. */
+	{
+		static struct bscript held;
+		uint8_t root[32], row[80], m[96];
+		uint32_t row_len = 0, n = 0;
+
+		memset(root, 0x5a, sizeof(root));
+		if (fzn_stickers_local_match_row_build(row, sizeof(row), root, 9u, 300u, (const uint8_t *)"a wave", 6, &row_len)
+		            == SITU_OK
+		    && fzn_stickers_local_message_build_match_row(m, sizeof(m), (uint8_t)FZN_CMD_STICKERS, row, row_len, &n)
+		               == SITU_OK)
+			framed(&held, 0, m, n);
+		status_onto(&held, 0, FZN_STATUS_OK, NULL);
+		bon(&c, &held);
+		CHECK(fzn_rpc_sticker_answer(&c, "hi", 2, "ok\ny", 4, &out) == FZN_RPC_OK && out.count == 1
+		              && out.entries[0].root[0] == 0x5a && out.entries[0].id == 9u && out.entries[0].score == 300u
+		              && !strcmp(out.entries[0].description, "a wave") && held.asked[0][0] == 0x16
+		              && held.asked[0][1] == 0x8e && held.asked[0][3] == 2u && !memcmp(held.asked[0] + 4, "hi", 2)
+		              && !memcmp(held.asked[0] + 8, "ok y", 4),
+		      "the stickers for a line were not asked and read in binary");
+	}
+}
+
 /* THE STICKER PACKS IN BINARY, sec 1172: a row read with its root and raw
  * name, the request's bytes, a listing cut before its STATUS refused. */
 static void test_packs_in_binary(void)
@@ -2566,6 +2594,7 @@ int main(void)
 	test_shares_in_binary();
 	test_note_open_in_binary();
 	test_packs_in_binary();
+	test_stickers_for_a_line_in_binary();
 	test_location_status_in_binary();
 	test_invites_in_binary();
 	test_show_in_binary();

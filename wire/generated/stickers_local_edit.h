@@ -432,6 +432,147 @@ static inline situ_err_t fzn_stickers_local_art_ask_edit_decode(const situ_msg_t
 	return SITU_OK;
 }
 
+/* `match_ask`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint16_t context_len;
+	const uint8_t *context;	/* into your backing */
+	uint32_t context_span;
+	uint16_t typed_len;
+	const uint8_t *typed;	/* into your backing */
+	uint32_t typed_span;
+} fzn_stickers_local_match_ask_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_stickers_local_match_ask_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_stickers_local_match_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_stickers_local_match_ask_context_len(view);
+	*need += fzn_stickers_local_match_ask_typed_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_stickers_local_match_ask_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_stickers_local_match_ask_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_stickers_local_match_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_stickers_local_match_ask_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->context_len = fzn_stickers_local_match_ask_context_len_get(view);
+	out->context_span = fzn_stickers_local_match_ask_context_len(view);
+	out->context     = backing + at;
+	for (uint32_t i = 0u; i < out->context_span; i++) {
+		backing[at + i] = fzn_stickers_local_match_ask_context_ptr(view)[i];
+	}
+	at += out->context_span;
+	out->typed_len = fzn_stickers_local_match_ask_typed_len_get(view);
+	out->typed_span = fzn_stickers_local_match_ask_typed_len(view);
+	out->typed     = backing + at;
+	for (uint32_t i = 0u; i < out->typed_span; i++) {
+		backing[at + i] = fzn_stickers_local_match_ask_typed_ptr(view)[i];
+	}
+	at += out->typed_span;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `match_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint64_t id;
+	uint32_t score;
+	uint8_t description_len;
+	const uint8_t *description;	/* into your backing */
+	uint32_t description_span;
+} fzn_stickers_local_match_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_stickers_local_match_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_stickers_local_match_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_stickers_local_match_row_description_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_stickers_local_match_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_stickers_local_match_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_stickers_local_match_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_stickers_local_match_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->id = fzn_stickers_local_match_row_id_get(view);
+	out->score = fzn_stickers_local_match_row_score_get(view);
+	out->description_len = fzn_stickers_local_match_row_description_len_get(view);
+	out->description_span = fzn_stickers_local_match_row_description_len(view);
+	out->description     = backing + at;
+	for (uint32_t i = 0u; i < out->description_span; i++) {
+		backing[at + i] = fzn_stickers_local_match_row_description_ptr(view)[i];
+	}
+	at += out->description_span;
+	(void)at;
+	return SITU_OK;
+}
+
 /* `recent_row`, decoded into storage you own.
  *
  * Call `backing` for how many bytes the variable members need, then

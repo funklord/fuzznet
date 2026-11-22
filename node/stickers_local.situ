@@ -24,6 +24,8 @@ enum op : u8 {
 	put        = 139, // a pack built from a spec, or a pack file kept, as `put sticker PATH` (sec 1308)
 	recent     = 140, // the stickers this user sent lately, as `list sticker recent` (sec 1317)
 	recent_row = 141, // an answer: one of them
+	match      = 142, // the stickers fitting a line, as `list sticker match|answer` (sec 1402)
+	match_row  = 143, // an answer: one of them
 	default  = error,
 }
 
@@ -135,6 +137,26 @@ struct drawn_row {
 	u64  bytes;
 }
 
+// THE LINE BEING WRITTEN, sec 1402: CONTEXT the words of the line it
+// answers, none for a plain match (`list sticker answer`'s first word);
+// TYPED the line's last words, raw (`list sticker match`'s rest).
+struct match_ask {
+	u16  context_len [max = 256];
+	u8   context[context_len];
+	u16  typed_len [max = 1024];
+	u8   typed[typed_len];
+}
+
+// ONE STICKER THAT FITS, the best first: its pack's ROOT, its ID there, how
+// well it fits, and its description, raw.
+struct match_row {
+	u8   root[32];
+	u64  id;
+	u32  score;
+	u8   description_len;
+	u8   description[description_len];
+}
+
 // ONE STICKER SENT LATELY: its pack's ROOT, its ID there, and the
 // description the line carried, raw.
 struct recent_row {
@@ -163,6 +185,8 @@ struct message {
 		case op.put:        put_ask        put;
 		case op.recent:     nothing        recent;
 		case op.recent_row: recent_row     recent_row;
+		case op.match:      match_ask      match;
+		case op.match_row:  match_row      match_row;
 		default: error;
 	}
 }

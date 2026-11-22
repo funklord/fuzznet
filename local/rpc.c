@@ -9953,6 +9953,7 @@ static int node_sticker_put(fzn_rpc_t *c, const char *spec_path, size_t spec_pat
 struct sticker_answer {
 	fzn_rpc_node_sticker_items_resp_t *items;
 	fzn_rpc_sticker_match_resp_t *recent; /* sec 1317's rows */
+	fzn_rpc_sticker_match_resp_t *matched; /* sec 1402's rows */
 	uint8_t root[32];
 	int estate, kept, bad, status_seen;
 	fzn_status_t code;
@@ -9999,6 +10000,22 @@ static void sticker_each(void *ctx, const uint8_t *msg, size_t len) {
 		memcpy(r->root, fzn_stickers_local_recent_row_root_ptr(b), 32);
 		r->id = fzn_stickers_local_recent_row_id_get(b);
 		memcpy(r->description, fzn_stickers_local_recent_row_description_ptr(b), d);
+		r->description[d] = '\0';
+		r->description_len = d;
+		return;
+	}
+	if (a->matched && fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_MATCH_ROW
+	    && fzn_stickers_local_message_body_match_row_view(v, &b) == SITU_OK) {
+		if (a->matched->count >= FZN_RPC_STICKER_MATCH_MAX) {
+			a->bad = 1;
+			return;
+		}
+		fzn_rpc_sticker_match_entry_t *r = &a->matched->entries[a->matched->count++];
+		const size_t d = fzn_stickers_local_match_row_description_len_get(b);
+		memcpy(r->root, fzn_stickers_local_match_row_root_ptr(b), 32);
+		r->id = fzn_stickers_local_match_row_id_get(b);
+		r->score = fzn_stickers_local_match_row_score_get(b);
+		memcpy(r->description, fzn_stickers_local_match_row_description_ptr(b), d);
 		r->description[d] = '\0';
 		r->description_len = d;
 		return;
@@ -10069,6 +10086,32 @@ static int sticker_match_ask(fzn_rpc_t *c, const char *context, size_t context_l
 	}
 	blank_context = i == context_len;
 	if (blank_typed && blank_context) return FZN_RPC_OK;
+	/* IN BINARY FIRST, sec 1402: the same trimmed words, a control byte
+	 * sent as a space as the verb sends it; a match row each, then a
+	 * STATUS. */
+	{
+		uint8_t typed_raw[1024], ask[1300], req[1310];
+		uint32_t ask_len = 0, req_len = 0;
+		struct sticker_answer a;
+		int text = 0;
+		for (i = 0; i < typed_len; i++) {
+			const unsigned char ch = (unsigned char)typed[i];
+			typed_raw[i] = (ch < ' ' || ch == 0x7f) ? (uint8_t)' ' : (uint8_t)ch;
+		}
+		if (fzn_stickers_local_match_ask_build(ask, sizeof ask, blank_context ? NULL : (const uint8_t *)context,
+		                                       blank_context ? 0u : (uint32_t)context_len, typed_raw,
+		                                       (uint32_t)typed_len, &ask_len)
+		            != SITU_OK
+		    || fzn_stickers_local_message_build_match(req, sizeof req, (uint8_t)FZN_CMD_STICKERS, ask, ask_len,
+		                                              &req_len)
+		               != SITU_OK)
+			return encode_failed(c);
+		memset(&a, 0, sizeof a);
+		a.matched = out;
+		const int rc = sticker_binary(c, req, req_len, &a, &text);
+		if (!text) return rc;
+		memset(out, 0, sizeof(*out));
+	}
 	if (blank_context) {
 		memcpy(arg, "sticker match ", 14);
 		n = 14;
