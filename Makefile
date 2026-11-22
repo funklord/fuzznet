@@ -265,6 +265,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/line_record.c wire/generated/buckets_row.c wire/generated/provision_record.c \
              wire/generated/exchange_wire.c wire/generated/message_wire.c wire/generated/contact_devices_wire.c \
              wire/generated/reconcile_wire.c wire/generated/sync_wire.c wire/generated/members_wire.c \
+             wire/generated/persist_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -296,7 +297,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/buckets_row_vectors.c wire/generated/provision_record_vectors.c \
                  wire/generated/exchange_wire_vectors.c wire/generated/message_wire_vectors.c \
                  wire/generated/contact_devices_wire_vectors.c wire/generated/reconcile_wire_vectors.c \
-                 wire/generated/sync_wire_vectors.c wire/generated/members_wire_vectors.c
+                 wire/generated/sync_wire_vectors.c wire/generated/members_wire_vectors.c \
+                 wire/generated/persist_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -390,7 +392,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/node/peer_persist.o \
                    $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/chunk/reassembly.o \
-                   $(BUILD_DIR)/persist/persist.o \
+                   $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                    $(BUILD_DIR)/persist/persist_file.o \
                    $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                    $(BUILD_DIR)/ratchet/ratchet.o $(BUILD_DIR)/session/agree.o \
@@ -802,6 +804,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/reconcile_wire_vectors \
              $(BUILD_DIR)/wire/test/sync_wire_vectors \
              $(BUILD_DIR)/wire/test/members_wire_vectors \
+             $(BUILD_DIR)/wire/test/persist_wire_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2296,7 +2299,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/spool/transfer.o \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
-              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o \
+              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2515,7 +2518,7 @@ $(BUILD_DIR)/log/test/retain_test: $(BUILD_DIR)/log/test/retain_test.o \
 $(BUILD_DIR)/log/test/rules_test: $(BUILD_DIR)/log/test/rules_test.o \
                                   $(BUILD_DIR)/log/rules.o \
                                   $(BUILD_DIR)/log/retain.o \
-                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
                                   $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2596,7 +2599,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
-                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                    $(BUILD_DIR)/trust/trust.o \
                                    $(BUILD_DIR)/session/agree.o \
                                    $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -2636,7 +2639,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                           $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                           $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
-                                          $(BUILD_DIR)/persist/persist.o \
+                                          $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                           $(BUILD_DIR)/trust/trust.o \
                                           $(BUILD_DIR)/session/agree.o \
                                           $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2648,7 +2651,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
 # contact/: the contact list. sec 435.
 $(BUILD_DIR)/contact/test/contact_test: $(BUILD_DIR)/contact/test/contact_test.o \
                                         $(BUILD_DIR)/contact/contact.o \
-                                        $(BUILD_DIR)/persist/persist.o \
+                                        $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                         $(BUILD_DIR)/trust/trust.o \
                                         $(BUILD_DIR)/session/agree.o \
                                         $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2670,7 +2673,7 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
                                          $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                          $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                          $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
-                                         $(BUILD_DIR)/persist/persist.o \
+                                         $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                          $(BUILD_DIR)/trust/trust.o \
                                          $(BUILD_DIR)/session/agree.o \
                                          $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2692,7 +2695,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
                                    $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                    $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
-                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                    $(BUILD_DIR)/trust/trust.o \
                                    $(BUILD_DIR)/session/agree.o \
                                    $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2728,7 +2731,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/local/peer.o \
-                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                    $(BUILD_DIR)/trust/trust.o \
                                    $(BUILD_DIR)/session/agree.o \
                                    $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -2906,7 +2909,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/session/session.o \
                                     $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                                     $(BUILD_DIR)/ratchet/ratchet.o \
-                                    $(BUILD_DIR)/persist/persist.o \
+                                    $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                     $(BUILD_DIR)/version/version.o \
                                     $(BUILD_DIR)/wire/seal.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
@@ -3313,7 +3316,7 @@ $(BUILD_DIR)/spool/test/spool_file_test: $(BUILD_DIR)/spool/test/spool_file_test
 
 # persist/ links the four types whose loss a restart must not cause, which is
 # what its contract is about. No I/O here -- persist.c is the format.
-PERSIST_OBJS := $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/trust/trust.o \
+PERSIST_OBJS := $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o $(BUILD_DIR)/trust/trust.o \
                 $(BUILD_DIR)/session/agree.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                 $(BUILD_DIR)/wire/generated/situ.o \
                 $(BUILD_DIR)/ratchet/ratchet.o \
@@ -4098,7 +4101,7 @@ $(BUILD_DIR)/gui/test/retention_view_test: $(BUILD_DIR)/gui/test/retention_view_
                                       $(BUILD_DIR)/gui/retention_view.o \
                                       $(BUILD_DIR)/log/rules.o \
                                       $(BUILD_DIR)/log/retain.o \
-                                      $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                       $(BUILD_DIR)/trust/trust.o \
                                       $(BUILD_DIR)/session/agree.o \
                                       $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -4112,7 +4115,7 @@ $(BUILD_DIR)/gui/test/retention_view_test: $(BUILD_DIR)/gui/test/retention_view_
 # Through the typed client since sec 1261, so its objects too.
 $(BUILD_DIR)/gui/test/governance_view_test: $(BUILD_DIR)/gui/test/governance_view_test.o \
                                        $(BUILD_DIR)/gui/governance_view.o \
-                                       $(BUILD_DIR)/persist/persist.o \
+                                       $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                        $(BUILD_DIR)/trust/trust.o \
                                        $(BUILD_DIR)/session/agree.o \
                                        $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -4151,7 +4154,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                      $(BUILD_DIR)/local/vocabulary.o \
                                      $(BUILD_DIR)/local/peer.o \
-                                     $(BUILD_DIR)/persist/persist.o \
+                                     $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/session/agree.o \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -4486,7 +4489,7 @@ $(BUILD_DIR)/wire/test/relay_fuzz: $(BUILD_DIR)/wire/test/relay_fuzz.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/persist/test/persist_fuzz: $(BUILD_DIR)/persist/test/persist_fuzz.o \
-                                          $(BUILD_DIR)/persist/persist.o \
+                                          $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                           $(BUILD_DIR)/trust/trust.o \
                                           $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                           $(BUILD_DIR)/ratchet/ratchet.o \
@@ -4702,6 +4705,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE PERSIST BLOBS, generated, sec 1396.
+$(BUILD_DIR)/wire/test/persist_wire_vectors: wire/generated/persist_wire_vectors.c \
+                                            wire/generated/persist_wire.c wire/generated/situ.c \
+                                            $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5084,7 +5094,7 @@ $(BUILD_DIR)/node/test/peer_persist_test.o: node/test/peer_persist_test.c
 # in-memory store so it runs in every arrangement. sec 375.
 $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
                                       $(BUILD_DIR)/node/identity.o \
-                                      $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                       $(BUILD_DIR)/trust/trust.o \
                                       $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                       $(BUILD_DIR)/ratchet/ratchet.o \
@@ -5110,7 +5120,7 @@ $(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fu
 # A stream's query and answer, a fix and a gpsd line from a lying peer: sec
 # 689's journey 5, location (sec 770).
 $(BUILD_DIR)/node/test/location_fuzz: $(BUILD_DIR)/node/test/location_fuzz.o \
-                                      $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
                                       $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o \
@@ -5215,7 +5225,7 @@ $(BUILD_DIR)/node/test/group_fuzz: $(BUILD_DIR)/node/test/group_fuzz.o \
 
 # App streams, sec 632.
 $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
-                                     $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o \
+                                     $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                      $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/ratchet/ratchet.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -5276,7 +5286,7 @@ $(BUILD_DIR)/node/test/heard_test: $(BUILD_DIR)/node/test/heard_test.o \
 $(BUILD_DIR)/node/test/peer_persist_test: \
                                    $(BUILD_DIR)/node/test/peer_persist_test.o \
                                    $(BUILD_DIR)/node/peer_persist.o \
-                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                    $(BUILD_DIR)/persist/persist_file.o \
                                    $(BUILD_DIR)/trust/trust.o \
                                    $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -5396,7 +5406,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
               $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
-              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
+              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
@@ -5456,7 +5466,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
-              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
+              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/node/local.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/line.o \
@@ -5527,7 +5537,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
-                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
                                   $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -5567,7 +5577,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
                    $(BUILD_DIR)/node/members.o $(BUILD_DIR)/wire/generated/members_wire.o \
-                   $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
+                   $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
@@ -5621,7 +5631,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
-                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
                                   $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -5647,7 +5657,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
-                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
                                   $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
@@ -6321,7 +6331,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/session/agree.o \
                                       $(BUILD_DIR)/session/session.o \
                                       $(BUILD_DIR)/spool/spool.o \
-                                      $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
                                       $(BUILD_DIR)/facet/facet.o \
@@ -7964,7 +7974,7 @@ SITU_DIR ?=
 # adopted as checked contracts (committed .wire/.map, pinned by `schema`),
 # with the hand-written codec still producing the bytes. sec 304-305.
 SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_record.situ \
-              prekey/prekey_record.situ persist/persist.situ spool/message_wire.situ \
+              prekey/prekey_record.situ persist/persist_wire.situ spool/message_wire.situ \
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain_wire.situ provision/provision_record.situ \
               record/store_file.situ catalog/attribute_row.situ \
@@ -8735,6 +8745,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_persist_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new persist/persist_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_persist_wire \
+	         --out $(BUILD_DIR)/.gen.new persist/persist_wire.situ persist/persist_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_members_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/members_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_members_wire \
@@ -8996,6 +9010,7 @@ schema:
 	          reconcile_wire.c reconcile_wire.h reconcile_wire_build.h reconcile_wire_edit.h reconcile_wire_vectors.c \
 	          sync_wire.c sync_wire.h sync_wire_build.h sync_wire_edit.h sync_wire_vectors.c \
 	          members_wire.c members_wire.h members_wire_build.h members_wire_vectors.c \
+	          persist_wire.c persist_wire.h persist_wire_build.h persist_wire_edit.h persist_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

@@ -1,5 +1,8 @@
 // The persist blobs as a situ schema, converted from the hand-written layout
-// in persist/persist.c. These are ON-DISK blobs a backend stores and returns,
+// in persist/persist.c, which now packs and opens its own five bodies --
+// trust, secret, peer, chain, identity -- through the code situ generates
+// from this (sec 1396); the other packers follow. `_wire`, so the generated
+// file's name meets no source's. These are ON-DISK blobs a backend stores and returns,
 // so the target is `file`: per the grammar (doc/decision/0047), `target file`
 // sets effect = EffectOnWrite on every member, which is the on-write discipline
 // an at-rest record wants, where `target buffer` is for bytes already in hand.

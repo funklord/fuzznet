@@ -130,7 +130,7 @@ int main(void)
 		   "packed, reading a hop past the end of its own array");
 	}
 
-	/* THE BYTES, AT THE OFFSETS persist.situ STATES (sec 387), written as
+	/* THE BYTES, AT THE OFFSETS persist_wire.situ STATES (sec 387), written as
 	 * literals so the schema and peer_persist.c's OFF_ macros are two
 	 * witnesses rather than one: sender at 2, the keys at 34 and 66, the
 	 * count at 98, hops from 99 at 179 each, and the longest blob the
@@ -146,7 +146,7 @@ int main(void)
 	           && memcmp(blob + 278, p.hop_bytes[1], 179) == 0,
 	   "the node peer's hop count is not at 98, or its hops do not follow it at 179 each");
 	ok(FZN_NODE_PEER_BLOB_MAX == 1531u,
-	   "the longest node peer blob is not the longest persist.situ allows");
+	   "the longest node peer blob is not the longest persist_wire.situ allows");
 
 	/* And at OPEN, where the count arrives from a file rather than from a
 	 * caller -- the case that matters, since a file is somebody else's. */

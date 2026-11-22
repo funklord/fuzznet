@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1395
+The newest work is at the end of this file. **Read secs 1287 to 1396
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -47391,7 +47391,7 @@ Pairing. The daemon holds a key now, so `fzn_node_provision_peer` and
 which capability, for how long -- is the part the header still keeps out of
 the daemon, and it is where the next piece starts.
 
-~~`persist/persist.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
+~~`persist/persist_wire.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
 variable-length and packed in `node/peer_persist.c`, and the schema does not
 describe it.~~ It does since sec 387, along with 7 and 8, which were added
 later.
@@ -48214,7 +48214,7 @@ refusal to undo a withdrawal, and the verb's dispatch.
 
 ## 387. The node peer blob, described, 2026-09-28
 
-`persist/persist.situ` described every persist blob but one: tag 5, the
+`persist/persist_wire.situ` described every persist blob but one: tag 5, the
 peer as the node keeps it. sec 375 recorded this, and it was the one layout
 in `persist.h`'s inventory existing only as offsets in
 `node/peer_persist.c`. Everything in secs 380-386 stores its authority in
@@ -49325,7 +49325,7 @@ offsets are pinned as literals in `revocation.c`'s static asserts and
 in `revocation_test`, so the two agree without either being derived
 from the other.
 
-`persist/persist.situ` also said a stored revocation was 202 bytes, and
+`persist/persist_wire.situ` also said a stored revocation was 202 bytes, and
 `make schema` passed over it. That gate compares the schema with what
 situ generates from the schema, never with the C. It is corrected to
 210, and gains the vote blob (tag 9) that sec 399 added to the C and not
@@ -49933,7 +49933,7 @@ and root set, persisted, and attaches them to its revocation store.
 - **Core, not store**, by persist.h's rule. A lost entry leaves a
   removal's cut impossible to follow; a lost removal lets a removed root
   count again.
-- `persist/persist.situ` states the three bodies, and situ `2744f65`
+- `persist/persist_wire.situ` states the three bodies, and situ `2744f65`
   gives 171, 130 and 162 bytes.
 
 ### What it does
@@ -56069,7 +56069,7 @@ where the check they break now lives.
   revokes with. A node that is neither writes nothing.
 - **Kept in core slot 28**, each record with its writer's chain, under the
   record's hash. Core because a removal rolled back is a removed contact
-  served again. Blob tag 29, stated in `persist/persist.situ`.
+  served again. Blob tag 29, stated in `persist/persist_wire.situ`.
 - **Written as a root, logged as its act**, kind `FZN_ROOT_ACT_ROSTER`, as
   sec 413 asked of the first node to write a roster: `fzn_node_roster_t`
   calls `wrote` after each record, and `fzn_node_admin_log_roster` logs it
@@ -56687,7 +56687,7 @@ trusts. The signature moves to 178 and a record is 242 bytes. A record of the
 change**, as sec 400's epoch was.
 
 - `situc wire --check` classified `chain/revocation.situ` as "2 breaking,
-  1 compatible" and `persist/persist.situ` as "4 breaking" (the stored
+  1 compatible" and `persist/persist_wire.situ` as "4 breaking" (the stored
   revocation and the vote body).
 - Both were regenerated against situ `08c4682`. situ's map puts the cut at
   0x92 and the signature at 0xB2.
@@ -57113,7 +57113,7 @@ Sec 498's node half. `node/succession.h` holds it.
 
 - **Slot 30, blob tag 31:** a succession and its issuer's admin chain (none
   for a root), saved under the record's hash. Stated in
-  `persist/persist.situ` as `fzn_persist_succession_body`. **It is in the
+  `persist/persist_wire.situ` as `fzn_persist_succession_body`. **It is in the
   core store, named rather than left to the default.** One rolled back
   moves a re-keyed device's references back to its revoked key: a loss
   rather than a door, and the guarded place is where a loss costs least to
@@ -58696,7 +58696,7 @@ the blobs.
 ### Also corrected
 
 Sec 517 retired slot 18 in `persist/persist.h` and left `note_seq` in
-`persist/persist.situ`. The schema gate could not see that, since it
+`persist/persist_wire.situ`. The schema gate could not see that, since it
 compares the schema with its generated files, not with the header. Tag 18
 and its body are retired from the schema too now, and the generated
 `.wire` and `.map` regenerated with tag 32 added.
@@ -66885,7 +66885,7 @@ per share, whose default when the sharer gives none is the group's own
 **Built:**
 
 - **The share row carries it**: `catch_up` after `shared_at`, 0 as the
-  group's setting, 1 yes, 2 no -- `persist/persist.situ`, its `.wire` and
+  group's setting, 1 yes, 2 no -- `persist/persist_wire.situ`, its `.wire` and
   `.map` regenerated against situ 55793db, which classes it an appended
   field, compatible. A row of the old length reads as 0.
 - **`add share SUBTREE @GROUP [backfill 0|1]`**: said with the flag, or
@@ -94866,7 +94866,7 @@ bounds (a read-only audit, every finding then checked here by hand):
   that maximum is 262144, and the server fills a page to its reply
   buffer -- some 280 claims at the smallest. The bound is gone; the count
   is as many as the reply holds.
-- **`persist/persist.situ`'s tag 25, `contact_group`**, retired with the
+- **`persist/persist_wire.situ`'s tag 25, `contact_group`**, retired with the
   groups of contacts in sec 626 and refused by the code: the contract
   accepted a tag the code does not. It is a comment now, as 10 and 18
   are, its body struct and arm removed.
@@ -95726,7 +95726,7 @@ refusals. Its enum is `fzn_revocation_kind`, situ having warned that
 does not validate, so the encoder still cannot write what its parser
 refuses; `fzn_admin_confirm_issue` writes the confirmation through the
 edit layer and signs what situ says the signature covers. The comments in
-`chain/root_act.situ` and `persist/persist.situ` follow the rename.
+`chain/root_act.situ` and `persist/persist_wire.situ` follow the rename.
 
 situ's `wire --check` called the enum's rename breaking -- "the same bytes
 now mean something else" -- though its values are unchanged; sent to situ
@@ -96618,3 +96618,38 @@ only from a camera; and the joining device needs no address field,
 because the host answers it at the address its ask came from (sec 896).
 So fuzzypickles can retire the exchange with the box. The RPCs stay in
 the library for now; nothing here asked for their removal.
+
+## 1396. persist.c's own blobs through situ's code; stage one of persist, 2026-11-22
+
+The fortieth and last of the layouts, begun: `persist/persist.situ` is
+`persist/persist_wire.situ`, its contract unchanged but for its name
+line. `persist/persist.c` packs and opens its own five bodies -- trust,
+secret, peer, chain, identity -- through the generated body builders and
+views. A pack writes the head, then builds the body behind it; an open
+checks the head, then reads the body through its view. The peer's body is
+built from the trust packer's own body bytes, so a trust keeps ONE
+encoding, as the peer packer's comment requires.
+
+**The head stays hand-written for now.** `fzn_persist_head_write` and
+`fzn_persist_head_check` are the frame every packer in seventeen files
+calls -- version, tag and EXACT length. They go onto the
+blob's view once the bodies outside persist.c have moved, as each of
+those calls them; moving the frame first would change seventeen files
+for two bytes.
+
+**Stage two onward, by file:** node/revoke.c (39 sites), notes/store.c
+and node/roots.c (32 each), notes/received.c (23), node/peer_persist.c
+(14), then node/contact_devices.c, node/files.c, notes/share.c,
+node/succession.c, log/rules.c, notes/purge.c, node/roster.c,
+node/received.c, contact/contact.c, notes/sync.c's partner, node/pair.c,
+node/holdings.c.
+
+**Evidence the bytes are the same:** persist_kat_test (22) passes, and
+persist_fuzz gives its counts of before case for case (20000 cases, 1683
+mutations refused, 18317 reflected). persist_wire_vectors (3);
+persist_test (521), persist_file_test (175), cache_test, delta_test,
+peer_persist_test, pair_test (443), sim_provision_test (280); every one
+of the 50 links carrying persist.o builds. Sabotage
+`persist-open-must-not-clear`, `persist-pinned-anchor-refused` and
+`persist-identity-open-refuses-a-zero-seed` retargeted onto the view's
+pointers.

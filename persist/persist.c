@@ -1,6 +1,8 @@
 /* See persist.h. */
 
 #include "persist.h"
+#include "../wire/generated/persist_wire.h"
+#include "../wire/generated/persist_wire_build.h"
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
@@ -102,6 +104,16 @@ fzn_persist_err_t fzn_persist_head_check(const uint8_t *bytes, size_t len, size_
 	return FZN_PERSIST_OK;
 }
 
+/* A BODY'S BYTES AS A VIEW, sec 1396: `head_check` has held the version,
+ * the tag and the exact length, so the view is over the body alone. */
+static situ_err_t body_at(situ_msg_t *m, const uint8_t *bytes, size_t len)
+{
+	if (len > UINT32_MAX)
+		return SITU_ERR_BOUNDS;
+	situ_msg_init(m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	return SITU_OK;
+}
+
 /* ---- trust ------------------------------------------------------------ */
 
 fzn_persist_err_t fzn_persist_trust_pack(const fzn_trust_t *trust, uint8_t *out, size_t cap,
@@ -124,9 +136,16 @@ fzn_persist_err_t fzn_persist_trust_pack(const fzn_trust_t *trust, uint8_t *out,
 	if (err != FZN_PERSIST_OK)
 		return err;
 
-	memcpy(out + OFF_BODY, root, FZN_PUBKEY_LEN);
-	out[OFF_BODY + FZN_PUBKEY_LEN] = (uint8_t)fzn_trust_source_of(trust);
-	fzn_put_be64(out + OFF_BODY + FZN_PUBKEY_LEN + 1u, fzn_trust_adopted_at(trust));
+	{
+		uint32_t wrote = 0;
+
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1396. */
+		if (fzn_persist_wire_fzn_persist_trust_body_build(out + OFF_BODY, TRUST_BODY, root,
+		                                                  (uint8_t)fzn_trust_source_of(trust),
+		                                                  fzn_trust_adopted_at(trust), &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
+	}
 	*len = OFF_BODY + TRUST_BODY;
 	return FZN_PERSIST_OK;
 }
@@ -136,15 +155,22 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 	fzn_persist_err_t err;
 	fzn_trust_source_t source;
 	uint64_t adopted_at;
+	situ_msg_t m;
+	situ_view_t b;
+	const uint8_t *root;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
 	err = fzn_persist_head_check(bytes, len, TRUST_BODY, BLOB_TRUST);
 	if (err != FZN_PERSIST_OK)
 		return err;
-
-	source = (fzn_trust_source_t)bytes[OFF_BODY + FZN_PUBKEY_LEN];
-	adopted_at = fzn_get_be64(bytes + OFF_BODY + FZN_PUBKEY_LEN + 1u);
+	/* THE BODY READ THROUGH ITS VIEW, sec 1396. */
+	if (body_at(&m, bytes, len) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_trust_body_view(&m, OFF_BODY, &b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	root = fzn_persist_wire_fzn_persist_trust_body_root_ptr(b);
+	source = (fzn_trust_source_t)fzn_persist_wire_fzn_persist_trust_body_source_get(b);
+	adopted_at = fzn_persist_wire_fzn_persist_trust_body_adopted_at_get(b);
 
 	/* THE PROVENANCE IS RESTORED, NOT RE-DECIDED. A host that confirmed a
 	 * key out of band and then restarted must not come back saying it
@@ -174,10 +200,10 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 
 	fzn_trust_init(out);
 	if (source == FZN_TRUST_PINNED) {
-		if (fzn_trust_pin(out, bytes + OFF_BODY) != FZN_TRUST_OK)
+		if (fzn_trust_pin(out, root) != FZN_TRUST_OK)
 			return FZN_PERSIST_ERR_SHAPE;
 	} else if (source == FZN_TRUST_ADOPTED) {
-		if (fzn_trust_adopt(out, bytes + OFF_BODY, adopted_at) != FZN_TRUST_OK)
+		if (fzn_trust_adopt(out, root, adopted_at) != FZN_TRUST_OK)
 			return FZN_PERSIST_ERR_SHAPE;
 	} else if (source == FZN_TRUST_SELF) {
 		/* A self-root comes back self-rooted, by the same
@@ -186,7 +212,7 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 		 * estate, and a pin is the one thing permitted to replace a
 		 * self-root -- so laundering it here would close the join path
 		 * and open nothing in its place. project.md sec 136. */
-		if (fzn_trust_self(out, bytes + OFF_BODY) != FZN_TRUST_OK)
+		if (fzn_trust_self(out, root) != FZN_TRUST_OK)
 			return FZN_PERSIST_ERR_SHAPE;
 	} else {
 		/* NONE, or a byte that is not a source at all. Refused rather
@@ -217,9 +243,14 @@ fzn_persist_err_t fzn_persist_secret_pack(const fzn_agree_secret_t *secret, uint
 	 * restore, so there is no second copy to disagree with it -- which is
 	 * exactly why `fzn_agree_secret_install` takes the secret and derives
 	 * rather than taking both. */
-	memcpy(out + OFF_BODY, secret->secret, FZN_AGREE_SECRET_LEN);
-	fzn_put_be64(out + OFF_BODY + FZN_AGREE_SECRET_LEN,
-	             fzn_agree_secret_generation(secret));
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_persist_wire_fzn_persist_secret_body_build(out + OFF_BODY, SECRET_BODY, secret->secret,
+		                                                   fzn_agree_secret_generation(secret), &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
+	}
 	*len = OFF_BODY + SECRET_BODY;
 	return FZN_PERSIST_OK;
 }
@@ -230,12 +261,17 @@ fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
 {
 	fzn_persist_err_t err;
 	uint64_t generation;
+	situ_msg_t m;
+	situ_view_t b;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
 	err = fzn_persist_head_check(bytes, len, SECRET_BODY, BLOB_SECRET);
 	if (err != FZN_PERSIST_OK)
 		return err;
+	if (body_at(&m, bytes, len) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_secret_body_view(&m, OFF_BODY, &b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
 
 	/* NOT CLEARED FIRST, and that is the whole of this path's contract.
 	 *
@@ -266,14 +302,15 @@ fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
 	 * is how a guard that is not merely unheld but pointing the wrong way
 	 * looks from inside a sweep. project.md sec 37 has the reasoning and
 	 * the two readings that were not taken. */
-	if (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)
+	if (fzn_agree_secret_install(out, agree, fzn_persist_wire_fzn_persist_secret_body_secret_ptr(b))
+	    != FZN_AGREE_OK)
 		return FZN_PERSIST_ERR_BACKEND;
 
 	/* THE GENERATION IS RESTORED AFTER INSTALLING, because installing
 	 * counts as a rotation and would otherwise reset it to zero -- and a
 	 * host that came back at generation 0 would publish a prekey record
 	 * that looks older than the one its peers already hold. */
-	generation = fzn_get_be64(bytes + OFF_BODY + FZN_AGREE_SECRET_LEN);
+	generation = fzn_persist_wire_fzn_persist_secret_body_generation_get(b);
 	out->generation = generation;
 	return FZN_PERSIST_OK;
 }
@@ -295,7 +332,13 @@ fzn_persist_err_t fzn_persist_identity_pack(const uint8_t seed[FZN_SIGN_SEED_LEN
 	err = fzn_persist_head_write(out, cap, IDENTITY_BODY, BLOB_IDENTITY);
 	if (err != FZN_PERSIST_OK)
 		return err;
-	memcpy(out + OFF_BODY, seed, FZN_SIGN_SEED_LEN);
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_persist_wire_fzn_persist_identity_body_build(out + OFF_BODY, IDENTITY_BODY, seed, &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
+	}
 	*len = OFF_BODY + IDENTITY_BODY;
 	return FZN_PERSIST_OK;
 }
@@ -304,17 +347,24 @@ fzn_persist_err_t fzn_persist_identity_open(const uint8_t *bytes, size_t len,
                                              uint8_t seed_out[FZN_SIGN_SEED_LEN])
 {
 	fzn_persist_err_t err;
+	situ_msg_t m;
+	situ_view_t b;
+	const uint8_t *seed;
 
 	if (!bytes || !seed_out)
 		return FZN_PERSIST_ERR_MALFORMED;
 	err = fzn_persist_head_check(bytes, len, IDENTITY_BODY, BLOB_IDENTITY);
 	if (err != FZN_PERSIST_OK)
 		return err;
+	if (body_at(&m, bytes, len) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_identity_body_view(&m, OFF_BODY, &b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	seed = fzn_persist_wire_fzn_persist_identity_body_seed_ptr(b);
 	/* SHAPE, NOT MALFORMED: the caller asked properly and the stored
 	 * bytes are the fault, which is what SHAPE means everywhere here. */
-	if (fzn_ct_memeq(bytes + OFF_BODY, ZERO_SEED, FZN_SIGN_SEED_LEN))
+	if (fzn_ct_memeq(seed, ZERO_SEED, FZN_SIGN_SEED_LEN))
 		return FZN_PERSIST_ERR_SHAPE;
-	memcpy(seed_out, bytes + OFF_BODY, FZN_SIGN_SEED_LEN);
+	memcpy(seed_out, seed, FZN_SIGN_SEED_LEN);
 	return FZN_PERSIST_OK;
 }
 
@@ -324,7 +374,6 @@ fzn_persist_err_t fzn_persist_peer_pack(const fzn_prekey_peer_t *peer, uint8_t *
                                          size_t *len)
 {
 	fzn_persist_err_t err;
-	size_t at;
 
 	if (!peer || !out || !len)
 		return FZN_PERSIST_ERR_MALFORMED;
@@ -340,16 +389,19 @@ fzn_persist_err_t fzn_persist_peer_pack(const fzn_prekey_peer_t *peer, uint8_t *
 		uint8_t inner[OFF_BODY + TRUST_BODY];
 		size_t inner_len = 0;
 
+		uint32_t wrote = 0;
+
 		err = fzn_persist_trust_pack(&peer->trust, inner, sizeof(inner), &inner_len);
 		if (err != FZN_PERSIST_OK)
 			return err;
-		memcpy(out + OFF_BODY, inner + OFF_BODY, TRUST_BODY);
+		/* THE BODY BUILT BY THE GENERATED BUILDER, sec 1396, the trust's
+		 * body as the trust packer wrote it. */
+		if (fzn_persist_wire_fzn_persist_peer_body_build(out + OFF_BODY, PEER_BODY, inner + OFF_BODY,
+		                                                 TRUST_BODY, peer->prekey, peer->created_at,
+		                                                 &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
 	}
-
-	at = OFF_BODY + TRUST_BODY;
-	memcpy(out + at, peer->prekey, FZN_PREKEY_LEN);
-	at += FZN_PREKEY_LEN;
-	fzn_put_be64(out + at, peer->created_at);
 	*len = OFF_BODY + PEER_BODY;
 	return FZN_PERSIST_OK;
 }
@@ -359,27 +411,31 @@ fzn_persist_err_t fzn_persist_peer_open(const uint8_t *bytes, size_t len,
 {
 	uint8_t trust_blob[OFF_BODY + TRUST_BODY];
 	fzn_persist_err_t err;
-	size_t at;
+	situ_msg_t m;
+	situ_view_t b, t;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
 	err = fzn_persist_head_check(bytes, len, PEER_BODY, BLOB_PEER);
 	if (err != FZN_PERSIST_OK)
 		return err;
+	/* THE BODY READ THROUGH ITS VIEW, sec 1396. */
+	if (body_at(&m, bytes, len) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_peer_body_view(&m, OFF_BODY, &b) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_peer_body_trust_view(b, &t) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
 
 	fzn_prekey_peer_init(out);
 
 	trust_blob[OFF_VERSION] = (uint8_t)FZN_PERSIST_VERSION;
 	trust_blob[OFF_TAG] = BLOB_TRUST;
-	memcpy(trust_blob + OFF_BODY, bytes + OFF_BODY, TRUST_BODY);
+	memcpy(trust_blob + OFF_BODY, situ_base(t), TRUST_BODY);
 	err = fzn_persist_trust_open(trust_blob, sizeof(trust_blob), &out->trust);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
-	at = OFF_BODY + TRUST_BODY;
-	memcpy(out->prekey, bytes + at, FZN_PREKEY_LEN);
-	at += FZN_PREKEY_LEN;
-	out->created_at = fzn_get_be64(bytes + at);
+	memcpy(out->prekey, fzn_persist_wire_fzn_persist_peer_body_prekey_ptr(b), FZN_PREKEY_LEN);
+	out->created_at = fzn_persist_wire_fzn_persist_peer_body_created_at_get(b);
 	return FZN_PERSIST_OK;
 }
 
@@ -404,8 +460,14 @@ fzn_persist_err_t fzn_persist_chain_pack(const fzn_ratchet_chain_t *chain, uint8
 	if (err != FZN_PERSIST_OK)
 		return err;
 
-	memcpy(out + OFF_BODY, chain->key, FZN_CHAIN_KEY_LEN);
-	fzn_put_be64(out + OFF_BODY + FZN_CHAIN_KEY_LEN, chain->seq);
+	{
+		uint32_t wrote = 0;
+
+		if (fzn_persist_wire_fzn_persist_chain_body_build(out + OFF_BODY, CHAIN_BODY, chain->key, chain->seq,
+		                                                  &wrote)
+		    != SITU_OK)
+			return FZN_PERSIST_ERR_MALFORMED;
+	}
 	*len = OFF_BODY + CHAIN_BODY;
 	return FZN_PERSIST_OK;
 }
@@ -414,14 +476,19 @@ fzn_persist_err_t fzn_persist_chain_open(const uint8_t *bytes, size_t len,
                                           fzn_ratchet_chain_t *out)
 {
 	fzn_persist_err_t err;
+	situ_msg_t m;
+	situ_view_t b;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
 	err = fzn_persist_head_check(bytes, len, CHAIN_BODY, BLOB_CHAIN);
 	if (err != FZN_PERSIST_OK)
 		return err;
-
-	fzn_ratchet_init(out, bytes + OFF_BODY, fzn_get_be64(bytes + OFF_BODY + FZN_CHAIN_KEY_LEN));
+	if (body_at(&m, bytes, len) != SITU_OK
+	    || fzn_persist_wire_fzn_persist_chain_body_view(&m, OFF_BODY, &b) != SITU_OK)
+		return FZN_PERSIST_ERR_SHAPE;
+	fzn_ratchet_init(out, fzn_persist_wire_fzn_persist_chain_body_key_ptr(b),
+	                 fzn_persist_wire_fzn_persist_chain_body_seq_get(b));
 	return FZN_PERSIST_OK;
 }
 

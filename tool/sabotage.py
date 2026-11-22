@@ -1593,9 +1593,9 @@ SABOTAGES = [
 	(
 		"persist-open-must-not-clear",
 		"persist/persist.c",
-		"\tif (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)\n",
+		"\tif (fzn_agree_secret_install(out, agree, fzn_persist_wire_fzn_persist_secret_body_secret_ptr(b))\n",
 		"\tmemset(out, 0, sizeof(*out));\n"
-		"\tif (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)\n",
+		"\tif (fzn_agree_secret_install(out, agree, fzn_persist_wire_fzn_persist_secret_body_secret_ptr(b))\n",
 		"a refused restore must leave the caller's secret in place",
 	),
 	(
@@ -2456,8 +2456,8 @@ SABOTAGES = [
 	(
 		"persist-pinned-anchor-refused",
 		"persist/persist.c",
-		"\t\tif (fzn_trust_pin(out, bytes + OFF_BODY) != FZN_TRUST_OK)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
-		"\t\t(void)fzn_trust_pin(out, bytes + OFF_BODY);\n",
+		"\t\tif (fzn_trust_pin(out, root) != FZN_TRUST_OK)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\t\t(void)fzn_trust_pin(out, root);\n",
 		"a stored anchor whose root is unusable must not restore, or a host back from a tampered file is anchored to a key nobody holds",
 	),
 	(
@@ -3126,7 +3126,7 @@ SABOTAGES = [
 	(
 		"persist-identity-open-refuses-a-zero-seed",
 		"persist/persist.c",
-		"\tif (fzn_ct_memeq(bytes + OFF_BODY, ZERO_SEED, FZN_SIGN_SEED_LEN))\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\tif (fzn_ct_memeq(seed, ZERO_SEED, FZN_SIGN_SEED_LEN))\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
 		"",
 		"an all-zero seed derives a key anybody can compute, and a stored file of zeroes is far likelier truncated than chosen -- opened, a host restores as an identity everyone can sign for -- sec 375",
 	),

@@ -4994,7 +4994,7 @@ int main(void)
 		              && memcmp(&back, &kept, sizeof(back)) == 0,
 		      "the pairing did not come back as it was stored");
 
-		/* THE BYTES, AT THE OFFSETS persist.situ STATES: node at 2,
+		/* THE BYTES, AT THE OFFSETS persist_wire.situ STATES: node at 2,
 		 * capability at 34, keys at 66 and 98, the hop count at 130 and
 		 * the chain from 131. */
 		CHECK(fzn_node_pairing_pack(&kept, blob, sizeof(blob), &blob_len) == FZN_PERSIST_OK
@@ -5005,7 +5005,7 @@ int main(void)
 		              && memcmp(blob + 98, kept.send_ckey, 32) == 0
 		              && blob[130] == 1u
 		              && memcmp(blob + 131, kept.chain[0], FZN_HOP_LEN) == 0,
-		      "the pairing blob is not laid out as persist.situ describes it");
+		      "the pairing blob is not laid out as persist_wire.situ describes it");
 
 		/* TWO COPIES OF THE CAPABILITY MUST AGREE, or the blob has two
 		 * encodings. */

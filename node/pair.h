@@ -141,7 +141,7 @@ typedef struct fzn_node_pairing {
 } fzn_node_pairing_t;
 
 /* The stored form: node | capability | send_key | send_ckey | hop_count |
- * chain, after the shared head. `persist/persist.situ` states it. */
+ * chain, after the shared head. `persist/persist_wire.situ` states it. */
 #define FZN_NODE_PAIRING_BODY_LEN(n) \
 	((size_t)FZN_PUBKEY_LEN + (size_t)FZN_CAP_ID_LEN + (size_t)FZN_AEAD_KEY_LEN + \
 	 (size_t)FZN_COMMITMENT_KEY_LEN + 1u + (size_t)(n) * (size_t)FZN_HOP_LEN)
