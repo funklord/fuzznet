@@ -67,45 +67,61 @@ static size_t served_ids_room, held_ids_room;
 static size_t answer_digest(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                             uint8_t *reply, size_t reply_cap)
 {
-	size_t at = FZN_RECONCILE_DIGEST_HEAD_LEN, c;
+	const size_t len = FZN_RECONCILE_DIGEST_HEAD_LEN + (size_t)FZN_HOLDINGS_CLASSES * FZN_RECONCILE_CLASS_LEN;
+	size_t c;
+	situ_msg_t m;
+	situ_view_t v, e;
 
-	if (reply_cap < FZN_RECONCILE_DIGEST_HEAD_LEN
-	                        + (size_t)FZN_HOLDINGS_CLASSES * FZN_RECONCILE_CLASS_LEN)
+	if (reply_cap < len)
 		return 0;
+	/* WRITTEN THROUGH ITS VIEW, sec 1391: the count before the classes,
+	 * each class through `classes_at` and its setters. */
+	memset(reply, 0, len);
+	situ_msg_init(&m, reply, (uint32_t)len);
+	if (fzn_reconcile_wire_fzn_reconcile_digest_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_digest_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_digest_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_DIGEST);
+	fzn_reconcile_wire_fzn_reconcile_digest_count_set(&m, v, (uint8_t)FZN_HOLDINGS_CLASSES);
 	for (c = 0; c < FZN_HOLDINGS_CLASSES; c++) {
 		size_t count = 0;
 		fzn_holdings_err_t err;
 
-		reply[at] = (uint8_t)c;
-		err = fzn_holdings_digest(store, hash, (fzn_holdings_class_t)c, reply + at + 5u, &count);
+		if (fzn_reconcile_wire_fzn_reconcile_digest_classes_at(v, (uint32_t)c, &e) != SITU_OK)
+			return 0;
+		fzn_reconcile_wire_fzn_reconcile_class_class_set(e, (uint8_t)c);
+		err = fzn_holdings_digest(store, hash, (fzn_holdings_class_t)c,
+		                          fzn_reconcile_wire_fzn_reconcile_class_digest_ptr(e), &count);
 		if (err == FZN_HOLDINGS_FULL) {
-			fzn_put_be32(reply + at + 1u, COUNT_FULL);
-			memset(reply + at + 5u, 0, FZN_HOLDINGS_ID_LEN);
+			fzn_reconcile_wire_fzn_reconcile_class_count_set(e, COUNT_FULL);
+			memset(fzn_reconcile_wire_fzn_reconcile_class_digest_ptr(e), 0, FZN_HOLDINGS_ID_LEN);
 		} else if (err != FZN_HOLDINGS_OK) {
 			return 0;
 		} else {
-			fzn_put_be32(reply + at + 1u, (uint32_t)count);
+			fzn_reconcile_wire_fzn_reconcile_class_count_set(e, (uint32_t)count);
 		}
-		at += FZN_RECONCILE_CLASS_LEN;
 	}
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_DIGEST;
-	reply[2] = (uint8_t)FZN_HOLDINGS_CLASSES;
-	return at;
+	return len;
 }
 
 static size_t answer_ids(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                          const uint8_t *request, size_t request_len, uint8_t *reply,
                          size_t reply_cap)
 {
-	size_t n = 0, from, count, room;
+	size_t n = 0, from, count, room, len;
 	uint8_t cls;
+	situ_msg_t m, out;
+	situ_view_t q, v;
 
-	if (request_len != FZN_RECONCILE_IDS_QUERY_LEN || request[2] >= FZN_HOLDINGS_CLASSES
-	    || reply_cap < FZN_RECONCILE_IDS_HEAD_LEN)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1391: a class of at most 8. */
+	if (request_len != FZN_RECONCILE_IDS_QUERY_LEN || reply_cap < FZN_RECONCILE_IDS_HEAD_LEN)
 		return 0;
-	cls = request[2];
-	from = fzn_get_be32(request + 3u);
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_ids_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_ids_query_validate(q) != SITU_OK)
+		return 0;
+	cls = fzn_reconcile_wire_fzn_reconcile_ids_query_class_get(q);
+	from = fzn_reconcile_wire_fzn_reconcile_ids_query_from_get(q);
 	if (fzn_holdings_ids_all(store, hash, (fzn_holdings_class_t)cls, &served_ids,
 	                         &served_ids_room, &n) != FZN_HOLDINGS_OK)
 		return 0;
@@ -115,15 +131,26 @@ static size_t answer_ids(const fzn_persist_ops_t *store, const fzn_hash_ops_t *h
 		count = room;
 	if (count > 0xffffu)
 		count = 0xffffu;
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_IDS;
-	reply[2] = cls;
-	fzn_put_be32(reply + 3u, (uint32_t)n);
-	fzn_put_be32(reply + 7u, (uint32_t)from);
-	fzn_put_be16(reply + 11u, (uint16_t)count);
-	if (count)
-		memcpy(reply + FZN_RECONCILE_IDS_HEAD_LEN, served_ids[from], count * FZN_HOLDINGS_ID_LEN);
-	return FZN_RECONCILE_IDS_HEAD_LEN + (count * FZN_HOLDINGS_ID_LEN);
+	/* WRITTEN THROUGH ITS VIEW, sec 1391: the head, the count before the
+	 * ids, the ids one after another where the run starts. */
+	len = FZN_RECONCILE_IDS_HEAD_LEN + (count * FZN_HOLDINGS_ID_LEN);
+	situ_msg_init(&out, reply, (uint32_t)len);
+	if (fzn_reconcile_wire_fzn_reconcile_ids_view(&out, 0u, (uint32_t)len, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_ids_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_ids_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_IDS);
+	fzn_reconcile_wire_fzn_reconcile_ids_class_set(v, cls);
+	fzn_reconcile_wire_fzn_reconcile_ids_total_set(v, (uint32_t)n);
+	fzn_reconcile_wire_fzn_reconcile_ids_from_set(v, (uint32_t)from);
+	fzn_reconcile_wire_fzn_reconcile_ids_count_set(&out, v, (uint16_t)count);
+	if (count) {
+		situ_view_t first;
+
+		if (fzn_reconcile_wire_fzn_reconcile_ids_ids_at(v, 0u, &first) != SITU_OK)
+			return 0;
+		memcpy(situ_base(first), served_ids[from], count * FZN_HOLDINGS_ID_LEN);
+	}
+	return len;
 }
 
 struct serving {
@@ -160,27 +187,45 @@ static size_t answer_objects(const fzn_persist_ops_t *store, const fzn_hash_ops_
 {
 	struct serving s;
 	size_t n;
+	situ_msg_t m, out;
+	situ_view_t q, v, first;
+	uint32_t need = 0;
+	uint8_t cls;
 
-	if (request_len < FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN || request[2] >= FZN_HOLDINGS_CLASSES
-	    || reply_cap < FZN_RECONCILE_OBJECTS_HEAD_LEN)
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1391: a class of at most 8,
+	 * 1 to 32 ids and EXACTLY THEM. */
+	if (request_len < FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN || request_len > UINT32_MAX
+	    || reply_cap < FZN_RECONCILE_OBJECTS_HEAD_LEN
+	    || fzn_reconcile_wire_fzn_reconcile_objects_query_required(request, (uint32_t)request_len, &need) != SITU_OK
+	    || need != request_len)
 		return 0;
-	n = request[3];
-	if (n == 0u || n > FZN_RECONCILE_ASK_MAX
-	    || request_len != FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN + (n * FZN_HOLDINGS_ID_LEN))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_objects_query_view(&m, 0u, (uint32_t)request_len, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_objects_query_validate(q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_objects_query_ids_at(q, 0u, &first) != SITU_OK)
 		return 0;
-	s.wanted = request + FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN;
+	cls = fzn_reconcile_wire_fzn_reconcile_objects_query_class_get(q);
+	n = fzn_reconcile_wire_fzn_reconcile_objects_query_count_get(q);
+	if (n > FZN_RECONCILE_ASK_MAX)
+		return 0;
+	s.wanted = situ_base(first);
 	s.n_wanted = n;
 	s.reply = reply;
 	s.at = FZN_RECONCILE_OBJECTS_HEAD_LEN;
 	s.cap = reply_cap;
 	s.count = 0;
-	if (fzn_holdings_each(store, hash, (fzn_holdings_class_t)request[2], serve_one, &s, NULL)
+	if (fzn_holdings_each(store, hash, (fzn_holdings_class_t)cls, serve_one, &s, NULL)
 	    != FZN_HOLDINGS_OK)
 		return 0;
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_OBJECTS;
-	reply[2] = request[2];
-	fzn_put_be16(reply + 3u, (uint16_t)s.count);
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1391, the objects already in
+	 * their places, each written as it was found. */
+	situ_msg_init(&out, reply, (uint32_t)s.at);
+	if (fzn_reconcile_wire_fzn_reconcile_objects_view(&out, 0u, (uint32_t)s.at, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_objects_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_objects_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_OBJECTS);
+	fzn_reconcile_wire_fzn_reconcile_objects_class_set(v, cls);
+	fzn_reconcile_wire_fzn_reconcile_objects_count_set(&out, v, (uint16_t)s.count);
 	return s.at;
 }
 
@@ -196,31 +241,43 @@ static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, s
 	uint64_t base, from, seq, received;
 	size_t at = FZN_RECONCILE_BASE_HEAD_LEN, count = 0;
 	uint32_t stream;
+	const uint8_t *issuer;
+	situ_msg_t m, out;
+	situ_view_t q, v;
 
+	/* THE QUERY READ AS THE SCHEMA SAYS, sec 1391: a `from` of at least 1. */
 	if (!journal || request_len != FZN_RECONCILE_BASE_QUERY_LEN
 	    || reply_cap < FZN_RECONCILE_BASE_HEAD_LEN)
 		return 0;
-	stream = fzn_get_be32(request + 34u);
-	from = fzn_get_be64(request + 38u);
-	if (from == 0u)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)request, (uint32_t)request_len);
+	if (fzn_reconcile_wire_fzn_reconcile_base_query_view(&m, 0u, &q) != SITU_OK
+	    || fzn_reconcile_wire_fzn_reconcile_base_query_validate(q) != SITU_OK)
 		return 0;
-	base = fzn_node_journal_base_below(journal, request + 2u, stream, below);
-	received = fzn_node_journal_received(journal, request + 2u, stream);
+	issuer = fzn_reconcile_wire_fzn_reconcile_base_query_issuer_ptr(q);
+	stream = fzn_reconcile_wire_fzn_reconcile_base_query_stream_get(q);
+	from = fzn_reconcile_wire_fzn_reconcile_base_query_from_get(q);
+	base = fzn_node_journal_base_below(journal, issuer, stream, below);
+	received = fzn_node_journal_received(journal, issuer, stream);
 	if (stream == FZN_NODE_JOURNAL_STREAM)
 		for (seq = from; seq <= received && count < 0xffffu
 		                 && reply_cap - at >= FZN_NODE_JOURNAL_SPINE_ENTRY;
 		     seq++) {
-			if (!fzn_node_journal_spine_entry(journal, request + 2u, seq, reply + at))
+			if (!fzn_node_journal_spine_entry(journal, issuer, seq, reply + at))
 				break;
 			at += FZN_NODE_JOURNAL_SPINE_ENTRY;
 			count++;
 		}
-	reply[0] = (uint8_t)FZN_CMD_RECONCILE;
-	reply[1] = (uint8_t)FZN_RECONCILE_BASE;
-	fzn_put_be64(reply + 2u, base);
-	memcpy(reply + 10u, below, sizeof(below));
-	fzn_put_be64(reply + 42u, from);
-	fzn_put_be16(reply + 50u, (uint16_t)count);
+	/* THE HEAD WRITTEN THROUGH ITS VIEW, sec 1391, the spine already in
+	 * its place. */
+	situ_msg_init(&out, reply, (uint32_t)at);
+	if (fzn_reconcile_wire_fzn_reconcile_base_view(&out, 0u, (uint32_t)at, &v) != SITU_OK)
+		return 0;
+	fzn_reconcile_wire_fzn_reconcile_base_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+	fzn_reconcile_wire_fzn_reconcile_base_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_BASE);
+	fzn_reconcile_wire_fzn_reconcile_base_base_set(v, base);
+	memcpy(fzn_reconcile_wire_fzn_reconcile_base_below_ptr(v), below, sizeof(below));
+	fzn_reconcile_wire_fzn_reconcile_base_from_set(v, from);
+	fzn_reconcile_wire_fzn_reconcile_base_count_set(&out, v, (uint16_t)count);
 	return at;
 }
 
@@ -726,33 +783,50 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, const fzn_reconcile_notes
 
 	while (start < n) {
 		size_t batch = n - start < FZN_RECONCILE_ASK_MAX ? n - start : FZN_RECONCILE_ASK_MAX;
-		size_t reply_len = 0, at = FZN_RECONCILE_OBJECTS_HEAD_LEN, count, i, j, kept = 0;
+		const size_t qlen = FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN + (batch * FZN_HOLDINGS_ID_LEN);
+		size_t reply_len = 0, count, i, j, kept = 0;
 		fzn_node_apply_tally_t t;
+		situ_msg_t m;
+		situ_view_t v, e;
+		uint32_t need = 0;
 
-		request[0] = (uint8_t)FZN_CMD_RECONCILE;
-		request[1] = (uint8_t)FZN_RECONCILE_OBJECTS_QUERY;
-		request[2] = cls;
-		request[3] = (uint8_t)batch;
-		memcpy(request + FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN, lacked[start],
-		       batch * FZN_HOLDINGS_ID_LEN);
-		if (!ask(ask_ctx, request, FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN
-		                                   + (batch * FZN_HOLDINGS_ID_LEN),
-		         reply, reply_cap, &reply_len))
+		/* THE QUERY WRITTEN THROUGH ITS VIEW, sec 1391: the count before
+		 * the ids, the ids one after another where the run starts. */
+		memset(request, 0, qlen);
+		situ_msg_init(&m, request, (uint32_t)qlen);
+		if (fzn_reconcile_wire_fzn_reconcile_objects_query_view(&m, 0u, (uint32_t)qlen, &v) != SITU_OK)
+			return FZN_RECONCILE_ERR_MALFORMED;
+		fzn_reconcile_wire_fzn_reconcile_objects_query_version_set(v, (uint8_t)FZN_CMD_RECONCILE);
+		fzn_reconcile_wire_fzn_reconcile_objects_query_type_set(v, FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_OBJECTS_QUERY);
+		fzn_reconcile_wire_fzn_reconcile_objects_query_class_set(v, cls);
+		fzn_reconcile_wire_fzn_reconcile_objects_query_count_set(&m, v, (uint8_t)batch);
+		if (fzn_reconcile_wire_fzn_reconcile_objects_query_ids_at(v, 0u, &e) != SITU_OK)
+			return FZN_RECONCILE_ERR_MALFORMED;
+		memcpy(situ_base(e), lacked[start], batch * FZN_HOLDINGS_ID_LEN);
+		if (!ask(ask_ctx, request, qlen, reply, reply_cap, &reply_len))
 			return FZN_RECONCILE_ERR_NO_ANSWER;
-		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_OBJECTS)
-		    || reply_len < FZN_RECONCILE_OBJECTS_HEAD_LEN || reply[2] != cls)
+		/* THE PAGE'S FRAME READ AS THE SCHEMA SAYS, and each object taken
+		 * as it is read, as before; EXACTLY ITS OBJECTS checked once all
+		 * are, by `required`, where the hand walk's last check was. */
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_OBJECTS) || reply_len < FZN_RECONCILE_OBJECTS_HEAD_LEN
+		    || reply_len > UINT32_MAX)
 			return FZN_RECONCILE_ERR_SHAPE;
-		count = fzn_get_be16(reply + 3u);
+		situ_msg_init(&m, reply, (uint32_t)reply_len);
+		if (fzn_reconcile_wire_fzn_reconcile_objects_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+		    || fzn_reconcile_wire_fzn_reconcile_objects_class_get(v) != cls)
+			return FZN_RECONCILE_ERR_SHAPE;
+		count = fzn_reconcile_wire_fzn_reconcile_objects_count_get(v);
 		memset(got, 0, sizeof(got));
 		for (i = 0; i < count; i++) {
 			uint8_t id[FZN_HOLDINGS_ID_LEN];
+			const uint8_t *object;
 			size_t len;
 
-			if (reply_len - at < 2u
-			    || reply_len - at - 2u < (len = fzn_get_be16(reply + at)))
+			if (fzn_reconcile_wire_fzn_reconcile_objects_objects_at(v, (uint32_t)i, &e) != SITU_OK)
 				return FZN_RECONCILE_ERR_SHAPE;
-			at += 2u;
-			if (!ap->hash->hash(ap->hash->ctx, id, sizeof(id), reply + at, len))
+			len = fzn_reconcile_wire_fzn_reconcile_object_len_get(e);
+			object = fzn_reconcile_wire_fzn_reconcile_object_object_ptr(e);
+			if (!ap->hash->hash(ap->hash->ctx, id, sizeof(id), object, len))
 				return FZN_RECONCILE_ERR_STORE;
 			for (j = 0; j < batch; j++)
 				if (!got[j] && memcmp(lacked[start + j], id, sizeof(id)) == 0)
@@ -765,8 +839,8 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, const fzn_reconcile_notes
 				kept++;
 				memset(&t, 0, sizeof(t));
 				switch (cls == (uint8_t)FZN_HOLDINGS_NOTES
-				                ? notes->file(notes->ctx, reply + at, len)
-				                : fzn_node_apply_object(ap, reply + at, len, &t)) {
+				                ? notes->file(notes->ctx, object, len)
+				                : fzn_node_apply_object(ap, object, len, &t)) {
 				case FZN_NODE_APPLY_APPLIED:
 					tally->applied++;
 					break;
@@ -777,13 +851,13 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, const fzn_reconcile_notes
 					return FZN_RECONCILE_ERR_STORE;
 				case FZN_NODE_APPLY_REFUSED:
 					tally->refused++;
-					note_refused(tally, cls, reply + at, len);
+					note_refused(tally, cls, object, len);
 					break;
 				}
 			}
-			at += len;
 		}
-		if (at != reply_len)
+		if (fzn_reconcile_wire_fzn_reconcile_objects_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
 			return FZN_RECONCILE_ERR_SHAPE;
 		if (kept == 0u) {
 			start += batch;
@@ -819,24 +893,42 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
 	    || reply_cap < FZN_RECONCILE_REPLY_MIN)
 		return FZN_RECONCILE_ERR_MALFORMED;
 	memset(tally, 0, sizeof(*tally));
-	request[0] = (uint8_t)FZN_CMD_RECONCILE;
-	request[1] = (uint8_t)FZN_RECONCILE_DIGEST_QUERY;
-	if (!ask(ask_ctx, request, FZN_RECONCILE_DIGEST_QUERY_LEN, reply, reply_cap, &reply_len))
-		return FZN_RECONCILE_ERR_NO_ANSWER;
-	if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_DIGEST)
-	    || reply_len < FZN_RECONCILE_DIGEST_HEAD_LEN
-	    || reply_len != FZN_RECONCILE_DIGEST_HEAD_LEN + (size_t)reply[2] * FZN_RECONCILE_CLASS_LEN)
-		return FZN_RECONCILE_ERR_SHAPE;
-	memset(listed, 0, sizeof(listed));
-	for (n = 0; n < reply[2]; n++) {
-		const uint8_t *e = reply + FZN_RECONCILE_DIGEST_HEAD_LEN + (n * FZN_RECONCILE_CLASS_LEN);
+	{
+		uint32_t wrote = 0, need = 0;
+		situ_msg_t m;
+		situ_view_t v, e;
 
-		/* A CLASS THIS BUILD DOES NOT KNOW is a newer peer's, passed over. */
-		if (e[0] >= FZN_HOLDINGS_CLASSES)
-			continue;
-		listed[e[0]] = 1;
-		their_count[e[0]] = fzn_get_be32(e + 1u);
-		memcpy(theirs[e[0]], e + 5u, FZN_HOLDINGS_ID_LEN);
+		(void)fzn_reconcile_wire_fzn_reconcile_digest_query_build(request, FZN_RECONCILE_DIGEST_QUERY_LEN,
+		                                                          (uint8_t)FZN_CMD_RECONCILE,
+		                                                          FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_DIGEST_QUERY, &wrote);
+		if (!ask(ask_ctx, request, FZN_RECONCILE_DIGEST_QUERY_LEN, reply, reply_cap, &reply_len))
+			return FZN_RECONCILE_ERR_NO_ANSWER;
+		/* EXACTLY ITS CLASSES by `required`, read through the view -- and
+		 * NOT `validate`d, deliberately (sec 1391): the schema bounds a
+		 * class at 8 and the count at 9, and a newer peer's digest naming a
+		 * class this build does not know is passed over, not refused. */
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_DIGEST) || reply_len < FZN_RECONCILE_DIGEST_HEAD_LEN
+		    || reply_len > UINT32_MAX
+		    || fzn_reconcile_wire_fzn_reconcile_digest_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
+			return FZN_RECONCILE_ERR_SHAPE;
+		situ_msg_init(&m, reply, (uint32_t)reply_len);
+		if (fzn_reconcile_wire_fzn_reconcile_digest_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK)
+			return FZN_RECONCILE_ERR_SHAPE;
+		memset(listed, 0, sizeof(listed));
+		for (n = 0; n < fzn_reconcile_wire_fzn_reconcile_digest_count_get(v); n++) {
+			uint8_t cls;
+
+			if (fzn_reconcile_wire_fzn_reconcile_digest_classes_at(v, (uint32_t)n, &e) != SITU_OK)
+				return FZN_RECONCILE_ERR_SHAPE;
+			cls = fzn_reconcile_wire_fzn_reconcile_class_class_get(e);
+			/* A CLASS THIS BUILD DOES NOT KNOW is a newer peer's, passed over. */
+			if (cls >= FZN_HOLDINGS_CLASSES)
+				continue;
+			listed[cls] = 1;
+			their_count[cls] = fzn_reconcile_wire_fzn_reconcile_class_count_get(e);
+			memcpy(theirs[cls], fzn_reconcile_wire_fzn_reconcile_class_digest_ptr(e), FZN_HOLDINGS_ID_LEN);
+		}
 	}
 	for (c = 0; c < FZN_HOLDINGS_CLASSES; c++) {
 		uint8_t mine[FZN_HOLDINGS_ID_LEN];
@@ -873,24 +965,39 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
 		 * class shrank since its digest is asked again next round. */
 		while (from < total) {
 			size_t count, i;
+			uint32_t wrote = 0, need = 0;
+			situ_msg_t m;
+			situ_view_t v, first;
+			const uint8_t *ids;
 
-			request[1] = (uint8_t)FZN_RECONCILE_IDS_QUERY;
-			request[2] = (uint8_t)c;
-			fzn_put_be32(request + 3u, (uint32_t)from);
+			(void)fzn_reconcile_wire_fzn_reconcile_ids_query_build(request, FZN_RECONCILE_IDS_QUERY_LEN,
+			                                                       (uint8_t)FZN_CMD_RECONCILE,
+			                                                       FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_IDS_QUERY,
+			                                                       (uint8_t)c, (uint32_t)from, &wrote);
 			if (!ask(ask_ctx, request, FZN_RECONCILE_IDS_QUERY_LEN, reply, reply_cap,
 			         &reply_len))
 				return FZN_RECONCILE_ERR_NO_ANSWER;
-			if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_IDS)
-			    || reply_len < FZN_RECONCILE_IDS_HEAD_LEN || reply[2] != (uint8_t)c
-			    || fzn_get_be32(reply + 7u) != from
-			    || reply_len != FZN_RECONCILE_IDS_HEAD_LEN
-			                            + (size_t)fzn_get_be16(reply + 11u) * FZN_HOLDINGS_ID_LEN)
+			/* THE PAGE READ WHOLE AS THE SCHEMA SAYS, sec 1391, of the
+			 * class and page asked. */
+			if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_IDS) || reply_len < FZN_RECONCILE_IDS_HEAD_LEN
+			    || reply_len > UINT32_MAX
+			    || fzn_reconcile_wire_fzn_reconcile_ids_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+			    || need != reply_len)
 				return FZN_RECONCILE_ERR_SHAPE;
-			count = fzn_get_be16(reply + 11u);
+			situ_msg_init(&m, reply, (uint32_t)reply_len);
+			if (fzn_reconcile_wire_fzn_reconcile_ids_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+			    || fzn_reconcile_wire_fzn_reconcile_ids_validate(v) != SITU_OK
+			    || fzn_reconcile_wire_fzn_reconcile_ids_class_get(v) != (uint8_t)c
+			    || fzn_reconcile_wire_fzn_reconcile_ids_from_get(v) != from)
+				return FZN_RECONCILE_ERR_SHAPE;
+			count = fzn_reconcile_wire_fzn_reconcile_ids_count_get(v);
 			if (count == 0u)
 				break;
+			if (fzn_reconcile_wire_fzn_reconcile_ids_ids_at(v, 0u, &first) != SITU_OK)
+				return FZN_RECONCILE_ERR_SHAPE;
+			ids = situ_base(first);
 			for (i = 0; i < count && n_lacked < FZN_HOLDINGS_MAX; i++) {
-				const uint8_t *id = reply + FZN_RECONCILE_IDS_HEAD_LEN + (i * FZN_HOLDINGS_ID_LEN);
+				const uint8_t *id = ids + (i * FZN_HOLDINGS_ID_LEN);
 
 				if (!fzn_holdings_among((const uint8_t(*)[FZN_HOLDINGS_ID_LEN])ids_buf,
 				                        n_mine, id))
@@ -1677,26 +1784,35 @@ static fzn_reconcile_err_t bridge_of(fzn_reconcile_ask_t ask, void *ask_ctx,
 
 	*n = 0;
 	*base = 0;
-	request[0] = (uint8_t)FZN_CMD_RECONCILE;
-	request[1] = (uint8_t)FZN_RECONCILE_BASE_QUERY;
-	memcpy(request + 2u, issuer, FZN_PUBKEY_LEN);
-	fzn_put_be32(request + 34u, stream);
 	for (;;) {
 		size_t reply_len = 0, count;
+		uint32_t wrote = 0, need = 0;
+		situ_msg_t m;
+		situ_view_t v, e;
 
-		fzn_put_be64(request + 38u, held + 1u + have);
+		(void)fzn_reconcile_wire_fzn_reconcile_base_query_build(request, FZN_RECONCILE_BASE_QUERY_LEN,
+		                                                        (uint8_t)FZN_CMD_RECONCILE,
+		                                                        FZN_RECONCILE_WIRE_FZN_RECONCILE_TYPE_BASE_QUERY, issuer,
+		                                                        stream, held + 1u + have, &wrote);
 		if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
 			return FZN_RECONCILE_ERR_NO_ANSWER;
-		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_BASE)
-		    || reply_len < FZN_RECONCILE_BASE_HEAD_LEN
-		    || fzn_get_be64(reply + 42u) != held + 1u + have
-		    || reply_len != FZN_RECONCILE_BASE_HEAD_LEN
-		                            + (size_t)fzn_get_be16(reply + 50u)
-		                                      * FZN_NODE_JOURNAL_SPINE_ENTRY)
+		/* EXACTLY ITS ENTRIES by `required`, read through the view -- not
+		 * `validate`d: the schema says a base of at least 1, which every
+		 * base this code sends is (a stream with none answers 1), and a
+		 * base below 2 from any peer is read below as nothing to bridge,
+		 * as it always was, not refused (sec 1391). */
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_BASE) || reply_len < FZN_RECONCILE_BASE_HEAD_LEN
+		    || reply_len > UINT32_MAX
+		    || fzn_reconcile_wire_fzn_reconcile_base_required(reply, (uint32_t)reply_len, &need) != SITU_OK
+		    || need != reply_len)
+			return FZN_RECONCILE_ERR_SHAPE;
+		situ_msg_init(&m, reply, (uint32_t)reply_len);
+		if (fzn_reconcile_wire_fzn_reconcile_base_view(&m, 0u, (uint32_t)reply_len, &v) != SITU_OK
+		    || fzn_reconcile_wire_fzn_reconcile_base_from_get(v) != held + 1u + have)
 			return FZN_RECONCILE_ERR_SHAPE;
 		if (first) {
-			*base = fzn_get_be64(reply + 2u);
-			memcpy(below, reply + 10u, FZN_RECORD_ID_LEN);
+			*base = fzn_reconcile_wire_fzn_reconcile_base_base_get(v);
+			memcpy(below, fzn_reconcile_wire_fzn_reconcile_base_below_ptr(v), FZN_RECORD_ID_LEN);
 			if (!want) {
 				/* THE PEER'S OWN BRIDGE: to just below its base, or
 				 * nothing for a peer not ahead of this journal. */
@@ -1707,16 +1823,18 @@ static fzn_reconcile_err_t bridge_of(fzn_reconcile_ask_t ask, void *ask_ctx,
 			if (want > FZN_RECONCILE_BRIDGE_MAX)
 				return FZN_RECONCILE_ERR_STORE;
 			first = 0;
-		} else if (fzn_get_be64(reply + 2u) != *base) {
+		} else if (fzn_reconcile_wire_fzn_reconcile_base_base_get(v) != *base) {
 			/* THE PEER CUT AGAIN between two pages: next round. */
 			*n = 0;
 			return FZN_RECONCILE_OK;
 		}
-		count = fzn_get_be16(reply + 50u);
+		count = fzn_reconcile_wire_fzn_reconcile_base_count_get(v);
 		if (count > want - have)
 			count = (size_t)(want - have);
-		memcpy(out[have], reply + FZN_RECONCILE_BASE_HEAD_LEN,
-		       count * FZN_NODE_JOURNAL_SPINE_ENTRY);
+		if (count && fzn_reconcile_wire_fzn_reconcile_base_entries_at(v, 0u, &e) != SITU_OK)
+			return FZN_RECONCILE_ERR_SHAPE;
+		if (count)
+			memcpy(out[have], situ_base(e), count * FZN_NODE_JOURNAL_SPINE_ENTRY);
 		have += count;
 		*n = have;
 		if (have >= want || count == 0u)

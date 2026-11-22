@@ -12455,8 +12455,8 @@ SABOTAGES = [
 	(
 		"reconcile-rebase-pages-on",
 		"node/reconcile.c",
-		"\t\tfzn_put_be64(request + 38u, held + 1u + have);",
-		"\t\tfzn_put_be64(request + 38u, held + 1u);",
+		"\t\t                                                        stream, held + 1u + have, &wrote);",
+		"\t\t                                                        stream, held + 1u, &wrote);",
 		"a bridge longer than one reply repeats its first page -- sec 552",
 	),
 	(

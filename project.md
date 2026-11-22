@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1390
+The newest work is at the end of this file. **Read secs 1287 to 1391
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96448,3 +96448,40 @@ the twenty-nine offset sites left.
 gave before. **Tests:** reconcile_test, buckets_test, log_buckets_test,
 piece_buckets_test. Sabotage `reconcile-peer-holds-by-its-length`
 retargeted.
+
+## 1391. Reconciliation's holdings exchange through situ's code; the layout done, 2026-11-22
+
+Stage three of `node/reconcile.c` after secs 1389 and 1390, the holdings
+exchange (secs 551, 552, 557), both sides:
+
+- **Answering**: the ids, objects and base queries are read through
+  their views and `validate` (a class of at most 8, 1 to 32 ids EXACTLY,
+  a `from` of at least 1); the digest is written through its view, each
+  class through `classes_at`; the ids, objects and base answers, their
+  bodies already in place, have their heads written through their views.
+- **Asking**: every query is built; the ids page is read whole through
+  `required`, the view and `validate`; an objects page is read through
+  its view with each object taken as it is read, as before, and EXACTLY
+  ITS OBJECTS checked by `required` once all are, where the hand walk's
+  last check was.
+- **Two readers deliberately not `validate`d**: the digest, because the
+  schema bounds a class at 8 and the count at 9 while a newer peer's
+  digest naming a class this build does not know is passed over rather
+  than refused; and the base page, because the bridge has always read a
+  base below 2 as nothing to bridge, and refusing a peer's 0 instead
+  would change what a round does with it. Every base this code sends is
+  at least 1 -- `fzn_node_journal_base_below` answers 1 for a stream with
+  none, which I first wrote down as 0 and corrected before committing.
+  Both still take `required` and the view, so every byte is accounted
+  for.
+
+**What stays hand-written in the file, and why**: the objects page
+writer, which fills a page object by object as the store yields them,
+and the refusal tally's reading of a record's stream and kind -- the
+record's layout, not this schema's.
+
+**The seeded fuzzer agrees case for case**: reconcile_fuzz gives what it
+gave before. **Tests:** reconcile_test and the targets linking
+reconciliation, and livecheck, every live round running through it.
+Sabotage `reconcile-rebase-pages-on` retargeted onto the base query's
+builder.
