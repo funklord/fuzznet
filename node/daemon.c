@@ -602,11 +602,57 @@ static const fzn_ring_t *own_ring(void)
 #endif
 }
 
+static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len);
+
+/* `add event SUBJECT [NAME]`, sec 1419: an event published for the
+ * application, as `fzn_daemon_publish` publishes one -- the verb a follower's
+ * publish asks the face with, since the subscribers are the face's (sec
+ * 838). The node's own user's alone. */
+static size_t event_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u], name[FZN_NODE_EVENTS_NAME_MAX + 1u];
+	const uint8_t *at, *w, *s = NULL, *nm = NULL;
+	size_t left, w_len, s_len = 0, nm_len = 0;
+	int k;
+
+	if (!request || request->parsed != FZN_VERB_ADD || !request->arg)
+		return 0;
+	at = request->arg;
+	left = request->arg_len;
+	if (!next_word(&at, &left, &w, &w_len) || w_len != 5u || memcmp(w, "event", 5u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied events are published by this node's own user\n");
+	if (next_word(&at, &left, &s, &s_len) && !next_word(&at, &left, &nm, &nm_len)) {
+		/* NO NAME: `next_word` may point past the end with no word. */
+		nm = NULL;
+		nm_len = 0;
+	}
+	if (!s || s_len > FZN_NODE_EVENTS_SUBJECT_MAX || nm_len > FZN_NODE_EVENTS_NAME_MAX
+	    || next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed add event SUBJECT [NAME], SUBJECT a-z and -, "
+		                                    "NAME lowercase hex\n");
+	memcpy(subject, s, s_len);
+	subject[s_len] = '\0';
+	if (nm) {
+		memcpy(name, nm, nm_len);
+		name[nm_len] = '\0';
+	}
+	if (!fzn_node_events_words_ok(subject, nm ? name : NULL))
+		return (size_t)snprintf(reply, cap, "malformed add event SUBJECT [NAME], SUBJECT a-z and -, "
+		                                    "NAME lowercase hex\n");
+	k = snprintf(reply, cap, "ok %zu\n", fzn_node_events_publish_extension(&node_events, subject, nm ? name : NULL));
+	return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
+}
+
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
                            size_t reply_cap)
 {
 	size_t n = call_local(origin, peer, request, reply, reply_cap);
+
+	if (!n)
+		n = event_local(origin, request, reply, reply_cap);
 
 	if (!n)
 		n = routing_local(origin, request, reply, reply_cap);
@@ -732,6 +778,11 @@ static void publish_change(const fzn_request_t *request, const char *reply, size
 		subject[s++] = (char)request->arg[at++];
 	subject[s] = '\0';
 	if (at < request->arg_len && request->arg[at] != ' ')
+		return;
+	/* `add event` PUBLISHED ITS OWN EVENT ALREADY (sec 1419): told again as
+	 * a change of `event`, each subscriber would read a second line no
+	 * state stands behind. */
+	if (request->parsed == FZN_VERB_ADD && strcmp(subject, "event") == 0)
 		return;
 	while (at < request->arg_len && request->arg[at] == ' ')
 		at++;
@@ -10516,10 +10567,25 @@ int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, 
 
 size_t fzn_daemon_publish(const char *subject, const char *name)
 {
-	/* SERVING, and not in the middle of a step, as for a local request. */
-	if (!serving_state || waiting_in_turn)
+	char line[16u + FZN_NODE_EVENTS_SUBJECT_MAX + FZN_NODE_EVENTS_NAME_MAX], reply[64];
+	unsigned long reached = 0;
+	int k;
+
+	if (waiting_in_turn || !fzn_node_events_words_ok(subject, name))
 		return 0;
-	return fzn_node_events_publish_extension(&node_events, subject, name);
+	if (serving_state)
+		return fzn_node_events_publish_extension(&node_events, subject, name);
+	/* A FOLLOWER PUBLISHES THROUGH THE FACE, sec 1419, whose clients the
+	 * subscribers are (sec 838): `add event`, as its local requests go. Its
+	 * events were silent while it followed (raidcfgd, inbox
+	 * 20261123T2001Z). */
+	if (!following_dir)
+		return 0;
+	k = snprintf(line, sizeof(line), "add event %s%s%s", subject, name ? " " : "", name ? name : "");
+	if (k <= 0 || (size_t)k >= sizeof(line) || !follower_ask(line, (size_t)k, reply, sizeof(reply))
+	    || sscanf(reply, "ok %lu", &reached) != 1)
+		return 0;
+	return (size_t)reached;
 }
 
 /* A LOCAL REQUEST IN-PROCESS, sec 835: the line read as the socket reads

@@ -83,6 +83,11 @@ int fzn_node_events_add_held(fzn_node_events_t *ev, int fd);
  * subscribers took it. */
 size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name);
 
+/* WHETHER `event SUBJECT NAME` IS ONE A SUBSCRIBER CAN SPLIT, as `publish`
+ * judges it: SUBJECT lowercase letters and hyphens, NAME lowercase hex, `-`
+ * or NULL. What `add event` refuses with (sec 1419). */
+int fzn_node_events_words_ok(const char *subject, const char *name);
+
 /* THE SAME FROM THE APPLICATION: and to each held subscriber. */
 size_t fzn_node_events_publish_extension(fzn_node_events_t *ev, const char *subject,
                                          const char *name);

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1418
+The newest work is at the end of this file. **Read secs 1287 to 1419
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,6 +58,12 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
+- **The holder's: a node shared by several consumers' daemons** (sec
+  1419): its remote hop checks one capability, the first daemon's
+  (service, product), so another consumer's paired devices are refused.
+  (a) the store fixes its product, (b) one product for the machine's
+  node -- recommended, re-pairs netcfgd's devices, (c) one capability
+  per carried product.
 - **The clock's unit**: **microseconds since 1970 on the frame** (sec
   1417, the holder's choice of sec 1407's (c), 2026-11-23); the
   library's calls still speak seconds, converted at the frame. Next: the
@@ -97531,4 +97537,52 @@ calling from several threads serializes its calls. Said in
 
 **Tests:** `make client-link-check` passes: "a client of its own linked
 and ran: -21 the node is not running -- nothing answers there".
+
+## 1419. A follower publishes through the face, by `add event`, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T2001Z): its daemon now follows a face
+on the account's default store, shared with netcfgd's (the holder's word:
+the same estate, the same way). `fzn_daemon_publish` returned 0 unless
+the daemon served, so raidcfgd's `event raid` after each reading was
+silent while it followed -- where a follower's `fzn_daemon_local`
+already asks the face (sec 838).
+
+**Built**: a local verb **`add event SUBJECT [NAME]`**, the node's own
+user's alone, publishes an event for the application exactly as
+`fzn_daemon_publish` does and answers `ok N`, the subscribers it
+reached; words a subscriber could not split are refused as malformed
+(`fzn_node_events_words_ok`, the check `publish` makes). A follower's
+`fzn_daemon_publish` asks the face with it, over the face's socket, and
+returns the face's count. The verb does not also publish itself as a
+change of `event` (sec 825's rule for change verbs), which put a second
+line before every subscriber. Found on the way: an absent NAME read as
+an empty one, `next_word` pointing past the end with no word.
+
+**Tests:** `live_ext` phase b4: a follower poked publishes, the face's
+subscriber hears `event ext-poke -` and nothing more, and the follower's
+own log says it reached one subscriber (`ext_daemon: published 1`) -- so
+the event is the follower's, not the face's; `add event` asked of the
+face directly answers `ok`.
+
+**Whose product a shared node carries -- the holder's to decide.**
+Measured: the node's remote hop checks ONE capability,
+`config.remote_capability`, composed from the `--fuzznet-service` and
+`--fuzznet-product` of the daemon that serves, and a device is paired
+with exactly that capability (`pair_device`, sec 813). On a store shared
+by netcfgd (product 3) and raidcfgd (product 5), whichever starts first
+is the face, so the other's paired devices are refused at the hop. The
+options, each changing what pairs with what across consumers:
+(a) the store fixes its product at first serve and refuses a daemon
+with another; (b) **one product meaning the machine's node**, devices
+paired with the node whatever consumers it carries, each consumer's
+procedures separated by their own permits (secs 852, 921) --
+recommended, as "the same estate, the same way" suggests, but it
+re-pairs netcfgd's devices; (c) the hop accepts one capability per
+product the node carries. Open, asked of the holder.
+
+**And a node with no service and product answering `rrpc NAME` with
+its status line**: fuzznetd refuses to start without both (sec 813),
+and a daemon with an extension answers through `ext_alone`, which
+reaches `call_local` first (sec 857); the command line that reached the
+status line is asked of raidcfgd before anything is changed.
 

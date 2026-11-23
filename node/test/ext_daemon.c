@@ -194,8 +194,11 @@ static void own_tick(void *ctx, uint64_t now)
 	(void)now;
 	ticks++;
 	if (want_event) {
+		/* SAID, so a follower's publish through the face (sec 1419) is
+		 * told from the face's own: how many subscribers it reached. */
 		want_event = 0;
-		(void)fzn_daemon_publish("ext-poke", NULL);
+		fprintf(stderr, "ext_daemon: published %zu\n", fzn_daemon_publish("ext-poke", NULL));
+		fflush(stderr);
 	}
 	/* THE VALUE IN FORCE, read from the tick, sec 882: said, as `inproc` is. */
 	if (want_here) {

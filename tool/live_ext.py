@@ -671,6 +671,46 @@ def main(argv):
 						             "timeout" % (time.monotonic() - began))
 					print("livecheck: b4: a follower read the value in force from its tick and "
 					      "from a forwarded procedure, a sealed one opened by the face")
+					# A FOLLOWER'S EVENT, sec 1419: published through the face, whose
+					# subscribers they are -- the follower's own log says it reached
+					# one, and the face's subscriber hears it.
+					said_direct = ask(sock, "add event ext-direct")
+					if not said_direct.startswith("ok "):
+						raise failed("b4: `add event` at the face answered %r" % said_direct)
+					sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+					sub.settimeout(10.0)
+					try:
+						sub.connect(sock)
+						sub.sendall(b"get events\n")
+						heard = b""
+						while not heard.endswith(b"\n"):
+							heard += sub.recv(256)
+						if heard.strip() != b"ok events":
+							raise failed("b4: get events at the face answered %r" % heard)
+						poke(b"E")
+						heard = b""
+						while not heard.endswith(b"\n"):
+							got = sub.recv(256)
+							if not got:
+								break
+							heard += got
+						if heard.strip() != b"event ext-poke -":
+							raise failed("b4: the face's subscriber heard %r of the follower's event" % heard)
+						until = time.monotonic() + 10.0
+						while "ext_daemon: published" not in open(ferr_path).read():
+							if time.monotonic() > until:
+								raise failed("b4: the event was the face's own, not the follower's")
+							time.sleep(0.2)
+						said = [l for l in open(ferr_path).read().splitlines()
+						        if l.startswith("ext_daemon: published")][-1]
+						if said != "ext_daemon: published 1":
+							raise failed("b4: the follower's publish said %r" % said)
+					except socket.timeout:
+						raise failed("b4: the face's subscriber heard nothing of the follower's event: %r"
+						             % open(ferr_path).read()[-400:])
+					finally:
+						sub.close()
+					print("livecheck: b4: a follower's event reached the face's subscriber")
 					poke(b"S")
 					try:
 						code = follower.wait(timeout=10)

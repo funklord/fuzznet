@@ -193,6 +193,12 @@ static size_t publish(fzn_node_events_t *ev, const char *subject, const char *na
 	return took;
 }
 
+int fzn_node_events_words_ok(const char *subject, const char *name)
+{
+	return word_of(subject, FZN_NODE_EVENTS_SUBJECT_MAX, "abcdefghijklmnopqrstuvwxyz-")
+	       && (!name || strcmp(name, "-") == 0 || word_of(name, FZN_NODE_EVENTS_NAME_MAX, "0123456789abcdef"));
+}
+
 size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name)
 {
 	return publish(ev, subject, name, 0);
