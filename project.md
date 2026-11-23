@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1413
+The newest work is at the end of this file. **Read secs 1287 to 1414
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -75,8 +75,10 @@ listener port spans (`150e3106`).
   its single-field bodies, kept by decision (sec 1398). The settings
   registry holds the contract (sec 1330), the four cell types'
   parsers are situ's generated ones (sec 1408), "007" still taken, and
-  the table itself is the registry's rows (sec 1412); the hand-only
-  checks are next. The scheduler matches a reply
+  the table itself is the registry's rows (sec 1412), and three of the
+  nine hand-only grammars are its token cells (sec 1414); the permits,
+  the group list and the erasure shape stay hand-written, each for a
+  reason sec 1414 gives. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -85864,13 +85866,13 @@ is the register, rewritten in place as features land; "where" says where each li
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
-| Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | a catalogue view querying the node by facet, for a library too large to list (sec 1207) |
+| Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | none measured (sec 1414): the listing pages and fetches a row's detail on demand, and a facet query cannot list a kind alone |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed), `leg_view` hosted over `list leg` with cost, budget and in use (secs 1121, 1210), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194, its open note sec 1201, a checklist's items sec 1202, a file's state sec 1203); the notebook's writes, and the retention and governance views, still send their own text lines -- all to move to binary (sec 1208) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | joining and the join offer, text by their own sections (1250, 1288); every other call is binary (secs 1208-1318, sec 0); a procedure in binary since sec 1411 |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -97313,4 +97315,42 @@ fixes the unit and a horizon ceiling (its `ahead`) where
 `fzn_replay_init` takes any horizon -- 4000 in tool/consumer_check.c,
 100000 in tests -- and reads a frame view where callers pass the nonce
 and expiry as values. Both turn on the unit the holder chooses.
+
+## 1414. Three settings' grammars are situ's token cells; the register's stale cells, 2026-11-23
+
+Sec 1330's last step, as far as situ reaches without widening what a
+reader takes. **`log/level`, `log/scope` and `pressure/rank/` are now
+cells of their own in `node/settings_registry.situ`**: `log_level_word`
+(the eight names, most severe first, and the letter a log line carries),
+`log_scope_word` (`host-private`, `estate`), `pressure_rank_word`
+(`trace`, `copy`, `user`), each a struct of one word. `node/schema.c`
+types them as text to a client and checks them with the cell's generated
+validator, attached by the cell's name (`check_of`) rather than by key.
+**Proved before replacing**: HEAD's three hand checks and the new table
+gave 870 verdicts alike -- every word, its letter, near misses (`Trace`,
+`traces`, `host_private`, a trailing space) and all 256 single bytes,
+under each row's size bounds -- 29 taken by both, none differing.
+
+**Kept hand-written, each for a reason**:
+- **The erasure shape** (`K+M`): situ's delimited decimal would take
+  "004+2", which `fzn_node_settings_erasure` refuses; a declaration must
+  be no wider than its reader (sec 686).
+- **The group list**: names `fzn_scope_group_id` takes, none twice --
+  a uniqueness rule over a run, which no situ construct states.
+- **The permits** (`local/permit/`, `remote/permit`, `local/events`):
+  their grammar is `node/permit.c`'s, with its own suite; a move of its
+  own.
+
+**The register (sec 1070), two cells corrected**, from this run's walk
+of the aims: the typed client's "missing" listed on-demand listings
+"to move to binary" that sec 0 records moved (all but joining and the
+join offer); and the library's "a catalogue view querying the node by
+facet" is measured unneeded -- `fzn_rpc_library_list` pages (sec 167)
+and fetches a row's detail on demand (sec 1190), bounded by memory
+alone, and a search hit needs words, so a facet query cannot list a
+kind on its own.
+
+**Tests:** settings_registry_test (3157) and schema_test (41) unchanged
+and passing: the value agreement now runs these three rows through the
+registry's cell. Sabotage: `schema-own-log-level-unchecked` new.
 

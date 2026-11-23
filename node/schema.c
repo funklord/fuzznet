@@ -42,14 +42,25 @@ int fzn_node_schema_log_level(const uint8_t *value, size_t len)
 	return 0;
 }
 
+/* ONE WORD OF A LIST node/settings_registry.situ declares, sec 1414: the
+ * generated validator `validate`'s verdict on `value`. */
+static int one_word(situ_err_t (*validate)(situ_view_t), const uint8_t *value, size_t len)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (!value || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)value, (uint32_t)len);
+	return situ_view_at(&m, 0u, (uint32_t)len, &v) == SITU_OK && validate(v) == SITU_OK;
+}
+
 /* WHERE A RULE PUTS A KIND OF WORK, sec 917: nothing it says reaches what must
- * work, which `node/pressure.h` keeps out of a rule's reach. */
+ * work, which `node/pressure.h` keeps out of a rule's reach. The words are
+ * the registry's `pressure_rank_word`. */
 static const char *pressure_rank_check(const uint8_t *value, size_t len)
 {
-	if ((len == 5u && memcmp(value, "trace", 5u) == 0)
-	    || (len == 4u && (memcmp(value, "copy", 4u) == 0 || memcmp(value, "user", 4u) == 0)))
-		return NULL;
-	return "trace, copy or user";
+	return one_word(fzn_settings_registry_pressure_rank_validate, value, len) ? NULL : "trace, copy or user";
 }
 
 static const char *remote_permit_check(const uint8_t *value, size_t len)
@@ -93,20 +104,19 @@ static const char *member_check(const uint8_t *value, size_t len)
 	return n_seen ? NULL : WHY;
 }
 
+/* The registry's `log_level_word`, which `fzn_node_schema_log_level` reads. */
 static const char *log_level_check(const uint8_t *value, size_t len)
 {
-	return fzn_node_schema_log_level(value, len)
+	return one_word(fzn_settings_registry_log_level_validate, value, len)
 	               ? NULL
 	               : "one of critical, error, warning, note, info, verbose, debug, trace, "
 	                 "or its letter";
 }
 
+/* The registry's `log_scope_word`. */
 static const char *log_scope_check(const uint8_t *value, size_t len)
 {
-	return (len == 12u && memcmp(value, "host-private", 12u) == 0)
-	                       || (len == 6u && memcmp(value, "estate", 6u) == 0)
-	               ? NULL
-	               : "host-private or estate";
+	return one_word(fzn_settings_registry_log_scope_validate, value, len) ? NULL : "host-private or estate";
 }
 
 /* THE HAND-ONLY CHECKS, by key: the grammars the registry types as
@@ -117,9 +127,7 @@ static const struct {
 } hand_checks[] = {
 	{ "archive/erasure", erasure_check },   { "local/permit/", permit_check },
 	{ "remote/permit/", remote_permit_check }, { "remote/permit", remote_permit_check },
-	{ "local/events", events_permit_check }, { "pressure/rank/", pressure_rank_check },
-	{ "group/member", member_check },       { "log/level", log_level_check },
-	{ "log/scope", log_scope_check },
+	{ "local/events", events_permit_check }, { "group/member", member_check },
 };
 
 /* A REGISTRY CELL'S TYPE, by situ's name for it (situ 7febf9ed): a cell
@@ -139,8 +147,29 @@ static fzn_schema_type_t type_of(uint32_t cell)
 		return FZN_SCHEMA_FLAG;
 	case FZN_SETTINGS_REGISTRY_NODE_CELL_ADDRESS:
 		return FZN_SCHEMA_ADDRESS;
+	/* ONE WORD OF A LIST, sec 1414: text to a client, its grammar the
+	 * registry's, checked by the cell's own (`check_of`). */
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_PRESSURE_RANK:
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_LEVEL:
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_SCOPE:
+		return FZN_SCHEMA_TEXT;
 	default:
 		return (fzn_schema_type_t)0;
+	}
+}
+
+/* A CELL'S OWN CHECK, where its grammar is the registry's: NULL for none. */
+static const char *(*check_of(uint32_t cell))(const uint8_t *, size_t)
+{
+	switch (cell) {
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_PRESSURE_RANK:
+		return pressure_rank_check;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_LEVEL:
+		return log_level_check;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_SCOPE:
+		return log_scope_check;
+	default:
+		return NULL;
 	}
 }
 
@@ -172,6 +201,7 @@ static void row_of_registry(const fzn_settings_registry_node_entry_t *g, fzn_sch
 	           | (g->safe == FZN_SETTINGS_REGISTRY_SAFE_HIGHER ? FZN_SCHEMA_SAFE_HIGHER : 0u);
 	e->summary = g->summary;
 	e->every_ms = g->window_ms;
+	e->check = check_of(g->cell);
 	for (k = 0; k < sizeof(hand_checks) / sizeof(hand_checks[0]); k++)
 		if (strcmp(hand_checks[k].key, g->key) == 0)
 			e->check = hand_checks[k].check;

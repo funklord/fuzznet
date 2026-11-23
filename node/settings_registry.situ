@@ -20,6 +20,17 @@ policy display { restart, sensitive, advanced, verb, advertised }
 
 tokens flag_word { on = "on", off = "off", one = "1", zero = "0", default = error, }
 tokens time_unit { d = "d", h = "h", m = "m", s = "s", default = error, }
+// A LOG LEVEL, as `--log-level` takes it: a name, most severe first, or
+// the letter a log line carries (sec 1414).
+tokens log_level_word {
+	critical = "critical", error = "error", warning = "warning", note = "note",
+	info = "info", verbose = "verbose", debug = "debug", trace = "trace",
+	c = "C", e = "E", w = "W", n = "N", i = "I", v = "V", d = "D", t = "T",
+	default = error,
+}
+tokens log_scope_word { host_private = "host-private", estate = "estate", default = error, }
+// WHERE A RULE PUTS A KIND OF WORK, sec 917: nothing that must work.
+tokens pressure_rank_word { trace = "trace", copy = "copy", user = "user", default = error, }
 
 // A COUNT: decimal digits, a leading zero taken as the hand parser took it
 // (sec 1408): "007" is seven. `[minimal]` would refuse it.
@@ -41,6 +52,17 @@ struct duration {
 	                       + (unit == time_unit.h) * 3600
 	                       + (unit == time_unit.m) * 60
 	                       + (unit == time_unit.s));
+}
+
+// A LOG LEVEL, A LOG SCOPE, A PRESSURE RANK: one word of its list.
+struct log_level {
+	log_level_word  word[remaining];
+}
+struct log_scope {
+	log_scope_word  word[remaining];
+}
+struct pressure_rank {
+	pressure_rank_word  word[remaining];
 }
 
 // TEXT: printable ASCII, bounded by the entry.
@@ -94,7 +116,7 @@ registry node {
 		"the profile last applied here, and its revisions (sec 908)";
 	"local/events" : text [min_size = 1, max_size = 256, scope = host]
 		"which local users and groups may hold `get events`, hearing what this application publishes and none of fuzznet's: local:NAME=r local:@GROUP=r, or any=r for every local user (secs 899, 933)";
-	"pressure/rank/" : text [min_size = 1, max_size = 16, scope = host, display = advanced]
+	"pressure/rank/" : pressure_rank [min_size = 1, max_size = 16, scope = host, display = advanced]
 		"where a kind of work stands when this host is short of disk, memory or network: trace, copy or user, for streams, relay, files, group-lines, notes, messages, reconcile (sec 917)";
 	"group/member" : text [min_size = 1, max_size = 255, scope = host]
 		"the groups this host is in, first first: a group's settings stand here where the host sets none of its own, and the first group listed that sets one wins (sec 868)";
@@ -134,11 +156,11 @@ registry node {
 		"the precision location/share-new grants: 0 exact to 3 the coarsest (sec 1231)";
 	"location/follow" : flag [default = "off", scope = estate | host, safe = lower]
 		"fetch the position of each contact whose position this host holds every 30 s, not only when asked (sec 1240)";
-	"log/level" : text [min_size = 1, max_size = 8, scope = host]
+	"log/level" : log_level [min_size = 1, max_size = 8, scope = host]
 		"the least severe level this host's log file keeps, critical to trace; unset, `--log-level`'s, info by default (sec 735)";
 	"log/segment" : count [min = 4096, max = 1099511627776, unit = "bytes", scope = host, display = advanced]
 		"the size a log segment is rotated at; unset, `--log-segment`'s (sec 735)";
-	"log/scope" : text [min_size = 6, max_size = 12, scope = host, display = sensitive]
+	"log/scope" : log_scope [min_size = 6, max_size = 12, scope = host, display = sensitive]
 		"host-private, or estate to let the estate's members gather this host's log; unset, `--log-scope`'s, host-private by default (sec 735)";
 	"invite/confirm" : flag [default = "off", scope = host, safe = higher]
 		"an invite waits for this host's user unless `add invite open` says not (sec 896)";

@@ -113,6 +113,81 @@ situ_err_t fzn_settings_registry_duration_validate(situ_view_t view)
 	return fzn_settings_registry_duration_check(view, NULL);
 }
 
+situ_err_t fzn_settings_registry_log_level_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* `word` is one of `log_level_word`'s 16 spelling(s). */
+	if (fzn_settings_registry_log_level_word_which(fzn_settings_registry_log_level_word_ptr(view), fzn_settings_registry_log_level_word_len(view))
+			== FZN_SETTINGS_REGISTRY_LOG_LEVEL_WORD_UNKNOWN) {
+		*which = FZN_SETTINGS_REGISTRY_LOG_LEVEL_WORD_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_settings_registry_log_level_validate(situ_view_t view)
+{
+	return fzn_settings_registry_log_level_check(view, NULL);
+}
+
+situ_err_t fzn_settings_registry_log_scope_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* `word` is one of `log_scope_word`'s 2 spelling(s). */
+	if (fzn_settings_registry_log_scope_word_which(fzn_settings_registry_log_scope_word_ptr(view), fzn_settings_registry_log_scope_word_len(view))
+			== FZN_SETTINGS_REGISTRY_LOG_SCOPE_WORD_UNKNOWN) {
+		*which = FZN_SETTINGS_REGISTRY_LOG_SCOPE_WORD_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_settings_registry_log_scope_validate(situ_view_t view)
+{
+	return fzn_settings_registry_log_scope_check(view, NULL);
+}
+
+situ_err_t fzn_settings_registry_pressure_rank_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* `word` is one of `pressure_rank_word`'s 3 spelling(s). */
+	if (fzn_settings_registry_pressure_rank_word_which(fzn_settings_registry_pressure_rank_word_ptr(view), fzn_settings_registry_pressure_rank_word_len(view))
+			== FZN_SETTINGS_REGISTRY_PRESSURE_RANK_WORD_UNKNOWN) {
+		*which = FZN_SETTINGS_REGISTRY_PRESSURE_RANK_WORD_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_settings_registry_pressure_rank_validate(situ_view_t view)
+{
+	return fzn_settings_registry_pressure_rank_check(view, NULL);
+}
+
 situ_err_t fzn_settings_registry_text_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -607,7 +682,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_PRESSURE_RANK,
 	},
 	{
 		.key       = "group/member",
@@ -987,7 +1062,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_LEVEL,
 	},
 	{
 		.key       = "log/segment",
@@ -1025,7 +1100,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_SENSITIVE,
-		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_SCOPE,
 	},
 	{
 		.key       = "invite/confirm",
@@ -1233,6 +1308,36 @@ static situ_err_t fzn_settings_registry_node_cell(uint32_t cell,
 			return e;
 		}
 		e = fzn_settings_registry_address_validate(view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		return SITU_OK;
+	case 5u: /* pressure_rank */
+		e = fzn_settings_registry_pressure_rank_view(&msg, 0u, len, &view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		e = fzn_settings_registry_pressure_rank_validate(view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		return SITU_OK;
+	case 6u: /* log_level */
+		e = fzn_settings_registry_log_level_view(&msg, 0u, len, &view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		e = fzn_settings_registry_log_level_validate(view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		return SITU_OK;
+	case 7u: /* log_scope */
+		e = fzn_settings_registry_log_scope_view(&msg, 0u, len, &view);
+		if (e != SITU_OK) {
+			return e;
+		}
+		e = fzn_settings_registry_log_scope_validate(view);
 		if (e != SITU_OK) {
 			return e;
 		}

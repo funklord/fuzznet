@@ -17840,6 +17840,13 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"schema-own-log-level-unchecked",
+		"node/schema.c",
+		"	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_LEVEL:\n		return log_level_check;\n",
+		"	case FZN_SETTINGS_REGISTRY_NODE_CELL_LOG_LEVEL:\n		return NULL;\n",
+		"log/level takes any printable word, a level its reader cannot read -- sec 1414",
+	),
+	(
 		"schema-own-count-read-as-text",
 		"node/schema.c",
 		"	case FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT:\n		return FZN_SCHEMA_COUNT;\n",
