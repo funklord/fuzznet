@@ -186,12 +186,13 @@ int main(int argc, char **argv)
 		 * as the wrapper over it does. */
 		(void)situ_pieces_expire(&theirs, (uint32_t)now);
 		theirs.why = SITU_PIECES_WHY_NONE;
-		/* NO COUNT, PAST FZN_REASM_MAX_CHUNKS, OR NO BYTES: refused by the
-		 * wrapper before the table, as fuzznet refuses each -- an empty
-		 * message included, which the table would complete. Its reason
-		 * may differ from fuzznet's, which depends on whether a slot is
-		 * held; that both refuse is what is compared. */
-		pre = chunks == 0u || chunks > FZN_REASM_MAX_CHUNKS || len == 0u;
+		/* NO COUNT OR NO BYTES: refused by the wrapper before the table,
+		 * as fuzznet refuses each -- an empty message included, which the
+		 * table would complete. Past 256 pieces the table's own
+		 * `count_max` refuses. A reason may differ from fuzznet's, which
+		 * depends on whether a slot is held; that both refuse is what is
+		 * compared. */
+		pre = chunks == 0u || len == 0u;
 		if (pre) {
 			et = SITU_ERR_BOUNDS;
 			theirs.why = SITU_PIECES_WHY_TOO_LARGE;
@@ -218,7 +219,7 @@ int main(int argc, char **argv)
 		 * stride first; and one resent shorter, a prefix of what is held,
 		 * which fuzznet's repeat check took as identical. */
 		if ((ct == C_CONFLICT && (co == C_MISMATCH || co == C_PARTIAL))
-		    || (pre && co >= C_FULL && co != ct)) {
+		    || ((pre || chunks > FZN_REASM_MAX_CHUNKS) && co >= C_FULL && ct >= C_FULL && co != ct)) {
 			accepted++;
 			known[co][ct]++;
 		} else if (co != ct) {

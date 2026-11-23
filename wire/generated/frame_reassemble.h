@@ -28,6 +28,7 @@ extern "C" {
 #define SITU_PIECES_CAPACITY 262144u
 #define SITU_PIECES_TIMEOUT  1000u
 #define SITU_PIECES_PER_MAX  64u
+#define SITU_PIECES_COUNT_MAX 256u	/* the most pieces a message has */
 /* Why `_add` refused, in `t->why` after any answer but SITU_OK and
  * SITU_ERR_TRUNCATED, which leave it NONE (fuzznet, 2026-11-22). */
 #define SITU_PIECES_WHY_NONE        0u	/* taken or a resend, or a piece `_add` could not read */
@@ -43,7 +44,9 @@ extern "C" {
 #define SITU_PIECES_WHY_CONFLICT    10u	/* a piece held already, with other bytes */
 /* The memory `_init_in` wants for `messages` slots of `capacity` bytes. */
 #define SITU_PIECES_BYTES_FOR(messages, capacity) ((size_t)(messages) * (capacity))
-#define SITU_PIECES_MARKS_FOR(messages, capacity) ((size_t)(messages) * (((capacity) + 7u) / 8u))
+/* A mark a piece, at most `_COUNT_MAX` of them: `capacity` stays
+ * an argument, as without `count_max`, and bounds it too. */
+#define SITU_PIECES_MARKS_FOR(messages, capacity) ((size_t)(messages) * ((((capacity) < SITU_PIECES_COUNT_MAX ? (capacity) : SITU_PIECES_COUNT_MAX) + 7u) / 8u))
 typedef struct {
 	uint8_t  key[36u];
 	uint32_t count;		/* pieces in the message */
@@ -71,7 +74,7 @@ typedef struct {
 typedef struct {
 	situ_pieces_slot_t slot[SITU_PIECES_MESSAGES];
 	uint8_t bytes[SITU_PIECES_MESSAGES * SITU_PIECES_CAPACITY];
-	uint8_t marks[SITU_PIECES_MESSAGES * 32768u];
+	uint8_t marks[SITU_PIECES_MESSAGES * 32u];
 } situ_pieces_store_t;
 
 /** A table of smaller bounds than the schema's, in the caller's memory:
@@ -91,7 +94,7 @@ static inline situ_err_t situ_pieces_init_in(situ_pieces_t *t, uint32_t messages
 	t->messages = messages;
 	t->capacity = capacity;
 	t->timeout  = timeout;
-	t->marks_per = (capacity + 7u) / 8u;
+	t->marks_per = ((capacity < SITU_PIECES_COUNT_MAX ? capacity : SITU_PIECES_COUNT_MAX) + 7u) / 8u;
 	t->why       = 0u;
 	t->per_max = per_max;
 	t->slot  = slot;
@@ -134,6 +137,10 @@ static inline situ_err_t situ_pieces_add_parts(situ_pieces_t *t,
 	if (count > t->capacity) {
 		t->why = SITU_PIECES_WHY_TOO_LARGE;
 		return SITU_ERR_BOUNDS;	/* a byte a piece at least */
+	}
+	if (count > SITU_PIECES_COUNT_MAX) {
+		t->why = SITU_PIECES_WHY_TOO_LARGE;
+		return SITU_ERR_BOUNDS;	/* more pieces than it marks */
 	}
 	if ((int32_t)(now - deadline) >= 0) {
 		t->why = SITU_PIECES_WHY_EXPIRED;

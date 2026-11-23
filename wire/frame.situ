@@ -463,7 +463,8 @@ relation same_message(first: fzn_frame, later: fzn_frame) {
 // are maxima; each table fuzznet keeps is given its own at init. A message
 // is at most 256 chunks of 1024 bytes (FZN_REASM_MAX_CHUNKS), so a slot at
 // most 256 KiB, and at most 64 slots (FZN_NODE_ASKS_MAX, the largest
-// table); a sender at most all of them; held at most 1000 s. A piece's
+// table); a sender at most all of them; held at most 1000 s; and 256
+// pieces, `count_max`, which also sizes a slot's marks to 32 bytes. A piece's
 // own expiry bounds its slot, as `max_hold` and `expires_at` do now.
 //
 // KEYED BY THE MESSAGE ALONE, sender and number, as chunk/reassembly.c
@@ -479,7 +480,8 @@ reassemble pieces(f: fzn_frame) by same_piece_of [
 	index = f.head.index, count = f.head.chunks,
 	piece = f.sealed.payload, messages = 64, bytes = 16777216,
 	timeout = 1000, unit = s,
-	per = f.head.sender, per_max = 64, expires = f.head.expires_at];
+	per = f.head.sender, per_max = 64, expires = f.head.expires_at,
+	count_max = 256];
 
 // A reply belongs to its request. Weaker than the above -- it says only that
 // the identifier matches -- and it is here because a dissector and a fuzz

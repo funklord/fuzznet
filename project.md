@@ -96859,7 +96859,16 @@ its bytes a prefix of what is held, passes the repeat check as identical
 message changes, but the contract says a differing repeat is refused. The
 generated table refuses it; the move fixes it.
 
+**The marks sized by count, not by bytes.** The generated table kept a
+mark bit per byte a slot holds -- 16 to 32 KiB a slot at fuzznet's sizes,
+about 1 MiB more for the 32-slot fetch window alone, where fuzznet keeps a
+32-byte bitmap. situ added `count_max` at fuzznet's ask (0dbb9c40): the
+table declares 256, a slot's marks are 32 bytes again, and a count past it
+is the table's own refusal rather than the wrapper's. Still no
+disagreement, 20000 and 200000 steps.
+
 **Next:** move `chunk/reassembly.c` onto the table behind its own API, the
-wrapper doing what the fuzzer's does -- the expiry sweep first, the three
-refusals before the table, the handed-until-released guard -- with
-`reasm_agree_fuzz` and the existing suite as the evidence.
+wrapper doing what the fuzzer's does -- the expiry sweep first, a piece
+with no count or no bytes refused before the table, the
+handed-until-released guard -- with `reasm_agree_fuzz` and the existing
+suite as the evidence.
