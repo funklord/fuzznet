@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1406
+The newest work is at the end of this file. **Read secs 1287 to 1407
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,11 +58,11 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
-- **The clock's unit** (sec 368; sec 1323): answered in principle by the
-  holder 2026-11-23 (sec 1406) -- situ is to describe time units without
-  ambiguity and support every one; fuzznet likely wants a programmable,
-  sub-second unit. Sent to situ (its inbox 20261123T1050Z); the frame
-  and the nonce set wait on situ's shape.
+- **The clock's unit** (sec 368; sec 1323): situ describes time units
+  now (its 26.1165, asked in sec 1406). Measured in sec 1407: the u64
+  holds microseconds since 1970 for 584,600 years, so one fixed fine
+  unit (c) beats both (a) set at start and (b) carried. **The holder's
+  to confirm** before the frame changes.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -96994,3 +96994,88 @@ recognised), which no unit test reaches, as with sec 1291. Sabotage:
 `search-with-group-asks-this-user`, `search-group-member-refused`,
 `search-group-member-passes-every-gate` new;
 `search-stranger-answered` retargeted.
+
+## 1407. The clock's unit measured rather than argued: one fine unit fits in the u64 already, 2026-11-23
+
+The holder, 2026-11-23, on sec 1406's question -- set at start (a) or
+carried in the frame (b): "I'm guessing (b) is more durable, I don't
+know which is better. Maybe we need to measure this kind of decisions?"
+Measured here, from the tree and arithmetic; each figure is recomputable.
+
+**What the field can hold.** `expires_at` is a `u64` in the
+authenticated head (wire/frame.situ). The span a u64 covers from 1970,
+per unit: s 5.8e11 years, ms 5.8e8, **us 584,600**, ns 585 (to 2554),
+ps 0.58. A u32 would cover: s 136 years, ms 49.7 days, us 72 minutes.
+
+**What precision means anything.** An expiry is compared across hosts,
+so it is no finer than their clocks agree. fuzznet judges a clock wrong
+past `FZN_NODE_CLOCK_WRONG_MS` = 60,000 ms (node/clocks.h), measures
+offsets in ms by round trip (sec 719), and on a LAN a round trip is tens
+to hundreds of us. Light covers 300 m in a microsecond, so an expiry
+finer than a microsecond is not meaningful between two hosts on any
+network.
+
+**What lifetimes are used.** node/daemon.c stamps expiries of 5 s (1),
+60 s (11) and 300 s (16), with a horizon `FZND_MAX_AHEAD` of 600 s. A
+high-performance link would shorten these to milliseconds; none needs
+below a microsecond.
+
+**What a carried unit costs.** The fixed frame is 144 to 1168 bytes
+(`SITU_FZN_FRAME_SIZE_MIN`/`MAX`); one authenticated byte is 0.09% of a
+full frame and 0.7% of the smallest. The byte is cheap. The rest is not:
+every receiver must convert any unit a sender names, with checked
+arithmetic (ps overflows a u64 in 213 days, so some pairs are
+unrepresentable), and a unit a peer may choose is one more input an
+attacker may choose. The head's `hop.version` byte, which already gates
+every frame, is how a later unit change would arrive anyway, so (b) does
+not buy a change without a version.
+
+**Who is touched.** The frame's expiry is written and checked inside
+fuzznet: `frame/freshness.c`, `admit/admit.c`, fuzznetd's stamps and the
+simulator. fuzzypickles' `expires_at` uses are a capability's expiry, a
+different field (`FZN_RPC_CAP_NO_EXPIRY`), and do not move.
+
+**What the measurement says.** The choice between (a) and (b) arises only
+when the field is too narrow to hold every useful unit, which a u64 is
+not. A third option serves both of the holder's wishes, sub-second and
+durable, with no agreement between hosts and no byte on the wire:
+
+- **(c) one fixed fine unit: microseconds since the Unix epoch**, stated
+  in the schema as `u64 expires_at [time = us, epoch = unix]` (situ
+  26.1165). It covers 584,600 years at a resolution finer than any two
+  hosts' clocks agree, so nothing ever has to change it. ns would also
+  fit, but ends in 2554 for a precision nothing can use.
+
+Programmability remains worth having in situ for a NARROW field -- a u32
+on a low-performance transport, which the holder expects to take a
+different shape. Such a transport states its own unit in its own schema
+and converts at its edge. That is (a) in situ's sense, a parameter, and
+it needs nothing from this frame.
+
+**Recommendation: (c).** It is a wire change (free, sec 924) and a code
+change contained in fuzznet: `now` and every horizon and lifetime in us.
+**Not made yet**: the holder guessed (b), and this measurement argues for
+neither (a) nor (b), so it goes back to the holder before the frame
+changes. situ's struct-parameter step stays useful for other schemas.
+
+### Measuring a decision: what the record holds
+
+The holder asked whether decisions like this one should be measured. A
+measured decision here has five parts, each a number or a quoted line
+someone can recompute:
+
+1. **The constraint's actual size**: the field's width and what it
+   holds, the bytes it costs, against a reference (frame size).
+2. **What precision or capacity means anything**: the physical or
+   operational floor (clock agreement, lifetimes in use), read from the
+   code, not assumed.
+3. **Who is touched**: every writer and reader of the thing, found by
+   search and named, with the consumers outside this tree.
+4. **What each option costs at that size**: bytes, arithmetic and
+   failure modes, including the attacker's choices.
+5. **Whether an option outside the ones asked about does better.** The
+   question asked here was (a) or (b); the measurement found (c).
+
+A question that survives these five steps is a real decision for whoever
+owns it, and goes to them with the numbers.
+
