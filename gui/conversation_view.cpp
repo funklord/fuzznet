@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "choose_accessible.h"
 #include "phone_layout.h"
 #include "notice_line.h"
 #include "size_words.h"
@@ -472,6 +473,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_text, &QLineEdit::textEdited, [this](const QString &) { m_suggest_soon->start(); });
 	connect(m_suggest, &QListWidget::itemActivated,
 	        [this](QListWidgetItem *item) { (void)send_suggested(m_suggest->row(item)); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_suggest, [this](const QModelIndex &at) { (void)send_suggested(at.row()); });
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_title);
 	col->addWidget(m_lines, 1);
@@ -496,6 +499,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_stickers, &QPushButton::toggled, [this](bool on) { show_stickers(on); });
 	connect(m_text, &QLineEdit::returnPressed, [this]() { send(); });
 	connect(m_lines, &QListWidget::currentRowChanged, [this](int r) { select_line(r); });
+	fzn_choose_on_accessible_select(m_lines, nullptr);
 	connect(m_lines, &QListWidget::itemActivated,
 	        [this](QListWidgetItem *item) { (void)open_line(m_lines->row(item)); });
 	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });

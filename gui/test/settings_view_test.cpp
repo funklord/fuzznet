@@ -8,7 +8,9 @@
 
 #include "../settings_view.h"
 
+#include <QAccessible>
 #include <QApplication>
+#include <QTreeWidget>
 
 #include <stdio.h>
 #include <string.h>
@@ -113,6 +115,30 @@ int main(int argc, char **argv)
 	snprintf(token, sizeof token, "s3cret");
 	CHECK(v.select(1) && v.chosen().isEmpty() && v.notes().contains("it is not shown"),
 	      "a sensitive value was shown, or not said to be set");
+
+	/* A SCREEN READER CHOOSES A SETTING, sec 1423: TalkBack's double tap is
+	 * the row's accessible toggle, which only selects -- before, the row was
+	 * not made current and nothing was chosen. Each row toggled as Android
+	 * toggles it; the duration's must come up chosen, its notes said. */
+	{
+		QTreeWidget *tree = v.findChild<QTreeWidget *>();
+		QAccessibleInterface *view = tree ? QAccessible::queryAccessibleInterface(tree) : nullptr;
+		QAccessibleTableInterface *table = view ? view->tableInterface() : nullptr;
+		bool chose = false;
+
+		v.select(0);
+		for (int r = 0; table && !chose && r < table->rowCount(); r++) {
+			QAccessibleInterface *cell = table->cellAt(r, 0);
+			QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+			if (!act || !act->actionNames().contains(QAccessibleActionInterface::toggleAction()))
+				continue;
+			act->doAction(QAccessibleActionInterface::toggleAction());
+			QCoreApplication::processEvents();
+			chose = v.notes().contains("5 s to 600 s");
+		}
+		CHECK(table && chose, "a setting's row toggled as a screen reader toggles it was not chosen");
+	}
 
 	/* WHERE A SHARED SETTING HAS REACHED; a host's own is said to be so. */
 	v.select(2);

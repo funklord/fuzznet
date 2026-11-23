@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 #include "size_words.h"
 #include "keep_place.h"
@@ -113,6 +114,8 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_table, nullptr);
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
 	connect(m_verify, &QPushButton::clicked, [this]() { verify(); });

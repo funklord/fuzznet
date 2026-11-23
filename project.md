@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1422
+The newest work is at the end of this file. **Read secs 1287 to 1423
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97679,4 +97679,47 @@ needs no second one.
 
 **Tests:** `make client-link-check`: the whole archive links, and a
 program of its own runs and is answered "the node is not running".
+
+## 1423. A screen reader chooses a row: TalkBack's double tap, which only selects, 2026-11-23
+
+**From fuzzypickles** (inbox 20261123T1921Z), found on a Fold under
+TalkBack and traced in Qt 6.12's source: TalkBack's double tap reaches a
+widget as the accessibility click, which on Android runs the node's
+press action, else its toggle (qtbase, androidjniaccessibility.cpp); an
+item view's cell offers toggle alone, and toggle only selects
+(`QAccessibleTableCell`) -- no click, activation or current-row signal,
+and a single selection's selected row cannot be toggled at all. In
+fuzznet's settings view, which chooses on the current row, a TalkBack
+user could not change a setting. **Who is in that**: everyone who uses
+the views by a screen reader on Android -- every list, table and tree
+here that chooses on a click, an activation or the current row, 16 views
+measured: call, contacts (two), conversation (two), conversations,
+devices, forks, group, hosts, library, location, notebook, objects,
+search, settings, share, and the sticker picker (three lists).
+
+**Built**: `gui/choose_accessible.h`, header-only as `combo.h` is, from
+fuzzypickles' `in_window.cpp`, which offered to take fuzznet's in place
+of its copy. `fzn_choose_on_accessible_select(view, act)` acts on a
+selection made with no mouse button down and the current index unmoved
+-- a mouse or a finger selects with a button held, the keyboard moves
+the current index first, so neither reaches it -- queued until the
+selection settles. **One step beyond fuzzypickles'**: it makes the row
+current (`setCurrentIndex`, no selection change) before `act`, so a view
+choosing on its current row, and every button reading it after, sees
+what a click gives -- most of fuzznet's views need no `act` at all. Where
+a view acts on activation alone -- opening a conversation, sending a
+sticker or a suggestion, entering a notebook folder -- `act` does that,
+the double tap being the one gesture a TalkBack user has.
+`fzn_select_rows_through_cells` (also fuzzypickles') on the three trees,
+where Qt's toggle under SelectRows picks another row wherever rows nest.
+
+**Tests**, driven as Android drives it, through the row's accessible
+interface (`tableInterface()->cellAt(row, 0)->actionInterface()`,
+toggle), offscreen: settings_view_test -- a setting's row toggled comes
+up chosen, its notes said; removing the view's call fails it (measured).
+sticker_picker_view_test -- a sticker toggled is sent. Every GUI test
+(45) passes. **Not covered by a test**: the other fourteen views' calls,
+the same one line each; and TalkBack itself, which is fuzzypickles'
+Fold. Sabotage: `a11y-settings-not-chosen`, `a11y-sticker-not-sent`,
+`a11y-current-not-moved`.
 

@@ -1,5 +1,6 @@
 /* Positions shared with this user, as a widget: gui/location_view.h, sec 1109. */
 #include "location_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 #include "phone_layout.h"
 #include "keep_place.h"
@@ -110,6 +111,8 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_table, nullptr);
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_map, &QPushButton::clicked, [this]() { show_on_map(); });
 	connect(m_share, &QPushButton::clicked, [this]() { share(true); });

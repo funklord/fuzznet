@@ -1,6 +1,7 @@
 /* See notebook_view.h. */
 
 #include "notebook_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 
 #include "rpc_ask.h"
@@ -433,6 +434,15 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		        if (!m_updating && item)
 			        open_note(item->data(ROLE_ID).toString());
 	        });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects --
+	 * the note opens as it becomes current, and a folder is entered, the
+	 * one way a double tap has to do what activation does. */
+	fzn_choose_on_accessible_select(m_list, [this](const QModelIndex &at) {
+		QListWidgetItem *item = m_list->item(at.row());
+
+		if (item && item->data(ROLE_TYPE).toInt() == FZN_NOTE_TYPE_FOLDER)
+			descend(item->data(ROLE_ID).toString(), item->data(ROLE_TITLE).toString());
+	});
 	connect(m_show_trash, &QCheckBox::toggled, this, [this](bool on) { show_trash(on); });
 	connect(m_show_archived, &QCheckBox::toggled, this,
 	        [this](bool on) { show_archived(on); });

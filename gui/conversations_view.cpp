@@ -1,5 +1,6 @@
 /* Every conversation, as a list: gui/conversations_view.h, sec 1138. */
 #include "conversations_view.h"
+#include "choose_accessible.h"
 #include "phone_layout.h"
 #include "keep_place.h"
 
@@ -185,6 +186,19 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	col->addLayout(row);
 	col->addWidget(m_status);
 
+	/* A SCREEN READER OPENS ONE TOO, sec 1423: its double tap only selects,
+	 * so the row is opened as activation opens it. */
+	fzn_select_rows_through_cells(m_tree);
+	fzn_choose_on_accessible_select(m_tree, [this](const QModelIndex &) {
+		QTreeWidgetItem *item = m_tree->currentItem();
+		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
+
+		if (!to.isEmpty() && m_open) {
+			m_open(to);
+			m_tree->clearSelection();
+			m_tree->setCurrentItem(nullptr);
+		}
+	});
 	connect(m_tree, &QTreeWidget::itemActivated, [this](QTreeWidgetItem *item, int) {
 		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
 		if (!to.isEmpty() && m_open) {

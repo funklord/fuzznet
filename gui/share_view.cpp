@@ -1,6 +1,7 @@
 /* What another program shares, sent to a conversation: share_view.h,
  * fuzznet sec 1257. */
 #include "share_view.h"
+#include "choose_accessible.h"
 #include "notice_line.h"
 #include "rpc_ask.h"
 #include "size_words.h"
@@ -44,6 +45,8 @@ fzn_share_view::fzn_share_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	col->addWidget(m_send);
 	connect(m_filter, &QLineEdit::textChanged, [this](const QString &w) { set_filter(w); });
 	connect(m_list, &QListWidget::currentRowChanged, [this](int r) { choose(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_list, nullptr);
 	connect(m_list, &QListWidget::itemActivated, [this](QListWidgetItem *) { (void)send(); });
 	connect(m_send, &QPushButton::clicked, [this]() { (void)send(); });
 	m_text->hide();

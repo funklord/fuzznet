@@ -1,5 +1,6 @@
 /* The named objects as a widget: gui/objects_view.h, sec 1102. */
 #include "objects_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 #include "keep_place.h"
 
@@ -67,6 +68,8 @@ fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_table, nullptr);
 	connect(m_set, &QPushButton::clicked, [this]() { set(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_add, &QPushButton::clicked, [this]() { add(); });

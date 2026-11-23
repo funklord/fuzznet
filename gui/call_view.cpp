@@ -1,5 +1,6 @@
 /* Calls, as a widget: gui/call_view.h, sec 1142. */
 #include "call_view.h"
+#include "choose_accessible.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -59,6 +60,8 @@ fzn_call_view::fzn_call_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget
 	col->addWidget(m_status);
 
 	connect(m_list, &QListWidget::currentRowChanged, [this](int r) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_list, nullptr);
 	connect(m_answer, &QPushButton::clicked, [this]() { answer(); });
 	connect(m_decline, &QPushButton::clicked, [this]() { decline(); });
 	connect(m_hang_up, &QPushButton::clicked, [this]() { hang_up(); });

@@ -9,6 +9,9 @@
  */
 
 #include "../sticker_picker_view.h"
+
+#include <QAccessible>
+#include <QListWidget>
 #include "../sticker_render.h"
 
 #include <QApplication>
@@ -290,6 +293,28 @@ int main(int argc, char **argv)
 	      "the pack was not a tab with its stickers, the drawn ones drawn and the other named");
 	CHECK(v.pick(0, 0) && picked == REF, "choosing a sticker did not hand over its reference");
 	CHECK(!v.pick(0, 5), "a sticker that is not there was chosen");
+	/* A SCREEN READER PICKS ONE, sec 1423: TalkBack's double tap is the row's
+	 * accessible toggle, which only selects, and is the one gesture it has
+	 * -- so the toggle sends, as activation does. */
+	{
+		QListWidget *pack = nullptr;
+
+		for (QListWidget *l : v.findChildren<QListWidget *>())
+			if (l->property("pack").isValid() && l->property("pack").toInt() == 0)
+				pack = l;
+		QAccessibleInterface *view = pack ? QAccessible::queryAccessibleInterface(pack) : nullptr;
+		QAccessibleTableInterface *table = view ? view->tableInterface() : nullptr;
+		QAccessibleInterface *cell = table ? table->cellAt(0, 0) : nullptr;
+		QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+		picked.clear();
+		if (pack)
+			pack->clearSelection();
+		if (act)
+			act->doAction(QAccessibleActionInterface::toggleAction());
+		QCoreApplication::processEvents();
+		CHECK(act && picked == REF, "a sticker toggled as a screen reader toggles it was not sent");
+	}
 	/* THE RECENT TAB, sec 1317: what was sent lately, newest first, each as
 	 * its pack's tab shows it; one of a pack not kept here left out; chosen
 	 * as its tab's would be; pack numbers not moved by it. */

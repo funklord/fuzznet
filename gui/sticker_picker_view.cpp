@@ -1,5 +1,6 @@
 /* Choosing a sticker, and keeping packs: gui/sticker_picker_view.h, sec 1141. */
 #include "sticker_picker_view.h"
+#include "choose_accessible.h"
 
 #include "rpc_ask.h"
 #include "sticker_render.h"
@@ -119,6 +120,9 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &text) { set_find(text); });
 	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
+	/* A SCREEN READER PICKS TOO, sec 1423: its double tap only selects, and
+	 * is the one gesture it has, so it sends as activation does. */
+	fzn_choose_on_accessible_select(m_found, [this](const QModelIndex &at) { pick_item(m_found->item(at.row())); });
 	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
 		play(item);
 		sound(item);
@@ -223,6 +227,7 @@ bool fzn_sticker_picker_view::refresh()
 			if (l)
 				pick_item(item);
 		});
+		fzn_choose_on_accessible_select(list, [this, list](const QModelIndex &at) { pick_item(list->item(at.row())); });
 		/* A CLICK is a person touching it: its sound, where it has one;
 		 * choosing it to send stays activation. */
 		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
@@ -277,6 +282,7 @@ void fzn_sticker_picker_view::show_recent()
 	list->setAccessibleName(tr("Stickers you sent lately"));
 	list->setProperty("recent", true);
 	connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
+	fzn_choose_on_accessible_select(list, [this, list](const QModelIndex &at) { pick_item(list->item(at.row())); });
 	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
 		play(item);
 		sound(item);

@@ -1,5 +1,6 @@
 /* One group's members, as a widget: gui/group_view.h, sec 1143. */
 #include "group_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 #include "keep_place.h"
 
@@ -70,6 +71,8 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_earlier, &QCheckBox::clicked, [this](bool on) { set_earlier(on); });
 	connect(m_leave, &QPushButton::clicked, [this]() { leave(); });
 	connect(m_members, &QListWidget::currentRowChanged, [this](int) { enable(); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_members, nullptr);
 	m_status->setText(tr("No group chosen."));
 	fzn_keep_answer::said(m_status); /* the view's own words, not an answer (sec 1225) */
 	enable();

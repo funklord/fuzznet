@@ -1,5 +1,6 @@
 /* Adding a device to this user's hosts, as a widget: gui/devices_view.h, sec 1122. */
 #include "devices_view.h"
+#include "choose_accessible.h"
 #include "keep_place.h"
 
 #include "camera_feed.h"
@@ -174,6 +175,8 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	 * not write it back. */
 	connect(m_confirm, &QCheckBox::clicked, [this](bool on) { set_confirm(on); });
 	connect(m_waiting, &QListWidget::currentRowChanged, [this](int r) { select_waiting(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_waiting, nullptr);
 	connect(m_let_in, &QPushButton::clicked, [this]() { answer(true); });
 	connect(m_turn_away, &QPushButton::clicked, [this]() { answer(false); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });

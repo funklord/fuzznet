@@ -17840,6 +17840,27 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"a11y-settings-not-chosen",
+		"gui/settings_view.cpp",
+		"	fzn_choose_on_accessible_select(m_list, nullptr);\n",
+		"	(void)0;\n",
+		"a TalkBack user cannot choose a setting: the double tap only selects -- sec 1423",
+	),
+	(
+		"a11y-sticker-not-sent",
+		"gui/sticker_picker_view.cpp",
+		"		fzn_choose_on_accessible_select(list, [this, list](const QModelIndex &at) { pick_item(list->item(at.row())); });\n",
+		"		(void)list;\n",
+		"a TalkBack user cannot send a sticker of a pack: the double tap only selects -- sec 1423",
+	),
+	(
+		"a11y-current-not-moved",
+		"gui/choose_accessible.h",
+		"			        now->setCurrentIndex(picked.first(), QItemSelectionModel::NoUpdate);\n",
+		"			        (void)picked;\n",
+		"a row a screen reader toggles is not made current, so nothing choosing on it runs -- sec 1423",
+	),
+	(
 		"seal-expiry-in-seconds",
 		"wire/seal.c",
 		"situ_fzn_frame_head_expires_at_set(&msg, fv, frame_us(what->expires_at));",

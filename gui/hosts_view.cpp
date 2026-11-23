@@ -1,5 +1,6 @@
 /* This user's other hosts, as a widget: gui/hosts_view.h, sec 1124. */
 #include "hosts_view.h"
+#include "choose_accessible.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -108,6 +109,8 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_table, nullptr);
 	connect(m_set, &QPushButton::clicked, [this]() { set_address(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_make_admin, &QPushButton::clicked, [this]() { make_admin(); });

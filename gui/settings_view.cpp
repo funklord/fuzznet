@@ -1,5 +1,6 @@
 /* The node's settings as a widget: gui/settings_view.h, sec 1103. */
 #include "settings_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 
 #include "rpc_ask.h"
@@ -67,6 +68,9 @@ fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		        if (r >= 0)
 			        select(r);
 	        });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_select_rows_through_cells(m_list);
+	fzn_choose_on_accessible_select(m_list, nullptr);
 	connect(m_apply, &QPushButton::clicked, [this]() { apply(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_advanced, &QCheckBox::toggled, [this](bool on) { show_advanced(on); });

@@ -1,5 +1,6 @@
 /* Contacts and pairing requests as a widget: gui/contacts_view.h, sec 1107. */
 #include "contacts_view.h"
+#include "choose_accessible.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -102,6 +103,9 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	        [this](int r, int, int, int) { select_contact(r); });
 	connect(m_requests, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select_request(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_contacts, nullptr);
+	fzn_choose_on_accessible_select(m_requests, nullptr);
 	connect(m_approve, &QPushButton::clicked, [this]() { approve(); });
 	connect(m_reject, &QPushButton::clicked, [this]() { reject(); });
 	connect(m_rename, &QPushButton::clicked, [this]() { rename(); });

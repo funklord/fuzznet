@@ -1,5 +1,6 @@
 /* What this user's hosts decided apart, as a widget: gui/forks_view.h, sec 1127. */
 #include "forks_view.h"
+#include "choose_accessible.h"
 
 #include "rpc_ask.h"
 
@@ -64,6 +65,9 @@ fzn_forks_view::fzn_forks_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_tree, &QTreeWidget::currentItemChanged, [this](QTreeWidgetItem *now, QTreeWidgetItem *) {
 		m_keep->setEnabled(now && now->parent());
 	});
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_select_rows_through_cells(m_tree);
+	fzn_choose_on_accessible_select(m_tree, nullptr);
 	connect(m_keep, &QPushButton::clicked, [this]() { keep(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	m_keep->setEnabled(false);

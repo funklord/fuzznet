@@ -1,5 +1,6 @@
 /* The one search, as a widget: gui/search_view.h, sec 1293. */
 #include "search_view.h"
+#include "choose_accessible.h"
 #include "combo.h"
 
 #include "rpc_ask.h"
@@ -109,6 +110,8 @@ fzn_search_view::fzn_search_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWi
 	connect(m_more, &QPushButton::clicked, [this]() { more(); });
 	connect(m_open_button, &QPushButton::clicked, [this]() { open(); });
 	connect(m_table, &QTableWidget::currentCellChanged, [this](int r, int, int, int) { select(r); });
+	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
+	fzn_choose_on_accessible_select(m_table, nullptr);
 	connect(m_table, &QTableWidget::cellActivated, [this](int r, int) {
 		select(r);
 		open();
