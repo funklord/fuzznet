@@ -40,6 +40,11 @@ typedef size_t (*fzn_node_rrpc_run_t)(void *ctx, const uint8_t *name, size_t nam
                                       size_t args_len, uint8_t *answer, size_t cap, fzn_status_t *status,
                                       const char **why);
 
+/* THE NAME MSG CALLS, borrowed from MSG: 1 when MSG is a call whose name
+ * `call NAME` would take, 0 otherwise. What the daemon judges a caller by
+ * who is not the node's own user, as the text verb is judged (sec 1416). */
+int fzn_node_rrpc_binary_name(const uint8_t *msg, size_t len, const uint8_t **name, size_t *name_len);
+
 /* Answers MSG, a FZN_CMD_RRPC `call`, through `put`, running the procedure
  * through `run` with `room` bytes of `answer` for what it says: 1 once
  * answered, every refusal included, and 0 when a message could not be

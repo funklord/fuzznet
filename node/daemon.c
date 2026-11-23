@@ -18890,8 +18890,32 @@ static int local_rrpc(int fd, fzn_origin_t origin, const fzn_peer_t *peer, const
 {
 	uint8_t *answer;
 
-	if (origin != FZN_ORIGIN_SAME_USER)
-		return local_binary_status(fd, FZN_STATUS_DENIED, "calls are this node's own user's"), 0;
+	/* ANOTHER LOCAL USER, judged as the text verb judges one (`permit_judge`,
+	 * sec 852): served when `local/permit/NAME` on this host grants it the
+	 * call (FZN_PERMIT_RRPC), NAME the procedure's. Sec 1411 refused every
+	 * caller but the node's own user, so a tray running as the person at
+	 * the desk against root's node could not use it (raidcfgd, inbox
+	 * 20261123T1729Z; sec 1416). */
+	if (origin != FZN_ORIGIN_SAME_USER) {
+		char key[sizeof(FZN_PERMIT_KEY_PREFIX) + FZN_PERMIT_SUBJECT_MAX];
+		uint8_t value[FZN_SETTING_VALUE_MAX];
+		fzn_setting_rank_t rank;
+		const uint8_t *name = NULL;
+		size_t name_len = 0, value_len = 0;
+
+		if (!fzn_node_rrpc_binary_name(msg, len, &name, &name_len))
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a call: a name of a-z and 0-9, then its "
+			                                                     "arguments"), 0;
+		if (!routing_self || !peer || !fzn_node_permit_subject_ok((const char *)name, name_len))
+			return local_binary_status(fd, FZN_STATUS_DENIED, "calls are this node's own user's, or granted"), 0;
+		(void)snprintf(key, sizeof(key), "%s%.*s", FZN_PERMIT_KEY_PREFIX, (int)name_len, (const char *)name);
+		if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self, (const uint8_t *)key,
+		                           strlen(key), value, &value_len, &rank)
+		    || !fzn_node_permit_allows(value, value_len, peer, FZN_PERMIT_RRPC))
+			return local_binary_status(fd, FZN_STATUS_DENIED, "calls are this node's own user's, or granted"), 0;
+		say(FZN_ENTRY_INFO, "local/permit", "uid %lu calls %.*s in binary, as granted", (unsigned long)peer->uid,
+		    (int)name_len, (const char *)name);
+	}
 	answer = malloc(FZND_CALL_LOCAL_ANSWER_MAX);
 	if (!answer)
 		return local_binary_status(fd, FZN_STATUS_ERROR, "no room for the answer"), 0;

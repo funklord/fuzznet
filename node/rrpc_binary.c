@@ -27,12 +27,39 @@ static int name_ok(const uint8_t *name, size_t len)
 	return len != 0u;
 }
 
+/* THE CALL'S VIEW, when MSG is a call with a name as `call` takes it. */
+static int call_view(const uint8_t *msg, size_t len, situ_msg_t *m, situ_view_t *b)
+{
+	situ_view_t v;
+
+	if (!msg || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	return fzn_rrpc_local_message_view(m, 0u, (uint32_t)len, &v) == SITU_OK
+	       && fzn_rrpc_local_message_validate(v) == SITU_OK
+	       && fzn_rrpc_local_message_op_get(v) == FZN_RRPC_LOCAL_OP_CALL
+	       && fzn_rrpc_local_message_body_call_view(v, b) == SITU_OK
+	       && name_ok(fzn_rrpc_local_call_name_ptr(*b), fzn_rrpc_local_call_name_len(*b));
+}
+
+int fzn_node_rrpc_binary_name(const uint8_t *msg, size_t len, const uint8_t **name, size_t *name_len)
+{
+	situ_msg_t m;
+	situ_view_t b;
+
+	if (!name || !name_len || !call_view(msg, len, &m, &b))
+		return 0;
+	*name = fzn_rrpc_local_call_name_ptr(b);
+	*name_len = fzn_rrpc_local_call_name_len(b);
+	return 1;
+}
+
 int fzn_node_rrpc_binary(const uint8_t *msg, size_t len, fzn_node_rrpc_run_t run, void *run_ctx, uint8_t *answer,
                          size_t room, fzn_node_rrpc_put_t put, void *put_ctx)
 {
 	uint8_t part[2u + FZN_NODE_RRPC_PART_MAX];
 	situ_msg_t m;
-	situ_view_t v, b;
+	situ_view_t b;
 	fzn_status_t code = FZN_STATUS_ERROR;
 	const char *why = NULL;
 	size_t n, at;
@@ -41,12 +68,7 @@ int fzn_node_rrpc_binary(const uint8_t *msg, size_t len, fzn_node_rrpc_run_t run
 		return 0;
 	if (!run || !answer || !msg || len > UINT32_MAX)
 		return status(put, put_ctx, FZN_STATUS_UNSUPPORTED, "no procedures here");
-	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
-	if (fzn_rrpc_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_rrpc_local_message_validate(v) != SITU_OK
-	    || fzn_rrpc_local_message_op_get(v) != FZN_RRPC_LOCAL_OP_CALL
-	    || fzn_rrpc_local_message_body_call_view(v, &b) != SITU_OK
-	    || !name_ok(fzn_rrpc_local_call_name_ptr(b), fzn_rrpc_local_call_name_len(b)))
+	if (!call_view(msg, len, &m, &b))
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a call: a name of a-z and 0-9, then its arguments");
 	n = run(run_ctx, fzn_rrpc_local_call_name_ptr(b), fzn_rrpc_local_call_name_len(b),
 	        fzn_rrpc_local_call_args_ptr(b), fzn_rrpc_local_call_args_len(b), answer, room, &code, &why);

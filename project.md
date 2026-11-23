@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1415
+The newest work is at the end of this file. **Read secs 1287 to 1416
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97232,7 +97232,8 @@ pilot's are (sec 1152). Between hosts RRPC keeps 49 and 50.
   answers `part` messages of at most FZN_NODE_RRPC_PART_MAX (8189) bytes
   in order, then a STATUS ok; a refusal is one STATUS: UNSUPPORTED for no
   such procedure, DENIED, ERROR. An answer cut short ends without its ok.
-- **fuzznetd** (`local_rrpc`) admits the node's own user alone, as the
+- **fuzznetd** (`local_rrpc`) admits the node's own user, and since sec
+  1416 another local user `local/permit/NAME` grants the call, as the
   text `call` does, runs fuzznet's procedure or the extension's with
   **256 KiB of room** (FZND_CALL_LOCAL_ANSWER_MAX, allocated per call),
   and asks the follower serving a procedure it does not, with the 4096
@@ -97419,4 +97420,29 @@ run's `max` counting the delimiter -- are situ's design.
 **Sabotage**: `permit-situ-trailing-junk`, `permit-situ-rw-read-only`,
 `permit-situ-id-as-name` new; `events-any-reaches-every-grant`
 retargeted onto the new `any=` arm.
+
+## 1416. The binary call judges another local user by its permit, as the text call does, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T1729Z): sec 1411 said the binary call
+admits callers "by the same rule" as the text `call`, and in the code
+it did not. The text verb reaches `permit_judge`, which serves a caller
+who is not the node's own user when `local/permit/NAME` on this host
+grants it FZN_PERMIT_RRPC (secs 852, 883); `local_rrpc` refused every
+such caller. raidcfgd's node is root's, its tray the person at the
+desk's, its daemon sets `local/permit/raid any=x` -- so the one caller
+the binary call was built for was refused, and the tray kept paging 340
+raw bytes at a time through text.
+
+**Fixed**: `local_rrpc` reads the called procedure's name
+(`fzn_node_rrpc_binary_name`, before anything runs), and judges another
+local user by `local/permit/NAME` and FZN_PERMIT_RRPC exactly as
+`permit_judge` does, saying so in the log; refused, it answers DENIED
+"calls are this node's own user's, or granted", the text verb's words.
+
+**Tests:** rpc_test: the name a call names is read, borrowed, and none
+for a name past a-z and 0-9, a part, or a cut call. **Not covered by a
+test:** the daemon's judgement itself -- it needs a caller of another
+unix user, which no test here can be; `fzn_node_permit_allows`, which
+decides it, is permit_test's and permit_agree_fuzz's. raidcfgd's tray
+against root's node is the check.
 

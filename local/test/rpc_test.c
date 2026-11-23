@@ -2718,6 +2718,25 @@ static void test_procedure_in_binary(void)
 		              && s.parts == 3u && s.bytes == 21772u && s.status == FZN_STATUS_OK,
 		      "a 21,772-byte answer did not go as three parts and ok");
 	}
+	/* THE NAME A CALL NAMES, what the daemon judges another local user's
+	 * call by (`local/permit/NAME`, sec 1416): the name alone, borrowed;
+	 * none for a name past a-z and 0-9, a part, or a cut call. */
+	{
+		static const uint8_t call[] = { FZN_CMD_RRPC, 128u, 4u, 'r', 'a', 'i', 'd', 0x00, 0xff };
+		static const uint8_t bad[] = { FZN_CMD_RRPC, 128u, 4u, 'R', 'a', 'i', 'd' };
+		static const uint8_t part[] = { FZN_CMD_RRPC, 129u, 1u };
+		const uint8_t *name = NULL;
+		size_t name_len = 0;
+
+		CHECK(fzn_node_rrpc_binary_name(call, sizeof call, &name, &name_len) && name_len == 4u
+		              && !memcmp(name, "raid", 4u),
+		      "a call's procedure name was not read for its permit");
+		CHECK(!fzn_node_rrpc_binary_name(bad, sizeof bad, &name, &name_len)
+		              && !fzn_node_rrpc_binary_name(part, sizeof part, &name, &name_len)
+		              && !fzn_node_rrpc_binary_name(call, 5u, &name, &name_len),
+		      "a bad name, a part or a cut call gave a name to judge a permit by");
+	}
+
 	/* AND A NAME PAST a-z AND 0-9 REFUSED THERE TOO, nothing run. */
 	{
 		static const uint8_t call[] = { FZN_CMD_RRPC, 128u, 6u, 'S', 't', 'a', 't', 'u', 's' };
