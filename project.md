@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1417
+The newest work is at the end of this file. **Read secs 1287 to 1418
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97503,4 +97503,32 @@ re-derived vector; sequence_test and seal_test's hand-built frames write
 microseconds. `make livecheck` passes: every scenario's hosts speak
 microsecond frames to each other. Sabotage: `seal-expiry-in-seconds`,
 `seal-subsecond-expiry-is-none`, `seal-far-expiry-wraps`.
+
+## 1418. The typed client as an archive, for a consumer's tray, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T1854Z): to call a procedure in binary
+from its tray (secs 1411, 1416), raidcfgd needs `fzn_rpc_procedure`,
+which is in `local/rpc.c` -- built here only as RPC_OBJS for this
+tree's tests and GUI. `make daemon-lib` (sec 907) holds the node's side
+and none of the client's, and raidcfgd moved off copied source lists the
+same day because one went 147 symbols stale on a pin move.
+
+**Built, as `daemon-lib` is**: `make client-lib` archives RPC_LINK_OBJS
+-- the objects every view and test here links for `fzn_rpc_` -- into
+`libfuzznet-client.a`; `make client-flags` prints
+FZN_CLIENT_CFLAGS and FZN_CLIENT_LIBS; `make client-link-check`
+(`tool/client_link_check.sh`) compiles a program of its own from those
+alone, links it against the archive, and runs it at a socket where no
+node is -- it must answer the client's own "the node is not running".
+Like `daemon-link-check`, it runs on asking, not in a gate. A program
+links this archive or `daemon-lib`, not both: they share objects.
+
+**Threads**, asked: the typed client is one call at a time per process.
+`fzn_rpc_procedure` builds its request in static room and every binary
+call reads its answer into `fzn_rpc_binary`'s static buffer; a program
+calling from several threads serializes its calls. Said in
+`local/rpc.h` beside the call.
+
+**Tests:** `make client-link-check` passes: "a client of its own linked
+and ran: -21 the node is not running -- nothing answers there".
 

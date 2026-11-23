@@ -94,7 +94,12 @@ int fzn_rpc_object_get(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, in
  * into `out`, `*out_len` its length. FZN_RPC_ERR_BUFFER_TOO_SMALL when the
  * answer is longer than `cap`, `*out_len` then the whole answer's length;
  * FZN_RPC_ERR_UNKNOWN_MSG_TYPE for no such procedure, or a node from before
- * the binary call, whose text `call` is the caller's to ask. */
+ * the binary call, whose text `call` is the caller's to ask.
+ *
+ * ONE CALL AT A TIME PER PROCESS (sec 1418): this call builds its request in
+ * static room, and every binary call's answer is read into the static buffer
+ * of `fzn_rpc_binary`, so two threads calling at once overwrite each other.
+ * A program calling from several threads serializes its calls. */
 #define FZN_RPC_PROCEDURE_NAME_MAX 32u
 int fzn_rpc_procedure(fzn_rpc_t *c, const char *name, const uint8_t *args, size_t args_len, uint8_t *out,
                       size_t cap, size_t *out_len);

@@ -6007,6 +6007,27 @@ daemon-flags:
 daemon-link-check: $(BUILD_DIR)/libfuzznetd.a
 	@tool/daemon_link_check.sh "$(CC)" "$(MAKE)"
 
+# THE TYPED CLIENT AS A CONSUMER LINKS IT, sec 1418: the objects every view
+# and test here links for `fzn_rpc_` (RPC_LINK_OBJS), as one archive, so a
+# tray or a CLI links the client without copying a source list -- raidcfgd's
+# went 147 symbols stale on one pin move. `make client-flags` prints what to
+# compile and link with, and `make client-link-check` links a program from
+# those alone. Link this or `daemon-lib`, not both: they share objects.
+$(BUILD_DIR)/libfuzznet-client.a: $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	@rm -f $@
+	$(AR) rcs $@ $(sort $(filter %.o,$^))
+
+.PHONY: client-lib client-flags client-link-check
+client-lib: $(BUILD_DIR)/libfuzznet-client.a
+
+client-flags:
+	@echo "FZN_CLIENT_CFLAGS=-I$(abspath .) -I$(abspath wire/generated)"
+	@echo "FZN_CLIENT_LIBS=$(abspath $(BUILD_DIR)/libfuzznet-client.a) $(LDFLAGS_GC) -lm"
+
+client-link-check: $(BUILD_DIR)/libfuzznet-client.a
+	@tool/client_link_check.sh "$(CC)" "$(MAKE)"
+
 $(BUILD_DIR)/node/test/ext_daemon: $(BUILD_DIR)/node/test/ext_daemon.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
