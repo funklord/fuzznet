@@ -31,7 +31,7 @@ struct fzn_frame size=144..1168
 struct fzn_head size=91
   @0x0000   1         fzn_kind   kind
   @0x0001   32        u8         sender  big
-  @0x0021   8         u64        expires_at  big
+  @0x0021   8         u64        expires_at  big time=s@unix
   @0x0029   24        u8         nonce  big
   @0x0041   16        u8         commitment  big
   @0x0051   4         u32        msg  big

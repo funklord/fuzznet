@@ -234,7 +234,12 @@ struct fzn_head {
 	// whose expiry has passed. Zero means "no expiry", which a receiver
 	// refuses for anything it treats as a command -- the check lives in the
 	// consumer because only it knows which of its commands are commands.
-	u64  expires_at;
+	//
+	// ITS UNIT AND EPOCH, STATED (sec 1413): seconds since 1970, what
+	// fuzznetd stamps; the time stated here so every reader knows it, and
+	// the reassembly table below takes its unit from it. Whether the unit
+	// becomes microseconds is the holder's (sec 1407).
+	u64  expires_at [time = s, epoch = unix];
 
 	// Replay defence and the AEAD nonce in one. 24 bytes because XChaCha
 	// takes that, which is what makes a random nonce safe without a counter
@@ -479,7 +484,7 @@ relation same_piece_of(first: fzn_frame, later: fzn_frame) {
 reassemble pieces(f: fzn_frame) by same_piece_of [
 	index = f.head.index, count = f.head.chunks,
 	piece = f.sealed.payload, messages = 64, bytes = 16777216,
-	timeout = 1000, unit = s,
+	timeout = 1000,
 	per = f.head.sender, per_max = 64, expires = f.head.expires_at,
 	count_max = 256];
 

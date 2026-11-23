@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1412
+The newest work is at the end of this file. **Read secs 1287 to 1413
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,11 +58,12 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
-- **The clock's unit** (sec 368; sec 1323): situ describes time units
-  now (its 26.1165, asked in sec 1406). Measured in sec 1407: the u64
-  holds microseconds since 1970 for 584,600 years, so one fixed fine
-  unit (c) beats both (a) set at start and (b) carried. **The holder's
-  to confirm** before the frame changes.
+- **The clock's unit** (sec 368; sec 1323): stated in the frame since
+  sec 1413, seconds since 1970 as fuzznetd stamps. Measured in sec 1407:
+  the u64 holds microseconds since 1970 for 584,600 years, so one fixed
+  fine unit (c) beats both (a) set at start and (b) carried. **The
+  holder's to confirm**; the nonce set's move onto situ's replay form
+  waits on it, since that form fixes the unit and a horizon ceiling.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -97290,4 +97291,26 @@ through `fzn_schema_check` and the registry's own check) now also holds
 the cell-type map, which a count read as text fails. Sabotage:
 `schema-own-count-read-as-text`, `schema-own-check-not-attached` new;
 `schema-ext-claims-own` retargeted onto the accessor.
+
+## 1413. The frame states its expiry's unit, 2026-11-23
+
+`wire/frame.situ`'s `expires_at` is now `u64 expires_at [time = s, epoch
+= unix]` (situ 26.1165, pushed at abf7ef5d): seconds since 1970, what
+fuzznetd stamps and has always stamped -- the fact sec 368 found stated
+nowhere, now stated where every reader of the schema meets it, and in
+the wire contract (`time=s@unix`; `situc wire --check`: compatible, a
+change of unit or epoch from here on is reported). The reassembly
+declaration drops its own `unit = s` and takes the field's. **Generated
+code is byte for byte what it was**, measured at abf7ef5d with and
+without the change; `frame/freshness.h`'s "stated nowhere" is rewritten
+to say where.
+
+This states today's unit; it does not settle sec 1407's question, which
+is the holder's. **The nonce set** (`frame/freshness.c`) does not move
+onto situ's replay form yet, measured at abf7ef5d: the form builds with
+fuzznet's 24-byte nonce and a per-window `max_ahead`, as asked, but it
+fixes the unit and a horizon ceiling (its `ahead`) where
+`fzn_replay_init` takes any horizon -- 4000 in tool/consumer_check.c,
+100000 in tests -- and reads a frame view where callers pass the nonce
+and expiry as values. Both turn on the unit the holder chooses.
 
