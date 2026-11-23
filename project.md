@@ -97344,7 +97344,17 @@ under each row's size bounds -- 29 taken by both, none differing.
   prefix plus a fixed hex run, nor a rule over a list's elements ("none
   stands alone"), nor the rights' order and implication. **Asked of
   situ** with the three grammars exactly (situ inbox 20261123T1606Z,
-  2026-11-23); kept by hand until it has a shape.
+  2026-11-23); kept by hand until it has a shape. **situ answered**
+  (inbox 20261123T1720Z, probed at a2fc3912 with `situc verify`): the
+  local permit and `local/events` are describable today -- rights as a
+  closed `tokens` set of five spellings (r, rw, rx, rwx, x; `w` without
+  `r` and out-of-order are simply not members), a name as a `[chars]`
+  run or `#` and digits through a peeked variant, `@` groups, runs of
+  spaces through `whitespace`. The remote permit too, but for "none
+  stands alone", a rule over a run's elements with no situ quantifier:
+  kept in fuzznet over the generated view, or asked of situ as a `when`
+  over a run. situ's probe takes `,` in a name, which fuzznet's
+  `parse_grant` does not: the move takes fuzznet's class.
 
 **The register (sec 1070), two cells corrected**, from this run's walk
 of the aims: the typed client's "missing" listed on-demand listings
