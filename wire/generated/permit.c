@@ -550,31 +550,6 @@ situ_err_t fzn_permit_user_grant_validate(situ_view_t view)
 	return fzn_permit_user_grant_check(view, NULL);
 }
 
-situ_err_t fzn_permit_anyone_check(situ_view_t view, uint32_t *which)
-{
-	/* One place rather than a guard at every refusal: a caller
-	 * that does not want the identity passes NULL, and the
-	 * refusals below stay one line each. */
-	uint32_t sink;
-
-	if (which == NULL) {
-		which = &sink;
-	}
-	*which = 0xFFFFFFFFu;
-	/* `word` is one of `anyone_word`'s 2 spelling(s). */
-	if (fzn_permit_anyone_word_which(fzn_permit_anyone_word_ptr(view), fzn_permit_anyone_word_len(view))
-			== FZN_PERMIT_ANYONE_WORD_UNKNOWN) {
-		*which = FZN_PERMIT_ANYONE_WORD_CHECK;
-		return SITU_ERR_CONSTRAINT;
-	}
-	return SITU_OK;
-}
-
-situ_err_t fzn_permit_anyone_validate(situ_view_t view)
-{
-	return fzn_permit_anyone_check(view, NULL);
-}
-
 situ_err_t fzn_permit_grant_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -595,7 +570,7 @@ situ_err_t fzn_permit_grant_check(situ_view_t view, uint32_t *which)
 	}
 	/* grant.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view)) < ((fzn_permit_grant_kind_get(view) == 97u ? (fzn_permit_grant_body_anyone_extent(view)) : (fzn_permit_grant_kind_get(view) == 108u ? (fzn_permit_grant_body_local_extent(view)) : (fzn_permit_grant_kind_get(view) == 103u ? (fzn_permit_grant_body_group_extent(view)) : (fzn_permit_grant_kind_get(view) == 117u ? (fzn_permit_grant_body_user_extent(view)) : 0u)))))) {
+	if (situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view)) < ((fzn_permit_grant_kind_get(view) == 97u ? (fzn_permit_grant_body_anyone_span(view)) : (fzn_permit_grant_kind_get(view) == 108u ? (fzn_permit_grant_body_local_extent(view)) : (fzn_permit_grant_kind_get(view) == 103u ? (fzn_permit_grant_body_group_extent(view)) : (fzn_permit_grant_kind_get(view) == 117u ? (fzn_permit_grant_body_user_extent(view)) : 0u)))))) {
 		*which = FZN_PERMIT_GRANT_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -604,23 +579,23 @@ situ_err_t fzn_permit_grant_check(situ_view_t view, uint32_t *which)
 		*which = FZN_PERMIT_GRANT_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
-	/* grant.body.anyone: the arm the discriminant selects carries
-	 * its own constraints, and its own validator is what knows
-	 * them. A different arm is nothing to check; this arm not
-	 * fitting the frame is a malformed message. */
-	{
-		situ_view_t arm;
-		const situ_err_t got = fzn_permit_grant_body_anyone_view(view, &arm);
+	/* grant.body.anyone: checked where the discriminant
+	 * selects this arm, and nothing to check where it does
+	 * not. */
+	if (!(fzn_permit_grant_kind_get(view) != 97u)) {
+		/* `anyone` is one of `anyone_word`'s 2 spelling(s), where selected. */
+		{
+			const uint8_t *token_at = NULL;
+			uint32_t token_n = 0u;
+			const situ_err_t got = fzn_permit_grant_body_anyone_ptr(view, &token_at, &token_n);
 
-		if (got == SITU_OK) {
-			const situ_err_t err = fzn_permit_anyone_validate(arm);
-
-			if (err != SITU_OK) {
+			if (got == SITU_OK && fzn_permit_anyone_word_which(token_at, token_n) == FZN_PERMIT_ANYONE_WORD_UNKNOWN) {
 				*which = FZN_PERMIT_GRANT_BODY_ANYONE_CHECK;
-				return err;
+				return SITU_ERR_CONSTRAINT;
 			}
-		} else if (got != SITU_ERR_VERSION) {
-			return got;
+			if (got != SITU_OK && got != SITU_ERR_VERSION) {
+				return got;
+			}
 		}
 	}
 	/* grant.body.local: the arm the discriminant selects carries
@@ -699,6 +674,12 @@ situ_err_t fzn_permit_permit_check(situ_view_t view, uint32_t *which)
 		which = &sink;
 	}
 	*which = 0xFFFFFFFFu;
+	/* `grants` ends by its own rule, and a frame that
+	 * stops first cut it short. */
+	if (!fzn_permit_permit_grants_ended(view)) {
+		*which = FZN_PERMIT_PERMIT_GRANTS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* permit.grants: each `grant` the run holds, through its
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */

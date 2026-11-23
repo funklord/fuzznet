@@ -11,14 +11,10 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct anyone size=0.. mutate=Shifting effect=EffectOnRead
-  anyone.word                            offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnRead
-
 struct grant size=0.. access=Sequential mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic canonical=NonCanonical effect=EffectOnRead
   grant.kind                             offset=Scanned size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord access=Sequential address=Unstable effect=EffectOnRead
   grant.body                             offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable
-  grant.body.anyone                      offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable effect=EffectOnRead
-  grant.body.anyone.word                 offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable effect=EffectOnRead
+  grant.body.anyone                      offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable effect=EffectOnRead
   grant.body.local                       offset=Dynamic size=Unbounded align=Unaligned repr=TextConverted atomic=NonAtomic mutate=Shifting address=Unstable canonical=NonCanonical effect=EffectOnRead
   grant.body.local.scheme                offset=FrameStatic(0x00) size=Fixed(6) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
   grant.body.local.who                   offset=FrameStatic(0x06) size=Bounded(1, 65) align=Aligned(2) repr=TextConverted atomic=NonAtomic mutate=Shifting address=FrameStable canonical=NonCanonical
@@ -145,8 +141,7 @@ struct permit size=0.. access=Sequential mutate=Shifting address=Unstable repr=T
   permit.grants[]                        offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=TextConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable canonical=NonCanonical effect=EffectOnRead
   permit.grants[].kind                   offset=Scanned size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord access=Sequential address=Unstable effect=EffectOnRead
   permit.grants[].body                   offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable
-  permit.grants[].body.anyone            offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable effect=EffectOnRead
-  permit.grants[].body.anyone.word       offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable effect=EffectOnRead
+  permit.grants[].body.anyone            offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable effect=EffectOnRead
   permit.grants[].body.local             offset=Dynamic size=Unbounded align=Unaligned repr=TextConverted atomic=NonAtomic mutate=Shifting address=Unstable canonical=NonCanonical effect=EffectOnRead
   permit.grants[].body.local.scheme      offset=FrameStatic(0x00) size=Fixed(6) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
   permit.grants[].body.local.who         offset=FrameStatic(0x06) size=Bounded(1, 65) align=Aligned(2) repr=TextConverted atomic=NonAtomic mutate=Shifting address=FrameStable canonical=NonCanonical

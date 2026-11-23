@@ -185,6 +185,9 @@ static inline uint8_t *situ_fzn_head_sender_ptr(situ_view_t view)
 /** fzn_head.expires_at : u64  at AbsoluteStatic(0x21)
  * size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
+#define SITU_FZN_HEAD_EXPIRES_AT_UNIT_NUM 1ull
+#define SITU_FZN_HEAD_EXPIRES_AT_UNIT_DEN 1000000ull	/* of a second */
+#define SITU_FZN_HEAD_EXPIRES_AT_EPOCH "unix"
 static inline uint64_t situ_fzn_head_expires_at_get(situ_view_t view)
 {
 	return (uint64_t)(situ_get_be64(situ_base(view) + 33u));

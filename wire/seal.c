@@ -20,7 +20,12 @@
  * than stated is the safe direction -- but NEVER TO ZERO: 0 is "no expiry"
  * (FZN_FRESH_NO_EXPIRY), which a grant may carry, and a stated expiry under
  * a second must not read as none. It reads as 1, long past. */
-#define US_PER_S 1000000u
+/* THE FACTOR FROM THE FIELD, as wire/frame.situ states it (situ emits the
+ * unit as a fraction of a second, b1b05486): one microsecond is 1/1000000 s.
+ * A schema that changed the unit fails to build here rather than convert
+ * by a stale number. */
+_Static_assert(SITU_FZN_HEAD_EXPIRES_AT_UNIT_NUM == 1u, "the frame's expiry is no longer a fraction of a second");
+#define US_PER_S SITU_FZN_HEAD_EXPIRES_AT_UNIT_DEN
 
 static uint64_t frame_us(uint64_t seconds)
 {

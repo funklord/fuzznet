@@ -109,9 +109,14 @@ static int grant_of(situ_view_t v, struct grant *g)
 		/* ANY LOCAL USER, sec 883: a call alone, whose procedure is handed
 		 * the caller and judges it. `r` and `w` reach fuzznet's own verbs,
 		 * with no judge behind them, so those always name somebody. */
-		if (fzn_permit_grant_body_anyone_view(v, &b) != SITU_OK || fzn_permit_anyone_word_len(b) != 5u
-		    || memcmp(fzn_permit_anyone_word_ptr(b), "any=x", 5u) != 0)
-			return 0;
+		{
+			const uint8_t *word = NULL;
+			uint32_t word_len = 0;
+
+			if (fzn_permit_grant_body_anyone_ptr(v, &word, &word_len) != SITU_OK || word_len != 5u
+			    || memcmp(word, "any=x", 5u) != 0)
+				return 0;
+		}
 		g->anyone = 1;
 		g->rights = FZN_PERMIT_RRPC;
 		return 1;
@@ -153,15 +158,16 @@ static int grant_of(situ_view_t v, struct grant *g)
 }
 
 /* EACH GRANT IN `value`, to `each`, read through node/permit.situ's code
- * (sec 1415); 0 when the value is no permit. What the schema cannot say is
- * said here: spaces after the last grant are trimmed (the run would ask
- * for one more grant there), and the grants reach the value's end. */
+ * (sec 1415); 0 when the value is no permit. Spaces after the last grant
+ * are trimmed here, as situ's design leaves them (the run would ask for one
+ * more grant there); that the grants reach the value's end is situ's since
+ * b1b05486 (sec 1420), its run refusing what is left after the last one. */
 static int walk(const uint8_t *value, size_t len, int (*each)(void *, const struct grant *),
                 void *ctx, int *any)
 {
 	situ_msg_t m;
 	situ_view_t p, v;
-	uint32_t i, count, at = 0;
+	uint32_t i, count;
 	struct grant g;
 
 	*any = 0;
@@ -175,13 +181,9 @@ static int walk(const uint8_t *value, size_t len, int (*each)(void *, const stru
 	if (fzn_permit_permit_view(&m, 0u, (uint32_t)len, &p) != SITU_OK || fzn_permit_permit_validate(p) != SITU_OK)
 		return 0;
 	count = fzn_permit_permit_grants_count(p);
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < count; i++)
 		if (fzn_permit_permit_grants_at(p, i, &v) != SITU_OK || !grant_of(v, &g))
 			return 0;
-		at += fzn_permit_grant_extent(v);
-	}
-	if (at != len)
-		return 0;
 	for (i = 0; i < count; i++) {
 		(void)fzn_permit_permit_grants_at(p, i, &v);
 		(void)grant_of(v, &g);

@@ -1997,176 +1997,6 @@ situ_err_t fzn_permit_user_grant_check(situ_view_t view, uint32_t *which);
 #define FZN_PERMIT_USER_GRANT_WHO_CHECK 1u
 #define FZN_PERMIT_USER_GRANT_RIGHTS_CHECK 2u
 
-/* ---- struct anyone ---- */
-
-#define FZN_PERMIT_ANYONE_SIZE_MIN   0u
-/* No FZN_PERMIT_ANYONE_SIZE_MAX: nothing in the schema bounds this
- * struct's length. Give the driving length field a `[max = N]`
- * to make it statically allocatable. */
-
-/* INVALIDATION: nothing invalidates a anyone view.
- * Every member has a fixed size, so no write can move another.
- */
-/** Acquire a view. This struct is a frame: its extent depends on the
- * data, so the caller supplies the length they have and the bounds
- * check is made against that. The fields at a static offset are then
- * constant offsets from the base; the rest resolve through their own
- * offset functions below.
- */
-static inline situ_err_t fzn_permit_anyone_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
-		situ_view_t *out)
-{
-	/* No minimum: every member of this struct may be empty. */
-	return situ_view_at(msg, offset, length, out);
-}
-
-/* anyone.word : anyone_word  at AbsoluteStatic(0x00)
- * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
- */
-/** `word` runs to the first `" "`. Reaching anything after
- * it means this scan, which is why the map calls their offsets Scanned
- * rather than Dynamic: it is a search, and the delimiter may not be there.
- */
-static const uint8_t fzn_permit_anyone_word_delim[1] = {0x20u};
-
-/** The scan, from a base the caller already knows.
- *
- * Everything that accumulates offsets -- the offset functions,
- * `_required`, the offset cache -- walks the members in order and
- * has `at` in hand. Calling the plain `_span` there re-resolves
- * the base by rescanning every member before it, so a loop over M
- * members costs M^2 scans while looking like one pass. Measured:
- * an eight-member record took three times *longer* through a
- * cache built that way than through the per-call offsets it was
- * meant to replace.
- */
-static inline uint32_t fzn_permit_anyone_word_len_from(situ_view_t view, uint32_t at)
-{
-	return situ_scan(situ_base(view) + at, situ_remaining_u32(view.limit, at), fzn_permit_anyone_word_delim, 1u);
-}
-
-static inline uint32_t fzn_permit_anyone_word_len(situ_view_t view)
-{
-	return fzn_permit_anyone_word_len_from(view, 0u);
-}
-
-static inline int fzn_permit_anyone_word_terminated_from(situ_view_t view, uint32_t at)
-{
-	return fzn_permit_anyone_word_len_from(view, at) < (situ_remaining_u32(view.limit, at));
-}
-
-static inline int fzn_permit_anyone_word_terminated(situ_view_t view)
-{
-	return fzn_permit_anyone_word_terminated_from(view, 0u);
-}
-
-static inline uint32_t fzn_permit_anyone_word_span_from(situ_view_t view, uint32_t at)
-{
-	/* The delimiter is this member's too, so the next member starts
-	 * after it. Where it is missing there is nothing to add: the
-	 * member ran to the end of the buffer, and claiming the extra
-	 * bytes would put the next one past the limit its own bounds
-	 * check trusts. */
-	return fzn_permit_anyone_word_len_from(view, at) + (fzn_permit_anyone_word_terminated_from(view, at) ? 1u : 0u);
-}
-
-static inline uint32_t fzn_permit_anyone_word_span(situ_view_t view)
-{
-	return fzn_permit_anyone_word_span_from(view, 0u);
-}
-
-static inline const uint8_t *fzn_permit_anyone_word_ptr(situ_view_t view)
-{
-	return situ_base(view) + 0u;
-}
-
-/** Whether `word` is a given token, compared byte for byte.
- *
- * The length is checked first, so a prefix is not a match -- which is
- * what `strncmp` against a literal quietly makes it.
- */
-static inline int fzn_permit_anyone_word_eq(situ_view_t view, const uint8_t *other, uint32_t other_len)
-{
-	return situ_bytes_eq(fzn_permit_anyone_word_ptr(view), fzn_permit_anyone_word_len(view), other, other_len);
-}
-
-/* No setter: mutate is Shifting.
- *   caused by: a member that ends at a delimiter
- *              the length is wherever the delimiter turns out to be, so a longer value needs more room and the bytes after it have to move to make it
- *   remedy:    `until D max N` bounds the scan, which makes the member statically allocatable and turns a missing delimiter into an error instead of a read to the end of the buffer
- *   caused by: a member with no upper bound on its length
- *              changing its length moves everything after it
- *   remedy:    bound whatever decides the extent: `[max = N]` on a length field, `max N` after `until` for a scan, `max N` on a `while` run. A `[remaining]` member is bounded only by the frame it sits in, and an aggregate by whatever inside it is unbounded
- */
-
-/** How many bytes one `anyone` occupies at this view's base.
- *
- * A run of these is walked rather than indexed, and the walk needs
- * to know where each one ends. For a struct whose own members are
- * delimited that is a scan, not a constant.
- */
-static inline uint32_t fzn_permit_anyone_extent(situ_view_t view)
-{
-	uint32_t extent = 0u;
-	extent = extent + (fzn_permit_anyone_word_span(view));
-	return extent;
-}
-
-/** How many bytes a whole `anyone` needs, given `have` of them.
- *
- * SITU_OK            a complete one is present; *need is its length
- * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
- *
- * For framing a stream: read, ask, read the difference, ask again. The
- * length fields are read only once the bytes holding them have arrived,
- * which is the case every hand-written version of this gets wrong.
- */
-static inline situ_err_t fzn_permit_anyone_required(const uint8_t *data, uint32_t have, uint32_t *need)
-{
-	uint32_t at = 0u;
-	uint32_t pos = 0u;
-	situ_view_t view;
-
-	/* A view over what has arrived, so every length expression below
-	 * reads through the same bounds the accessors do. */
-	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
-	view.limit      = have;
-	view.generation = 0u;
-	view.owner      = NULL;
-
-	if (!fzn_permit_anyone_word_terminated_from(view, pos)) {
-		/* The delimiter is not in what we have. How much more is a
-		 * question only the sender can answer, so the honest lower
-		 * bound is one byte: read again and ask again. */
-		*need = situ_need_u32(at, (have > pos ? have - pos : 0u) + 1u);
-		return SITU_ERR_TRUNCATED;
-	}
-	{
-		const uint32_t len = fzn_permit_anyone_word_span_from(view, pos);
-
-		at = situ_need_u32(at, len);
-	}
-
-	*need = at;
-	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
-}
-
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
- */
-situ_err_t fzn_permit_anyone_validate(situ_view_t view);
-
-/** The same walk, naming the member that refused. `*which` is one
- * of the ids below on a refusal and 0xFFFFFFFF when nothing
- * refused -- it is written either way, so a caller must not
- * expect its own value to survive the call. NULL asks for
- * the verdict alone. The id is the contract and the name is
- * a macro, so nothing here costs a string (0051).
- */
-situ_err_t fzn_permit_anyone_check(situ_view_t view, uint32_t *which);
-#define FZN_PERMIT_ANYONE_WORD_CHECK 0u
-
 /* ---- struct grant ---- */
 
 #define FZN_PERMIT_GRANT_SIZE_MIN   0u
@@ -2292,31 +2122,53 @@ static inline uint32_t fzn_permit_grant_body_anyone_offset(situ_view_t view)
 
 	return offset;
 }
-/** How many bytes `anyone` occupies, for the switch
- * that places whatever follows the variant.
- */
-static inline uint32_t fzn_permit_grant_body_anyone_extent(situ_view_t view)
-{
-	situ_view_t whole;
+static const uint8_t fzn_permit_grant_body_anyone_delim[1] = {0x20u};
 
-	if (situ_view_sub(view, fzn_permit_grant_body_anyone_offset(view), situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view)), &whole) != SITU_OK) {
-		return 0u;
-	}
-	return fzn_permit_anyone_extent(whole);
+static inline uint32_t fzn_permit_grant_body_anyone_len(situ_view_t view)
+{
+	return situ_scan(situ_base(view) + fzn_permit_grant_body_anyone_offset(view),
+		situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view)), fzn_permit_grant_body_anyone_delim, 1u);
 }
-static inline situ_err_t fzn_permit_grant_body_anyone_view(situ_view_t view, situ_view_t *out)
+
+/** Content plus the delimiter: where the next member starts.
+ * Where the delimiter is missing there is nothing to add --
+ * the arm ran to the end of what the view holds.
+ */
+static inline uint32_t fzn_permit_grant_body_anyone_span(situ_view_t view)
+{
+	const uint32_t content = fzn_permit_grant_body_anyone_len(view);
+
+	return content + (content < situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view))
+		? 1u : 0u);
+}
+
+/** Whether the delimiter is within the view: a frame that does
+ * not hold it was cut short, and the scan above stopped at
+ * the end rather than at the end of the member.
+ */
+static inline int fzn_permit_grant_body_anyone_terminated(situ_view_t view)
+{
+	return fzn_permit_grant_body_anyone_len(view) < situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view));
+}
+
+static inline situ_err_t fzn_permit_grant_body_anyone_ptr(situ_view_t view, const uint8_t **out, uint32_t *len)
 {
 	if (fzn_permit_grant_kind_get(view) != 97u) {
 		return SITU_ERR_VERSION;
 	}
-	situ_view_t whole;
-
-	if (situ_view_sub(view, fzn_permit_grant_body_anyone_offset(view), situ_remaining_u32(view.limit, fzn_permit_grant_body_anyone_offset(view)), &whole) != SITU_OK) {
-		return SITU_ERR_BOUNDS;
-	}
-	const uint32_t size = fzn_permit_anyone_extent(whole);
-	return situ_view_sub(view, fzn_permit_grant_body_anyone_offset(view), size, out);
+	*out = situ_base(view) + fzn_permit_grant_body_anyone_offset(view);
+	*len = fzn_permit_grant_body_anyone_len(view);
+	return SITU_OK;
 }
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member that ends at a delimiter
+ *              the length is wherever the delimiter turns out to be, so a longer value needs more room and the bytes after it have to move to make it
+ *   remedy:    `until D max N` bounds the scan, which makes the member statically allocatable and turns a missing delimiter into an error instead of a read to the end of the buffer
+ *   caused by: a member with no upper bound on its length
+ *              changing its length moves everything after it
+ *   remedy:    bound whatever decides the extent: `[max = N]` on a length field, `max N` after `until` for a scan, `max N` on a `while` run. A `[remaining]` member is bounded only by the frame it sits in, and an aggregate by whatever inside it is unbounded
+ */
 
 /** grant.body.local, present when the discriminant selects `'l'`.
  *
@@ -2463,7 +2315,7 @@ static inline uint32_t fzn_permit_grant_extent(situ_view_t view)
 {
 	uint32_t extent = 0u;
 	extent = extent + (fzn_permit_grant_kind_stride(view));
-	extent = extent + ((fzn_permit_grant_kind_get(view) == 97u ? (fzn_permit_grant_body_anyone_extent(view)) : (fzn_permit_grant_kind_get(view) == 108u ? (fzn_permit_grant_body_local_extent(view)) : (fzn_permit_grant_kind_get(view) == 103u ? (fzn_permit_grant_body_group_extent(view)) : (fzn_permit_grant_kind_get(view) == 117u ? (fzn_permit_grant_body_user_extent(view)) : 0u)))));
+	extent = extent + ((fzn_permit_grant_kind_get(view) == 97u ? (fzn_permit_grant_body_anyone_span(view)) : (fzn_permit_grant_kind_get(view) == 108u ? (fzn_permit_grant_body_local_extent(view)) : (fzn_permit_grant_kind_get(view) == 103u ? (fzn_permit_grant_body_group_extent(view)) : (fzn_permit_grant_kind_get(view) == 117u ? (fzn_permit_grant_body_user_extent(view)) : 0u)))));
 	return extent;
 }
 
@@ -2502,46 +2354,10 @@ static inline situ_err_t fzn_permit_grant_required(const uint8_t *data, uint32_t
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
-
-	/* grant.body: the arm the discriminant selects frames
-	 * itself. Its EXTENT shrinks when the bytes run out, so
-	 * adding that reported a complete message -- reported by
-	 * bbq-predictor against a variant arm (26.684). */
 	{
-		uint32_t   part = 0u;
-		situ_err_t e = SITU_OK;
+		const uint32_t len = (fzn_permit_grant_kind_get(view) == 97u ? (fzn_permit_grant_body_anyone_span(view)) : (fzn_permit_grant_kind_get(view) == 108u ? (fzn_permit_grant_body_local_extent(view)) : (fzn_permit_grant_kind_get(view) == 103u ? (fzn_permit_grant_body_group_extent(view)) : (fzn_permit_grant_kind_get(view) == 117u ? (fzn_permit_grant_body_user_extent(view)) : 0u))));
 
-		if (fzn_permit_grant_kind_get(view) == 97u) {
-			e = fzn_permit_anyone_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_permit_grant_kind_get(view) == 108u) {
-			e = fzn_permit_local_grant_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_permit_grant_kind_get(view) == 103u) {
-			e = fzn_permit_group_grant_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_permit_grant_kind_get(view) == 117u) {
-			e = fzn_permit_user_grant_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		}
-		(void)e;
-		at = situ_need_u32(at, part);
+		at = situ_need_u32(at, len);
 	}
 
 	*need = at;
@@ -2595,6 +2411,37 @@ static inline situ_err_t fzn_permit_permit_view(const situ_msg_t *msg, uint32_t 
 /* permit.grants : grant  at AbsoluteStatic(0x00)
  * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
+/** Whether the last element read says the run is over: a frame that
+ * stops first cut it short.
+ */
+static inline int fzn_permit_permit_grants_ended(situ_view_t view)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			return 0;
+		}
+		size = fzn_permit_grant_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			return 0;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			return 1;
+		}
+	}
+	(void)n;
+	return 1;
+}
+
 /** `grants` is a run of `grant` ending after the
  * element for which `1` is false. The element that
  * ends it is part of the run: the condition is asked about it after it

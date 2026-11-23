@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1419
+The newest work is at the end of this file. **Read secs 1287 to 1420
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97585,4 +97585,38 @@ its status line**: fuzznetd refuses to start without both (sec 813),
 and a daemon with an extension answers through `ext_alone`, which
 reaches `call_local` first (sec 857); the command line that reached the
 status line is asked of raidcfgd before anything is changed.
+
+## 1420. situ at b1b05486: the seal takes its factor from the schema; the permit's two workarounds go, 2026-11-23
+
+**Generated at situ b1b05486**, its push of the fixes fuzznet's work this
+day asked for. Measured first, every schema the Makefile names
+regenerated there in scratch: **three files change** -- `frame.h` gains
+the expiry's unit and epoch as constants
+(`SITU_FZN_HEAD_EXPIRES_AT_UNIT_NUM` 1, `_UNIT_DEN` 1000000 "of a
+second", `_EPOCH` "unix"), and `permit.{c,h}` follow the schema's own
+edit below; the runtime is unchanged since abf7ef5d.
+
+- **`wire/seal.c` converts by the schema's factor**: `US_PER_S` is
+  `SITU_FZN_HEAD_EXPIRES_AT_UNIT_DEN`, and a static assert holds the
+  unit to a fraction of a second, so a schema that changed the unit
+  fails to build rather than convert by a stale number -- situ's step
+  "the kernels follow the field", reached from fuzznet's side.
+- **The permit's wrapper goes**: `any=x` / `any=r` is a delimited token
+  directly in the variant arm again, the C fault behind the wrapper
+  fixed in situ 49546ceb. `situc wire --check` calls the arm's type
+  change breaking; the bytes and their meaning are the same, which
+  permit_agree_fuzz holds.
+- **`walk`'s grants-reach-the-end check goes**: a `while ... | end` run
+  now ends only by its rule, its max or exactly at the frame's end, in a
+  variant arm too (situ 4e684a0c, b1b05486), so junk after the last
+  grant is refused by the generated validator. The trailing-space trim
+  stays, as situ's design leaves it.
+
+**Tests:** permit_agree_fuzz, a million values, 87,407 permits and 9,761
+rights granted by both, no difference, with the check gone; seal_test
+(160), golden_frame_test (10), permit_test (39), sequence_test (48).
+Sabotage: `permit-situ-trailing-junk` became
+`permit-situ-trailing-spaces-kept`, on the trim C still does;
+`events-any-reaches-every-grant` retargeted onto the unwrapped arm.
+`.gitignore` takes `libfuzznet-client.a` (sec 1418).
 

@@ -341,6 +341,7 @@ __pycache__/
 /node/test/messages_test
 /fuzznetd
 /libfuzznetd.a
+/libfuzznet-client.a
 /.situ-head/
 /.gen.new/
 

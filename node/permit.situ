@@ -4,8 +4,8 @@
 // `local:NAME`, `local:@GROUP`, `group:NAME` or `user:NAME` with its
 // rights, or `any=x` (`any=r` for the events). node/permit.c reads a
 // permit through the code situ generates from this, to check a value and
-// to match a caller against it; what situ cannot state -- that the grants
-// reach the value's end, `any=r` only for the events -- it keeps.
+// to match a caller against it; what situ cannot state -- `any=r` only for
+// the events, spaces after the last grant trimmed -- it keeps.
 //
 // Drawn from situ's answer (situ inbox 20261123T1720Z), held to the hand
 // parser it replaced by node/test/permit_agree_fuzz.
@@ -61,16 +61,10 @@ struct user_grant {
 	target        who;
 	rights_word   rights until " " | end;
 }
-// `any=x` or `any=r` as a struct of its own: a delimited token directly in a
-// variant arm does not compile in C at situ abf7ef5d (situ inbox
-// 20261123T1616Z).
-struct anyone {
-	anyone_word  word until " " | end;
-}
 struct grant {
 	peek u8 kind skip;
 	variant body switch (kind) {
-		case 'a': anyone anyone;
+		case 'a': anyone_word anyone until " " | end;
 		case 'l': local_grant local;
 		case 'g': group_grant group;
 		case 'u': user_grant user;

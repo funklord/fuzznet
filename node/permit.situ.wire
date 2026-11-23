@@ -18,14 +18,11 @@
 endian big
 target buffer
 
-struct anyone size=0..
-  @0x0000   until:20|end anyone_word word
-
 struct grant size=0..
   ~         1         u8         kind  peek skip=20
   ~         0..       variant    body
   body switch: kind
-  body case 97: anyone anyone
+  body case 97: anyone anyone_word
   body case 103: group group_grant
   body case 108: local local_grant
   body case 117: user user_grant

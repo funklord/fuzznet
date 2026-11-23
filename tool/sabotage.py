@@ -15647,8 +15647,8 @@ SABOTAGES = [
 	(
 		"events-any-reaches-every-grant",
 		"node/permit.c",
-		"		    || memcmp(fzn_permit_anyone_word_ptr(b), \"any=x\", 5u) != 0)\n",
-		"		    || (memcmp(fzn_permit_anyone_word_ptr(b), \"any=x\", 5u) != 0\n		        && memcmp(fzn_permit_anyone_word_ptr(b), EVERYONE_HEARS, 5u) != 0))\n",
+		"			    || memcmp(word, \"any=x\", 5u) != 0)\n",
+		"			    || (memcmp(word, \"any=x\", 5u) != 0 && memcmp(word, EVERYONE_HEARS, 5u) != 0))\n",
 		"any=r taken on local/permit/ as well: every local user reads a fuzznet verb -- secs 933, 1415",
 	),
 	(
@@ -17861,11 +17861,11 @@ SABOTAGES = [
 		"a lifetime past what microseconds hold wraps into the past or inside a horizon -- sec 1417",
 	),
 	(
-		"permit-situ-trailing-junk",
+		"permit-situ-trailing-spaces-kept",
 		"node/permit.c",
-		"	if (at != len)\n		return 0;\n",
-		"	(void)at;\n",
-		"a permit whose grants stop short of its end is taken, the rest unread -- sec 1415",
+		"	while (len && value[len - 1u] == ' ')\n		len--;\n	if (len == 0u)\n		return 1;\n",
+		"	if (len == 0u)\n		return 1;\n",
+		"a permit ending in a space is refused, the run asking for a grant there -- secs 1415, 1420",
 	),
 	(
 		"permit-situ-rw-read-only",
