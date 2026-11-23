@@ -39,6 +39,7 @@ class QImage;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QPlainTextEdit;
 class QPushButton;
 class QTimer;
 class fzn_qr_view;
@@ -104,7 +105,7 @@ private:
 	struct keys;
 	keys *m_keys; /* each waiting device's full key */
 
-	QLabel *m_code;
+	QPlainTextEdit *m_code; /* read-only, wrapping anywhere: a code has no spaces */
 	fzn_qr_view *m_qr;
 	QPushButton *m_invite;
 	QCheckBox *m_confirm;

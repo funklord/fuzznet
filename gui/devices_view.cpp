@@ -14,7 +14,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTextOption>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
@@ -58,9 +60,18 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_code = new QLabel(this);
-	m_code->setWordWrap(true);
-	m_code->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	/* THE CODE, sec 1409: some 150 characters with no space, which a
+	 * label's word wrap cannot break, so the page scrolled sideways at a
+	 * phone's width (fuzzypickles, fuzznet inbox 20261123T1250Z). Read-only
+	 * text wrapping anywhere keeps it inside the width and selectable
+	 * whole; hidden until there is a code. */
+	m_code = new QPlainTextEdit(this);
+	m_code->setReadOnly(true);
+	m_code->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+	m_code->setWordWrapMode(QTextOption::WrapAnywhere);
+	m_code->setAccessibleName(tr("The code for the new device"));
+	m_code->setMaximumHeight(m_code->fontMetrics().lineSpacing() * 4 + 2 * m_code->frameWidth() + 8);
+	m_code->hide();
 	m_qr = new fzn_qr_view(this);
 	m_invite = new QPushButton(tr("Make a code"), this);
 	m_invite->setAccessibleName(tr("Make a code for a new device"));
@@ -93,6 +104,8 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 		        m_scan_camera->setText(tr("Scan with the camera"));
 		        m_status->setText(m_camera->why());
 	        });
+	/* A CODE TO READ, not a face to show: the luma plane is enough. */
+	m_camera->set_gray(true);
 	m_offer = new QPushButton(tr("Let a device on this network find this host"), this);
 	m_look = new QPushButton(tr("Look for my hosts on this network"), this);
 	m_found = new QListWidget(this);
@@ -245,7 +258,8 @@ bool fzn_devices_view::invite()
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_code->setText(QString::fromLatin1(code));
+	m_code->setPlainText(QString::fromLatin1(code));
+	m_code->show();
 	/* M: a code photographed off a screen, at arm's length. */
 	m_qr->show_text(QString::fromLatin1(code), FZN_QR_LEVEL_M);
 	m_qr->show();
@@ -505,7 +519,7 @@ bool fzn_devices_view::scan_file(const QString &path)
 	return false;
 }
 
-QString fzn_devices_view::code() const { return m_code->text(); }
+QString fzn_devices_view::code() const { return m_code->toPlainText(); }
 
 bool fzn_devices_view::code_drawn() const { return m_qr->has_code(); }
 

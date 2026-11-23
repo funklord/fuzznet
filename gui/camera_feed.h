@@ -28,6 +28,7 @@
 
 class QImage;
 class QObject;
+class QVideoFrame;
 
 class fzn_camera_feed {
 public:
@@ -52,6 +53,15 @@ public:
 	bool running() const;
 	QString why() const;
 
+	/* GREY IS ENOUGH -- a code to read, not a face to show: a phone camera's
+	 * frame is then handed on as its luma plane, copied, rather than
+	 * converted to colour (sec 1409). Off unless asked. */
+	void set_gray(bool gray);
+	/* A FRAME AS A PICTURE, as the feed makes one: the luma plane copied
+	 * where `gray` and the frame is NV12, NV21, YUV420P or YV12, else Qt's
+	 * conversion. Public so a test can hand it a frame it made. Defined
+	 * only where the build has a camera. */
+	static QImage picture(const QVideoFrame &frame, bool gray);
 	/* A FRAME AS THE CAMERA WOULD HAND IT, thinned and shrunk as one from
 	 * the camera is: public so a test without a camera can drive it. */
 	void frame(const QImage &picture);

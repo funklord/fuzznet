@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1408
+The newest work is at the end of this file. **Read secs 1287 to 1409
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97131,3 +97131,51 @@ schema_agree_fuzz against the oracle rather than by an entry here.
 **Next on sec 1330's line**: `fzn_node_schema_own` itself generated --
 its rows are the registry's -- and the hand-only checks (a permit's
 grammar the hardest) as situ types.
+
+## 1409. The camera's frames no longer queue on the GUI thread; a join code wraps; hooks where git keeps them, 2026-11-23
+
+**From fuzzypickles** (inbox 20261123T1250Z), on an API 36 x86_64
+emulator with this tree's `devices_view` on its Setup page at f5495154:
+"Join with a code the camera sees" made Android report the app not
+responding within seconds ("Input dispatching timed out ... Waited
+5001ms"), memory pressure full, Stop unpressable. Who is in that: anyone
+joining a phone by its camera, the way sec 1158 built for phones.
+
+**Why**: `gui/camera_feed.cpp` connected `QVideoSink::videoFrameChanged`
+to a lambda in the owner's context, so every frame, thirty a second, was
+queued to the GUI thread holding its buffer, and each ran `toImage()` --
+a readback and a colour conversion -- before `frame()` thinned to one in
+eight. Converting was slower than arriving, so the queue grew; netcfgd's
+copy of fuzzypickles' scanner met the same once (1.4 GB in a minute).
+
+**Fixed**, in the shape fuzzypickles' own scanner has: the sink's
+connection is direct, and on the camera's thread it only keeps the
+newest frame, in a slot the lambda shares (`std::shared_ptr`, so a frame
+arriving while the feed stops finds it still there, marked not live). A
+timer on the GUI thread takes that one frame every FRAME_EVERY_MS and
+converts it, so a frame not used is never converted. **Grey where grey
+is enough** (`set_gray`, the devices view's): an NV12, NV21, YUV420P or
+YV12 frame's first plane is luma, copied as it lies into a Grayscale8
+picture, no conversion; the call's video keeps colour. `picture()` is
+public so a test hands it a frame it made.
+
+**And the code widened the page**: a join code is about 150 characters
+with no space, which a QLabel's word wrap cannot break, so at a phone's
+width the page scrolled sideways. The code is now read-only text
+wrapping anywhere (`QPlainTextEdit`, `QTextOption::WrapAnywhere`), four
+lines at most, hidden until there is a code, selectable whole.
+
+**And `make hooks`** asks git where hooks go (`git rev-parse
+--git-common-dir`): in a worktree `.git` is a file, and the literal
+`.git/hooks/` path failed there (claude-guidelines, inbox
+20261123T1242Z; the shape every other tree has). Nothing used a worktree
+here, so nothing was broken yet.
+
+**Tests:** devices_view_test (36): a code of 164 characters leaves the
+view's least width at most 320; an NV12 frame made in the test comes
+back as its luma plane byte for byte when grey, and in colour when not
+(the test's object now built with the camera's flags, which it was not,
+so its camera code had never compiled there). **Not covered by a test:**
+the queue itself -- a headless test has no camera thread; the emulator
+is where it was seen, and fuzzypickles' run is the check.
+

@@ -18,6 +18,10 @@ extern "C" {
 #include <QApplication>
 #include <QImage>
 #include <QTemporaryDir>
+#ifdef FZN_CAMERA_ON
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -36,7 +40,7 @@ static int checks, failures;
 #define DEV1 "d1d1000000000000000000000000000000000000000000000000000000000001"
 #define DEV2 "d2d2000000000000000000000000000000000000000000000000000000000002"
 
-static int silent, confirm_on = 1, refuse_set, joined_after, hosts_found;
+static int silent, confirm_on = 1, refuse_set, joined_after, hosts_found, long_code;
 static char last[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -44,6 +48,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	(void)ctx;
 	if (silent)
 		return 0;
+	if (!strcmp(line, "add invite delegable") && long_code) {
+		/* A REAL CODE'S LENGTH: some 150 characters, no space. */
+		char code[160];
+
+		memset(code, 'A', sizeof(code) - 1u);
+		code[sizeof(code) - 1u] = '\0';
+		return (size_t)snprintf(reply, cap, "ok FZI1:%s\n", code);
+	}
 	if (!strcmp(line, "add invite delegable"))
 		return (size_t)snprintf(reply, cap, "ok FZI1:ABCDEFGHIJKLMNOP2345\n");
 	/* THE SWITCH, a host setting read as every setting is (sec 1306). */
@@ -107,6 +119,14 @@ int main(int argc, char **argv)
 	CHECK(v.invite() && v.code() == "FZI1:ABCDEFGHIJKLMNOP2345" && v.code_drawn()
 	              && v.status().contains("ten minutes"),
 	      "the code was not shown, drawn, or said to expire");
+
+	/* A CODE OF A REAL CODE'S LENGTH STAYS INSIDE A PHONE'S WIDTH, sec
+	 * 1409: a label could not break 150 characters with no space, so the
+	 * page scrolled sideways (fuzzypickles, inbox 20261123T1250Z). */
+	long_code = 1;
+	CHECK(v.invite() && v.code().size() == 164 && v.minimumSizeHint().width() <= 320,
+	      "a long code widened the view past 320 px, or was not shown whole");
+	long_code = 0;
 
 	/* THE SWITCH: set off, and put back when the node refuses. */
 	CHECK(v.set_confirm(false) && !strcmp(last, "set setting host invite/confirm off") && !v.confirm(),
@@ -220,6 +240,30 @@ int main(int argc, char **argv)
 		CHECK(handed == 1 && width == 960 && !feed.running(),
 		      "a camera's frames were not thinned to one, or not shrunk");
 	}
+
+#ifdef FZN_CAMERA_ON
+	/* A PHONE CAMERA'S FRAME AS A PICTURE, sec 1409: its luma plane copied
+	 * when grey is enough, never converted; in colour otherwise. */
+	{
+		QVideoFrame f(QVideoFrameFormat(QSize(4, 2), QVideoFrameFormat::Format_NV12));
+		int i;
+
+		if (f.map(QVideoFrame::WriteOnly)) {
+			for (i = 0; i < 2; i++)
+				memcpy(f.bits(0) + i * f.bytesPerLine(0), i ? "\x40\x50\x60\x70" : "\x00\x10\x20\x30", 4);
+			memset(f.bits(1), 0x80, (size_t)f.mappedBytes(1));
+			f.unmap();
+		}
+		const QImage gray = fzn_camera_feed::picture(f, true);
+		const QImage colour = fzn_camera_feed::picture(f, false);
+
+		CHECK(gray.format() == QImage::Format_Grayscale8 && gray.width() == 4 && gray.height() == 2
+		              && gray.constScanLine(0)[1] == 0x10 && gray.constScanLine(1)[3] == 0x70,
+		      "a frame's luma plane was not handed on as it lay");
+		CHECK(!colour.isNull() && colour.format() != QImage::Format_Grayscale8,
+		      "a frame wanted in colour was handed on grey");
+	}
+#endif
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

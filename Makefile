@@ -3934,6 +3934,8 @@ CAMERA_ON      := $(if $(filter Qt6Widgets,$(FZN_PROBE_QT)),$(shell pkg-config -
 CAMERA_CFLAGS  := $(if $(CAMERA_ON),-DFZN_CAMERA_ON $(shell pkg-config --cflags Qt6Multimedia))
 CAMERA_LIBS    := $(if $(CAMERA_ON),$(shell pkg-config --libs Qt6Multimedia))
 $(BUILD_DIR)/gui/camera_feed.o: CXXFLAGS += $(CAMERA_CFLAGS)
+# AND ITS TEST, sec 1409, which hands the feed a phone camera's frame.
+$(BUILD_DIR)/gui/test/devices_view_test.o: CXXFLAGS += $(CAMERA_CFLAGS)
 # AND A CALL'S SOUND, sec 1236: the microphone and the speaker are Qt 6
 # Multimedia too, so the same switch, on its own object alone.
 $(BUILD_DIR)/gui/call_audio.o: CXXFLAGS += $(CAMERA_CFLAGS)
@@ -7898,14 +7900,20 @@ style: $(OBJS)
 	@# rather than that the tree is clean.
 	python3 tool/log_gate.py
 
-# Installs the commit-msg hook from tool/hooks/ into .git/hooks/. In the tree
-# rather than only in .git so that it is reviewable, survives a clone, and can
-# be diffed against its siblings in the other projects.
+# Installs the commit-msg and pre-push hooks from tool/hooks/ where git keeps
+# hooks. In the tree rather than only in .git so that it is reviewable,
+# survives a clone, and can be diffed against its siblings in the other
+# projects. Git is asked where that is: in a worktree `.git` is a file, and
+# installing into `.git/hooks/` by its literal path fails there (the shape
+# every other tree has; claude-guidelines' message 20261123T1242Z).
 hooks:
-	@install -m 0755 tool/hooks/commit-msg .git/hooks/commit-msg
-	@echo "installed .git/hooks/commit-msg"
-	@install -m 0755 tool/hooks/pre-push .git/hooks/pre-push
-	@echo "installed .git/hooks/pre-push"
+	@dir=$$(git rev-parse --git-common-dir 2>/dev/null); \
+	if [ -z "$$dir" ]; then echo "hooks: not a git repository" >&2; exit 1; fi; \
+	set -e; \
+	mkdir -p "$$dir/hooks"; \
+	install -m 0755 tool/hooks/commit-msg "$$dir/hooks/commit-msg"; \
+	install -m 0755 tool/hooks/pre-push "$$dir/hooks/pre-push"; \
+	echo "hooks: commit-msg and pre-push installed into $$dir/hooks/"
 
 # Headers only. project.md sec 7 is explicit that this is not a system
 # package and not a shared library -- a .so would put wire compatibility in
