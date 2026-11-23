@@ -17840,6 +17840,20 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"schema-own-count-read-as-text",
+		"node/schema.c",
+		"	case FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT:\n		return FZN_SCHEMA_COUNT;\n",
+		"	case FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT:\n		return FZN_SCHEMA_TEXT;\n",
+		"a count in the registry is typed as text in the table, any printable value taken -- sec 1412",
+	),
+	(
+		"schema-own-check-not-attached",
+		"node/schema.c",
+		"			e->check = hand_checks[k].check;\n",
+		"			(void)0;\n",
+		"a permit, a rank or a log level loses its own grammar, any printable text taken -- sec 1412",
+	),
+	(
 		"rrpc-binary-one-part",
 		"node/rrpc_binary.c",
 		"		const size_t one = n - at < FZN_NODE_RRPC_PART_MAX ? n - at : FZN_NODE_RRPC_PART_MAX;\n",
@@ -20273,8 +20287,8 @@ SABOTAGES = [
 	(
 		"schema-ext-claims-own",
 		"node/schema.c",
-		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own[j].key))\n\t\t\t\treturn key;\n",
-		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own[j].key))\n\t\t\t\t(void)key;\n",
+		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own()[j].key))\n\t\t\t\treturn key;\n",
+		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own()[j].key))\n\t\t\t\t(void)key;\n",
 		"sec 686: a cell has one owner, so an extension declaring fuzznet's key must end the start; schema_test's extension check catches it",
 	),
 	(

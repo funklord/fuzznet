@@ -33,8 +33,9 @@
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
 
-/* FUZZNET'S OWN, in the order `list schema` gives them. */
-extern const fzn_schema_entry_t fzn_node_schema_own[];
+/* FUZZNET'S OWN, in the order `list schema` gives them: since sec 1412
+ * made from node/settings_registry.situ's rows on first use. */
+const fzn_schema_entry_t *fzn_node_schema_own(void);
 extern const size_t fzn_node_schema_own_n;
 
 typedef struct fzn_node_schema {

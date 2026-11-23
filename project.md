@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1411
+The newest work is at the end of this file. **Read secs 1287 to 1412
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -72,9 +72,10 @@ listener port spans (`150e3106`).
   **every layout is on generated code** (the naming rule, sec 1313;
   the last, persist, secs 1396-1398), but for persist's two-byte head and
   its single-field bodies, kept by decision (sec 1398). The settings
-  registry holds the contract (sec 1330), and the four cell types'
-  parsers are situ's generated ones (sec 1408), "007" still taken; the
-  table itself and the hand-only checks are next. The scheduler matches a reply
+  registry holds the contract (sec 1330), the four cell types'
+  parsers are situ's generated ones (sec 1408), "007" still taken, and
+  the table itself is the registry's rows (sec 1412); the hand-only
+  checks are next. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -97253,4 +97254,40 @@ binary answers the lamp's value as the object call reads it, and a
 procedure nobody serves is refused as none. Sabotage: five entries, on
 the parts, the node's and the client's name checks, the closing ok and
 the room.
+
+## 1412. situ re-vendored at abf7ef5d; fuzznet's settings table made from the registry's rows, 2026-11-23
+
+**Re-vendored at situ abf7ef5d**, its push of everything asked this day
+(situ's time units, replay `max_ahead` and byte-run nonces, the
+registry's cell names, the text-number spelling rules). Measured before
+taking it, every schema the Makefile names regenerated at abf7ef5d in
+scratch: **only the settings registry changes** -- its rows name their
+cell types (`FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT` and the rest,
+numbers unchanged) -- and the runtime's `situ.h` gains three additive
+functions (`situ_digits_spelled`, `situ_parse_uint_plus`,
+`situ_parse_int_signs`, SITU_RUNTIME_ABI unchanged); every other
+generated file, contract, map and the tamper harness come out byte for
+byte. `make schema` ran against a scratch clone held at abf7ef5d, situ's
+pushed commit, not its working HEAD.
+
+**`fzn_node_schema_own` is now built from `node/settings_registry.situ`'s
+rows** (sec 1330's next step): `fzn_node_schema_own()` makes them, once,
+into the `fzn_schema_entry_t` rows an extension's table is written in --
+type by situ's cell name, scope, bounds (bytes for text and an address,
+value for the rest), default, unit, display and safe words, summary,
+window -- and attaches the nine hand-only checks by key (a permit's
+grammar, a rank, a group list, a log level or scope, the erasure
+shape). **Proved before replacing**: a scratch program built every row
+this way and compared it with the hand table field by field, 48 rows, 0
+differing. The hand table, 168 lines, is gone; the registry is the one
+source. `fzn_node_schema_own` was an array and is a function now; no
+consumer outside this tree read it.
+
+**Tests:** settings_registry_test (3157): the table is the registry's
+rows, every row typed, the nine checks attached and each found by its
+key or an instance of its family; its value agreement (2766 values
+through `fzn_schema_check` and the registry's own check) now also holds
+the cell-type map, which a count read as text fails. Sabotage:
+`schema-own-count-read-as-text`, `schema-own-check-not-attached` new;
+`schema-ext-claims-own` retargeted onto the accessor.
 

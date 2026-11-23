@@ -3,6 +3,7 @@
 #include "permit.h"
 #include "../state/scope.h"
 #include "../local/escape.h"
+#include "../wire/generated/settings_registry.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -108,170 +109,98 @@ static const char *log_scope_check(const uint8_t *value, size_t len)
 	               : "host-private or estate";
 }
 
-#define ESTATE FZN_SCHEMA_ESTATE
-#define HOST FZN_SCHEMA_HOST
-
-/* EVERY CELL A READER HERE READS, with the reader's own default and bounds
- * (sec 686's inventory). Where a reader takes more than this declares, the
- * declaration is the narrower: a write is refused that the reader would
- * have taken, never the reverse. */
-const fzn_schema_entry_t fzn_node_schema_own[] = {
-	{ "revocation/k", FZN_SCHEMA_COUNT, ESTATE, 1u, 255u, "", "root signatures",
-	  FZN_SCHEMA_SAFE_HIGHER,
-	  "the estate's k: root signatures a revocation needs, a root's to set (sec 542)", NULL, 0u },
-	{ "journal/window", FZN_SCHEMA_COUNT, ESTATE, 1u, 36500u, "60", "days", 0u,
-	  "how far back the journal reaches; a clear older than this is forgotten (sec 548)", NULL, 0u },
-	{ "archive/replicas", FZN_SCHEMA_COUNT, ESTATE, 1u, 16u, "2", "hosts", FZN_SCHEMA_ADVANCED,
-	  "how many hosts hold an archived segment before it is pruned (sec 592)", NULL, 0u },
-	{ "archive/erasure", FZN_SCHEMA_TEXT, ESTATE, 3u, 5u, "4+2", "data+parity pieces",
-	  FZN_SCHEMA_ADVANCED, "how an archived segment is cut into pieces (sec 597)", erasure_check, 0u },
-	{ "archive/gone", FZN_SCHEMA_DURATION, ESTATE, 1u, 315360000u, "14d", "", FZN_SCHEMA_ADVANCED,
-	  "how long a keeper may be silent before its pieces are placed elsewhere (sec 601)", NULL, 0u },
-	{ "routing/public", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "",
-	  FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_ADVERTISED,
-	  "the routing manifest offers this estate's hosts as public relays (sec 611)", NULL, 0u },
-	{ "routing/advertise", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "",
-	  FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_ADVERTISED,
-	  "contacts are told every host of the estate, not only this node (sec 614)", NULL, 0u },
-	{ "stream/grant/", FZN_SCHEMA_COUNT, ESTATE, 0u, 3u, "", "level", FZN_SCHEMA_VERB,
-	  "the level a grantee holds of a stream, by `grant stream` (sec 660)", NULL, 0u },
-	{ "contact/name/", FZN_SCHEMA_TEXT, ESTATE, 1u, 32u, "", "", FZN_SCHEMA_VERB,
-	  "a contact's name, the user's on every host, by `add contact`, which checks it (sec "
-	  "699)",
-	  NULL, 0u },
-	{ "metric/log/", FZN_SCHEMA_COUNT, HOST, 10u, 86400u, "", "seconds", 0u,
-	  "a metric family logged every so many seconds, subsystem metric/NAME; unset, not "
-	  "logged (sec 1053)",
-	  NULL, 0u },
-	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", FZN_SCHEMA_ADVERTISED,
-	  "where this host is reached, HOST PORT, an admin's to correct (sec 579)", NULL, 0u },
-	{ "host/name", FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", 0u,
-	  "what this host's user calls it -- laptop, phone -- as every device of the estate "
-	  "lists it (sec 848)",
-	  NULL, 0u },
-	{ "local/permit/", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
-	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
-	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
-	  permit_check, 0u },
-	{ FZN_REMOTE_PERMIT_KEY_PREFIX, FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
-	  "which hosts of the estate may call this procedure here: member, admin, root, "
-	  "host:HEX or none, apart by spaces (sec 921)",
-	  remote_permit_check, 0u },
-	{ FZN_REMOTE_PERMIT_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
-	  "the same, for every procedure with no rule of its own; member when unset (sec 921)",
-	  remote_permit_check, 0u },
-	{ FZN_PRESET_CHOSEN_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", FZN_SCHEMA_ADVANCED,
-	  "the profile this host's user chose, by `set preset` (sec 908)", NULL, 0u },
-	{ FZN_PRESET_APPLIED_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 64u, "", "", FZN_SCHEMA_ADVANCED,
-	  "the profile last applied here, and its revisions (sec 908)", NULL, 0u },
-	{ "local/events", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
-	  "which local users and groups may hold `get events`, hearing what this application "
-	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r, or any=r for every "
-	  "local user (secs 899, 933)",
-	  events_permit_check, 0u },
-	{ "pressure/rank/", FZN_SCHEMA_TEXT, HOST, 1u, 16u, "", "", FZN_SCHEMA_ADVANCED,
-	  "where a kind of work stands when this host is short of disk, memory or network: "
-	  "trace, copy or user, for streams, relay, files, group-lines, notes, messages, "
-	  "reconcile (sec 917)",
-	  pressure_rank_check, 0u },
-	{ "group/member", FZN_SCHEMA_TEXT, HOST, 1u, 255u, "", "", 0u,
-	  "the groups this host is in, first first: a group's settings stand here where the "
-	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",
-	  member_check, 0u },
-	{ "net/budget", FZN_SCHEMA_COUNT, HOST, 0u, 1125899906842624ull, "", "bytes", 0u,
-	  "how many bytes each leg may carry in a budget window before a file is no longer "
-	  "fetched over it; unset is no limit (sec 1210)",
-	  NULL, 0u },
-	{ "net/budget-window", FZN_SCHEMA_COUNT, HOST, 60u, 2592000u, "86400", "seconds", 0u,
-	  "how long a leg's budget lasts before it begins again, as `relay/window` is (sec 1210)",
-	  NULL, 0u },
-	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "",
-	  FZN_SCHEMA_ADVANCED | FZN_SCHEMA_ADVERTISED,
-	  "this host's place in the routing manifest, lower first (sec 611)", NULL, 0u },
-	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,
-	  "where `fetch lan` sends its probe, or `off` (sec 624)", NULL, 0u },
-	/* node/live.h's FZN_LIVE_RING_MIN_S, _MAX_S and _S, sec 1073. */
-	{ "call/ring", FZN_SCHEMA_DURATION, ESTATE | HOST, 5u, 600u, "45s", "", 0u,
-	  "how long a call to this user rings unanswered before its caller is told no answer "
-	  "(sec 1073)",
-	  NULL, 0u },
-	/* sec 1074: rings a caller user may make before they are refused busy. */
-	{ "call/ring-burst", FZN_SCHEMA_COUNT, ESTATE | HOST, 1u, 1000u, "10", "rings", 0u,
-	  "rings one user may make to this one at once before more are refused busy (sec 1074)",
-	  NULL, 0u },
-	{ "call/ring-refill", FZN_SCHEMA_DURATION, ESTATE | HOST, 1u, 86400u, "1m", "", 0u,
-	  "how long a refused caller waits for one more ring (sec 1074)", NULL, 0u },
-	{ "call/block-max", FZN_SCHEMA_DURATION, ESTATE | HOST, 60u, 2592000u, "1d", "", 0u,
-	  "the longest a caller ringing on while refused is blocked, the block doubling to it "
-	  "(sec 1074)",
-	  NULL, 0u },
-	{ "location/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "sample gpsd into the location stream; off, a position being the most sensitive thing "
-	  "kept (sec 678)",
-	  NULL, 0u },
-	{ "location/gpsd", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "localhost 2947", "", 0u,
-	  "where gpsd is (sec 678)", NULL, 0u },
-	{ "location/every", FZN_SCHEMA_COUNT, HOST, 1u, 86400u, "30", "seconds", 0u,
-	  "the least time between fixes kept (sec 678)", NULL, 0u },
-	{ "location/accuracy", FZN_SCHEMA_COUNT, HOST, 0u, 61440u, "100", "metres", 0u,
-	  "a fix less certain than this is dropped; 0 keeps every fix (sec 678)", NULL, 0u },
-	{ "message/read-marks", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "tell a contact this user has read their lines, in every conversation with no choice of "
-	  "its own; off, as the holder chose (sec 1269)",
-	  NULL, 0u },
-	{ "message/read/", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "", "", FZN_SCHEMA_SAFE_LOWER,
-	  "the same for one conversation, named by its key's first 24 bytes in hex: on or off "
-	  "whatever message/read-marks says; unset, it follows (sec 1269)",
-	  NULL, 0u },
-	{ "message/unsend", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "let this user take back a line of its own within an hour of sending it, and let a "
-	  "contact take back theirs here, its text let go on this user's devices; off, as the "
-	  "holder chose (sec 1284)",
-	  NULL, 0u },
-	{ "location/share-new", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "grant a contact this user's position the first time it becomes one, once -- a contact "
-	  "later turned off is never granted again (sec 1231)",
-	  NULL, 0u },
-	{ "location/share-new-precision", FZN_SCHEMA_COUNT, ESTATE | HOST, 0u, 3u, "0", "level", 0u,
-	  "the precision location/share-new grants: 0 exact to 3 the coarsest (sec 1231)", NULL, 0u },
-	{ "location/follow", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "fetch the position of each contact whose position this host holds every 30 s, not only "
-	  "when asked (sec 1240)",
-	  NULL, 0u },
-	{ "log/level", FZN_SCHEMA_TEXT, HOST, 1u, 8u, "", "", 0u,
-	  "the least severe level this host's log file keeps, critical to trace; unset, "
-	  "`--log-level`'s, info by default (sec 735)",
-	  log_level_check, 0u },
-	{ "log/segment", FZN_SCHEMA_COUNT, HOST, 4096u, 1099511627776u, "", "bytes",
-	  FZN_SCHEMA_ADVANCED,
-	  "the size a log segment is rotated at; unset, `--log-segment`'s (sec 735)", NULL, 0u },
-	{ "log/scope", FZN_SCHEMA_TEXT, HOST, 6u, 12u, "", "", FZN_SCHEMA_SENSITIVE,
-	  "host-private, or estate to let the estate's members gather this host's log; unset, "
-	  "`--log-scope`'s, host-private by default (sec 735)",
-	  log_scope_check, 0u },
-	{ "invite/confirm", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_HIGHER,
-	  "an invite waits for this host's user unless `add invite open` says not (sec 896)", NULL, 0u },
-	{ "relay/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
-	  "this host relays frames for others (sec 622)", NULL, 0u },
-	{ "relay/quota", FZN_SCHEMA_COUNT, HOST, 0u, 1000000000000000000u, "104857600", "bytes",
-	  0u, "what one requester may relay through this host a window; 0 for no bound (sec 622)",
-	  NULL, 0u },
-	{ "relay/window", FZN_SCHEMA_COUNT, HOST, 1u, 31536000u, "86400", "seconds", 0u,
-	  "the window a relay quota counts over (sec 622)", NULL, 0u },
-	{ "remote/admin", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "",
-	  FZN_SCHEMA_SENSITIVE | FZN_SCHEMA_SAFE_LOWER,
-	  "an admin or a root may run this node's verbs remotely (sec 543)", NULL, 0u },
-	{ "retention/", FZN_SCHEMA_TEXT, ESTATE | HOST, 1u, 256u, "", "", FZN_SCHEMA_VERB,
-	  "one retention rule, by `add retention` (sec 541)", NULL, 0u },
-	{ "sticker/", FZN_SCHEMA_TEXT, ESTATE | HOST, 1u, 256u, "", "", FZN_SCHEMA_VERB,
-	  "a saved sticker pack, by `put sticker` or `add sticker` (sec 681)", NULL, 0u },
+/* THE HAND-ONLY CHECKS, by key: the grammars the registry types as
+ * printable text of their bounds (sec 1330), attached to its rows here. */
+static const struct {
+	const char *key;
+	const char *(*check)(const uint8_t *value, size_t len);
+} hand_checks[] = {
+	{ "archive/erasure", erasure_check },   { "local/permit/", permit_check },
+	{ "remote/permit/", remote_permit_check }, { "remote/permit", remote_permit_check },
+	{ "local/events", events_permit_check }, { "pressure/rank/", pressure_rank_check },
+	{ "group/member", member_check },       { "log/level", log_level_check },
+	{ "log/scope", log_scope_check },
 };
-const size_t fzn_node_schema_own_n = sizeof(fzn_node_schema_own) / sizeof(fzn_node_schema_own[0]);
+
+/* A REGISTRY CELL'S TYPE, by situ's name for it (situ 7febf9ed): a cell
+ * situ adds that this table has no type for reads as none, which
+ * `fzn_node_schema_refused` would refuse in an extension's table and
+ * settings_registry_test refuses here. */
+static fzn_schema_type_t type_of(uint32_t cell)
+{
+	switch (cell) {
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT:
+		return FZN_SCHEMA_COUNT;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT:
+		return FZN_SCHEMA_TEXT;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION:
+		return FZN_SCHEMA_DURATION;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG:
+		return FZN_SCHEMA_FLAG;
+	case FZN_SETTINGS_REGISTRY_NODE_CELL_ADDRESS:
+		return FZN_SCHEMA_ADDRESS;
+	default:
+		return (fzn_schema_type_t)0;
+	}
+}
+
+static void row_of_registry(const fzn_settings_registry_node_entry_t *g, fzn_schema_entry_t *e)
+{
+	size_t k;
+
+	memset(e, 0, sizeof(*e));
+	e->key = g->key;
+	e->type = type_of(g->cell);
+	e->scopes = (g->scope & FZN_SETTINGS_REGISTRY_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : 0u)
+	            | (g->scope & FZN_SETTINGS_REGISTRY_SCOPE_HOST ? FZN_SCHEMA_HOST : 0u);
+	/* TEXT AND AN ADDRESS ARE BOUNDED IN BYTES, the others in value. */
+	if (e->type == FZN_SCHEMA_TEXT || e->type == FZN_SCHEMA_ADDRESS) {
+		e->min = g->min_size;
+		e->max = g->max_size == UINT32_MAX ? 0u : g->max_size;
+	} else {
+		e->min = g->has_min ? (uint64_t)g->min : 0u;
+		e->max = g->has_max ? (uint64_t)g->max : 0u;
+	}
+	e->def = g->def ? g->def : "";
+	e->unit = g->unit ? g->unit : "";
+	e->flags = (g->display & FZN_SETTINGS_REGISTRY_DISPLAY_RESTART ? FZN_SCHEMA_RESTART : 0u)
+	           | (g->display & FZN_SETTINGS_REGISTRY_DISPLAY_SENSITIVE ? FZN_SCHEMA_SENSITIVE : 0u)
+	           | (g->display & FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED ? FZN_SCHEMA_ADVANCED : 0u)
+	           | (g->display & FZN_SETTINGS_REGISTRY_DISPLAY_VERB ? FZN_SCHEMA_VERB : 0u)
+	           | (g->display & FZN_SETTINGS_REGISTRY_DISPLAY_ADVERTISED ? FZN_SCHEMA_ADVERTISED : 0u)
+	           | (g->safe == FZN_SETTINGS_REGISTRY_SAFE_LOWER ? FZN_SCHEMA_SAFE_LOWER : 0u)
+	           | (g->safe == FZN_SETTINGS_REGISTRY_SAFE_HIGHER ? FZN_SCHEMA_SAFE_HIGHER : 0u);
+	e->summary = g->summary;
+	e->every_ms = g->window_ms;
+	for (k = 0; k < sizeof(hand_checks) / sizeof(hand_checks[0]); k++)
+		if (strcmp(hand_checks[k].key, g->key) == 0)
+			e->check = hand_checks[k].check;
+}
+
+/* EVERY CELL A READER HERE READS, sec 1412: node/settings_registry.situ's
+ * rows, made once into the entries an extension's table is written in, in
+ * the registry's order, which `list schema` gives. Built on first use; a
+ * host reads its settings from one thread. */
+const fzn_schema_entry_t *fzn_node_schema_own(void)
+{
+	static fzn_schema_entry_t own[FZN_SETTINGS_REGISTRY_NODE_COUNT];
+	static int built;
+	size_t i;
+
+	if (!built) {
+		for (i = 0; i < FZN_SETTINGS_REGISTRY_NODE_COUNT; i++)
+			row_of_registry(&fzn_settings_registry_node_entries[i], &own[i]);
+		built = 1;
+	}
+	return own;
+}
+
+const size_t fzn_node_schema_own_n = FZN_SETTINGS_REGISTRY_NODE_COUNT;
 
 const fzn_schema_entry_t *fzn_node_schema_find(const fzn_node_schema_t *schema, const uint8_t *key,
                                                size_t len)
 {
-	const fzn_schema_entry_t *e = fzn_schema_find(fzn_node_schema_own, fzn_node_schema_own_n,
+	const fzn_schema_entry_t *e = fzn_schema_find(fzn_node_schema_own(), fzn_node_schema_own_n,
 	                                              key, len);
 
 	if (!e && schema)
@@ -312,7 +241,7 @@ const char *fzn_node_schema_refused(const fzn_schema_entry_t *extra, size_t n)
 		    || extra[i].type < FZN_SCHEMA_FLAG || extra[i].type > FZN_SCHEMA_TEXT)
 			return key ? key : "(no key)";
 		for (j = 0; j < fzn_node_schema_own_n; j++)
-			if (fzn_schema_overlap(key, fzn_node_schema_own[j].key))
+			if (fzn_schema_overlap(key, fzn_node_schema_own()[j].key))
 				return key;
 		for (j = 0; j < i; j++)
 			if (fzn_schema_overlap(key, extra[j].key))
@@ -406,7 +335,7 @@ static int opens(const fzn_schema_entry_t *e, const uint8_t *prefix, size_t len)
 static size_t list_schema(const fzn_node_schema_t *schema, const uint8_t *prefix, size_t prefix_len,
                           size_t from, char *reply, size_t cap)
 {
-	const fzn_schema_entry_t *tables[2] = { fzn_node_schema_own, schema ? schema->extra : NULL };
+	const fzn_schema_entry_t *tables[2] = { fzn_node_schema_own(), schema ? schema->extra : NULL };
 	size_t sizes[2] = { fzn_node_schema_own_n, schema ? schema->n_extra : 0u };
 	size_t total = 0, index = 0, at, t, i;
 	int full = 0;

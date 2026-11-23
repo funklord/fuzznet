@@ -67,7 +67,7 @@ static void test_every_row_agrees(void)
 	CHECK(fzn_node_schema_own_n == FZN_SETTINGS_REGISTRY_NODE_COUNT, "the hand table has %zu cells, the registry %u",
 	      fzn_node_schema_own_n, (unsigned)FZN_SETTINGS_REGISTRY_NODE_COUNT);
 	for (i = 0; i < fzn_node_schema_own_n; i++) {
-		const fzn_schema_entry_t *e = &fzn_node_schema_own[i];
+		const fzn_schema_entry_t *e = &fzn_node_schema_own()[i];
 		const fzn_settings_registry_node_entry_t *g = generated(e->key);
 		const int bounded = e->type == FZN_SCHEMA_COUNT || e->type == FZN_SCHEMA_DURATION;
 		const int sized = e->type == FZN_SCHEMA_TEXT || e->type == FZN_SCHEMA_ADDRESS;
@@ -113,6 +113,35 @@ static int padded_past(const char *v, uint64_t max)
 	return n[0] == '0' && n[1] >= '0' && n[1] <= '9' && strlen(n) > digits;
 }
 
+/* THE TABLE IS THE REGISTRY'S ROWS, sec 1412: each row typed -- a cell
+ * situ names that the table has no type for would read as none -- and
+ * the nine grammars the registry types as text carry their checks. */
+static void test_the_table_is_made_from_the_registry(void)
+{
+	static const char *const checked[] = { "archive/erasure", "local/permit/", "remote/permit/",
+		                               "remote/permit", "local/events",  "pressure/rank/",
+		                               "group/member",   "log/level",     "log/scope" };
+	const fzn_schema_entry_t *own = fzn_node_schema_own();
+	size_t i, k, with_check = 0, untyped = 0;
+
+	CHECK(fzn_node_schema_own_n == FZN_SETTINGS_REGISTRY_NODE_COUNT, "the table is not the registry's rows");
+	for (i = 0; i < fzn_node_schema_own_n; i++) {
+		untyped += own[i].type < FZN_SCHEMA_FLAG || own[i].type > FZN_SCHEMA_TEXT;
+		with_check += own[i].check != NULL;
+	}
+	CHECK(untyped == 0, "a row of the registry has no type in the table");
+	CHECK(with_check == sizeof(checked) / sizeof(checked[0]), "%zu rows carry a check, not nine", with_check);
+	for (k = 0; k < sizeof(checked) / sizeof(checked[0]); k++) {
+		/* A FAMILY BY AN INSTANCE of it, as a setting names one. */
+		char key[64];
+		const size_t len = (size_t)snprintf(key, sizeof(key), "%s%s", checked[k],
+		                                    checked[k][strlen(checked[k]) - 1u] == '/' ? "x" : "");
+		const fzn_schema_entry_t *e = fzn_node_schema_find(NULL, (const uint8_t *)key, len);
+
+		CHECK(e && e->check, "%s lost its own check", checked[k]);
+	}
+}
+
 static void test_every_value_agrees(void)
 {
 	static const char *const corpus[] = {
@@ -126,7 +155,7 @@ static void test_every_value_agrees(void)
 	size_t i, k, padded_only = 0, values = 0;
 
 	for (i = 0; i < fzn_node_schema_own_n; i++) {
-		const fzn_schema_entry_t *e = &fzn_node_schema_own[i];
+		const fzn_schema_entry_t *e = &fzn_node_schema_own()[i];
 		const fzn_settings_registry_node_entry_t *g = generated(e->key);
 		const char *extra[3] = { e->def, NULL, NULL };
 		char lo[24], hi[24];
@@ -174,7 +203,7 @@ static void test_a_family_instance_is_found(void)
 	size_t i;
 
 	for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-		const fzn_schema_entry_t *e = fzn_schema_find(fzn_node_schema_own, fzn_node_schema_own_n,
+		const fzn_schema_entry_t *e = fzn_schema_find(fzn_node_schema_own(), fzn_node_schema_own_n,
 		                                              (const uint8_t *)keys[i], strlen(keys[i]));
 		const fzn_settings_registry_node_entry_t *g =
 		        fzn_settings_registry_node_find((const uint8_t *)keys[i], (uint32_t)strlen(keys[i]));
@@ -187,6 +216,7 @@ static void test_a_family_instance_is_found(void)
 int main(void)
 {
 	test_every_row_agrees();
+	test_the_table_is_made_from_the_registry();
 	test_every_value_agrees();
 	test_a_family_instance_is_found();
 	CHECK(0, "deliberate");

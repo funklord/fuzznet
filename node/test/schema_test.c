@@ -102,7 +102,7 @@ static void test_fuzznets_declarations(void)
 	size_t i, j, bad = 0, overlapping = 0;
 
 	for (i = 0; i < fzn_node_schema_own_n; i++) {
-		const fzn_schema_entry_t *e = &fzn_node_schema_own[i];
+		const fzn_schema_entry_t *e = &fzn_node_schema_own()[i];
 
 		if (!fzn_setting_key_ok((const uint8_t *)e->key, strlen(e->key)) || !e->scopes
 		    || !e->summary || !e->summary[0]
@@ -111,7 +111,7 @@ static void test_fuzznets_declarations(void)
 			bad++;
 		}
 		for (j = i + 1u; j < fzn_node_schema_own_n; j++)
-			overlapping += fzn_schema_overlap(e->key, fzn_node_schema_own[j].key) ? 1u : 0u;
+			overlapping += fzn_schema_overlap(e->key, fzn_node_schema_own()[j].key) ? 1u : 0u;
 	}
 	CHECK(fzn_node_schema_own_n >= 20u && bad == 0u && overlapping == 0u,
 	      "one of fuzznet's declarations is not sound, or two claim one cell");
