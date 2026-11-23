@@ -17840,6 +17840,34 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"search-with-group-asks-contacts-alone",
+		"node/search.c",
+		"\t\tif (!self || memcmp(g.members[i], self, FZN_PUBKEY_LEN) != 0)\n\t\t\tn += s->ask_hosts(",
+		"\t\tif ((!self || memcmp(g.members[i], self, FZN_PUBKEY_LEN) != 0)\n\t\t    && fzn_node_search_is_contact(s, g.members[i]))\n\t\t\tn += s->ask_hosts(",
+		"a search with a group asks only its members who are contacts, as before sec 1406",
+	),
+	(
+		"search-with-group-asks-this-user",
+		"node/search.c",
+		"\t\tif (!self || memcmp(g.members[i], self, FZN_PUBKEY_LEN) != 0)\n\t\t\tn += s->ask_hosts(",
+		"\t\tif (1)\n\t\t\tn += s->ask_hosts(",
+		"a search with a group asks this user, a member, as one of its members -- sec 1406",
+	),
+	(
+		"search-group-member-refused",
+		"node/relay.c",
+		"(asker->member || asker->contact || asker->group_member)",
+		"(asker->member || asker->contact)",
+		"a host a shared group lists is refused a search, as before sec 1406",
+	),
+	(
+		"search-group-member-passes-every-gate",
+		"node/relay.c",
+		"\treturn asker && (asker->member || asker->contact) ? NULL\n\t                                                  : \"clocks only",
+		"\treturn asker && (asker->member || asker->contact || asker->group_member) ? NULL\n\t                                                  : \"clocks only",
+		"a group's member who is no contact is told this host's clock -- sec 1406 widened the search alone",
+	),
+	(
 		"search-with-group-asks-no-host",
 		"node/search.c",
 		"\t\theld.ask.query.within = held.ask.within;\n\t\tif (!(len = fzn_search_ask_write(",
@@ -18262,9 +18290,9 @@ SABOTAGES = [
 	(
 		"search-stranger-answered",
 		"node/relay.c",
-		"\treturn asker && (asker->member || asker->contact) ? NULL : \"a search only for this estate and its contacts\";\n",
-		"\treturn asker ? NULL : \"a search only for this estate and its contacts\";\n",
-		"a host neither of the estate nor a contact's answered a search; relay_test -- sec 1287",
+		"\treturn asker && (asker->member || asker->contact || asker->group_member)\n",
+		"\treturn asker\n",
+		"a host neither of the estate, a contact's nor a shared group's answered a search; relay_test -- secs 1287, 1406",
 	),
 	(
 		"pack-old-opens",

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1405
+The newest work is at the end of this file. **Read secs 1287 to 1406
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -46,8 +46,8 @@ listener port spans (`150e3106`).
   view (sec 1293); the library's files (sec 1299); facet filters, the
   engine's, the verb's and the client's (secs 1319, 1324); `with
   @GROUP`, this user's hosts and its members' who are contacts (secs
-  1399-1401). Left: members who are no contact, whom the round and sec
-  1291's gate do not reach.
+  1399-1401), and since sec 1406 every other member, contact or not
+  (the holder, 2026-11-23).
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -58,9 +58,11 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
-- **The holder's: mandate the clock's unit?** (sec 368; sec 1323) situ's
-  replay nonce form states one, so the nonce set moves onto situ only once
-  fuzznet says seconds (fuzznetd's) or leaves it to agreement.
+- **The clock's unit** (sec 368; sec 1323): answered in principle by the
+  holder 2026-11-23 (sec 1406) -- situ is to describe time units without
+  ambiguity and support every one; fuzznet likely wants a programmable,
+  sub-second unit. Sent to situ (its inbox 20261123T1050Z); the frame
+  and the nonce set wait on situ's shape.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -70,8 +72,9 @@ listener port spans (`150e3106`).
   **every layout is on generated code** (the naming rule, sec 1313;
   the last, persist, secs 1396-1398), but for persist's two-byte head and
   its single-field bodies, kept by decision (sec 1398). The settings
-  registry holds the contract (sec 1330); reading through it waits on the
-  holder (non-minimal spellings, sec 1330). The scheduler matches a reply
+  registry holds the contract (sec 1330); whether a stored "007" is
+  refused is fuzznet's choice of `[minimal]` -- situ already makes it
+  programmable, asked to confirm (sec 1406). The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -96931,3 +96934,63 @@ entries on the parking logic and one on an existing slot's index check
 removed with the code they guarded, now situ's and held by
 reasm_agree_fuzz; three retargeted onto the wrapper's lookups; three new on
 what the wrapper adds.
+
+## 1406. A group's members who are no contact searched; two directions sent to situ, 2026-11-23
+
+**The holder's answers, 2026-11-23**, to the three questions the /go run
+of 2026-11-22 left:
+
+- **Leading zeros (sec 1330)**: "Regardless of what we want in this
+  particular case, Shouldn't this be programmable in situ?" It already
+  is, by situ's section 8.6: `[minimal]` is optional, and without it a
+  text number takes "007". fuzznet's registry states it, so the choice
+  is this schema's one word. Sent to situ to confirm it holds for every
+  text-number form (inbox 20261123T1050Z).
+- **The clock's unit (sec 368)**: "Situ should have a very unambiguous
+  way to describe time units, and it should support all of them, its job
+  isn't to make design decisions for the user. (for fuzznet I suspect we
+  need programmable and sub-second, as it may be running over very high
+  performance links, and low performance links will probably take a
+  different transport shape)". situ states a unit only on a `replay`
+  window and a `reassemble` (ns, us, ms, s), and `expires_at` in
+  wire/frame.situ states none. Sent to situ (same message) as: a time
+  field's unit and epoch, every unit, chosen by the schema or the
+  consumer, the kernels comparing in the field's unit. The frame changes
+  once situ has a shape.
+- **A group's members who are no contact**: "Groups necessarily require
+  non-contact communication. I mean the group itself already exposes who
+  everyone is. If we want a group with anonymous users, then that is a
+  different story, and we won't have any searching possible either."
+  Built below. An anonymous group, if ever wanted, searches nothing.
+
+**Built: `with @GROUP` asks every other member.** `members_asked`
+(node/search.c) asks each member of the group's log but this user, not
+only its contacts. fuzznetd's `search_ask_hosts` asks a contact's hosts
+as the round keeps them, and a member who is no contact at the hosts the
+groups this user shares with it list (`search_ask_member`): each paired
+and opened as `member_targets_build` opens a member's host, asked,
+closed, a host two groups list asked once, a revoked one never.
+
+**Answered: a host a shared group lists.** `fzn_node_relay_asker_t`
+gains `group_member`, set by the search handler alone from
+`member_host_owner` (the same lookup the groups' syncs answer by), and
+`fzn_node_relay_refuse_search` admits it; no other gate reads it. The
+stores run as that member, so each answers only what it reads here
+already -- the lines of groups it is in from its joining on (`reach_of`),
+the notes shared with it or its groups, no contacts, no stickers.
+
+**Limit kept**: one search asks at most `FZN_NODE_SEARCH_HOSTS_MAX` (8)
+other hosts; a large group's members past them are not asked. Every
+member holds the group's lines, so what is missed is mostly notes a
+member shared.
+
+**Tests:** relay_test (52): a group's member is answered a search and
+refused a clock, a relay and an introduction. messages_test (315): the
+band's log names carol (contact), dave (none) and this user; carol and
+dave are asked, this user is not, six hosts in all. **Not covered by a
+test:** fuzznetd's two halves (the member's hosts opened, the asker
+recognised), which no unit test reaches, as with sec 1291. Sabotage:
+`search-with-group-asks-contacts-alone`,
+`search-with-group-asks-this-user`, `search-group-member-refused`,
+`search-group-member-passes-every-gate` new;
+`search-stranger-answered` retargeted.

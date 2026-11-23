@@ -22401,6 +22401,70 @@ static int search_ask_one(const struct pull_target *pt, fzn_reasm_t *table, cons
 	return 1;
 }
 
+/* A SHARED GROUP'S MEMBER WHO IS NO CONTACT, sec 1406: its hosts as the
+ * groups this user is in list them, each paired and opened as the groups
+ * round opens a member's host (`member_targets_build`), asked, and closed;
+ * a host two groups list is asked once. Not this user's own, asked as the
+ * estate's already. How many were sent to. */
+static size_t search_ask_member(const uint8_t *member, fzn_reasm_t *table, const uint8_t *ask, size_t len,
+                                unsigned generation, size_t *slot, int *full)
+{
+	static fzn_group_held_t ids_room;
+	static fzn_group_t g;
+	static fzn_contact_device_t own, d;
+	static uint8_t asked[FZN_GROUP_HOSTS_MAX][FZN_PUBKEY_LEN];
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
+	size_t n_ids = 0, i, k, j, n = 0, n_asked = 0, nowhere = 0;
+	const uint64_t now = wall_clock();
+
+	if (!running_admin || !contact_id || !running_admin->state->config.has_share || !groups_signer(NULL, &own)
+	    || memcmp(member, own.owner, FZN_PUBKEY_LEN) == 0 || !groups_held(&ids_room, &ids, &n_ids))
+		return 0;
+	for (i = 0; i < n_ids && !*full; i++) {
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
+		    || !fzn_group_is_member(&g, own.owner) || !fzn_group_is_member(&g, member))
+			continue;
+		for (k = 0; k < g.n_hosts && !*full && n_asked < FZN_GROUP_HOSTS_MAX; k++) {
+			const fzn_group_host_t *h = &g.hosts[k];
+			struct pull_target pt;
+			char host[FZN_NODE_RECEIVED_HOST_MAX + 1u];
+
+			if (memcmp(h->owner, member, FZN_PUBKEY_LEN) != 0 || !group_host_device(&g, h, &d)
+			    || contact_device_revoked(&d))
+				continue;
+			for (j = 0; j < n_asked && memcmp(asked[j], h->key, FZN_PUBKEY_LEN) != 0; j++)
+				;
+			if (j < n_asked)
+				continue;
+			memcpy(asked[n_asked++], h->key, FZN_PUBKEY_LEN);
+			if (!d.port || !d.address_len || d.address_len > FZN_NODE_RECEIVED_HOST_MAX) {
+				nowhere++;
+				continue;
+			}
+			memset(&pt, 0, sizeof(pt));
+			memcpy(host, d.address, d.address_len);
+			host[d.address_len] = '\0';
+			pt.host = host;
+			pt.port = d.port;
+			if (fzn_node_pairing_derive(contact_id, d.record, &running_admin->state->config.share_capability,
+			                            now, &pt.pairing)
+			            != FZN_NODE_PAIR_OK
+			    || !open_target(&pt, contact_family, contact_id->pubkey, contact_hash_ops, contact_aead_ops,
+			                    contact_rng_ops)) {
+				fzn_wipe(&pt.pairing, sizeof(pt.pairing));
+				continue;
+			}
+			n += (size_t)search_ask_one(&pt, table, ask, len, generation, slot, full, &nowhere);
+			fzn_udp_close(pt.fd);
+			fzn_wipe(&pt.pairing, sizeof(pt.pairing));
+			fzn_wipe(&pt.caller, sizeof(pt.caller));
+		}
+	}
+	say(FZN_ENTRY_INFO, "search", "a search asked of %zu host(s) of a group's member who is no contact; %zu with no address",
+	    n, nowhere);
+	return n;
+}
+
 /* EVERY HOST OF THIS ESTATE A ROUND REACHES, asked `ask`: how many. An ask
  * of an earlier search still awaited keeps its place until it is answered
  * or times out -- an ask is not withdrawn -- and what it brings is let go
@@ -22429,6 +22493,8 @@ static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const 
 			n += (size_t)search_ask_one(&contact_targets[i].pt, table, ask, len, generation, &slot, &full,
 			                            &nowhere);
 		}
+		if (!theirs)
+			return search_ask_member(with, table, ask, len, generation, &slot, &full);
 		say(FZN_ENTRY_INFO, "search",
 		    "a search with a contact asked of %zu of its %zu host(s) the round keeps; %zu with no address", n,
 		    theirs, nowhere);
@@ -22497,6 +22563,10 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		size_t n;
 
 		asker_of(sender, &asker);
+		/* OR A HOST ONE OF THIS USER'S GROUPS LISTS, sec 1406: run as that
+		 * member, each store answering what it reads here already. */
+		if (!asker.member && !asker.contact)
+			asker.group_member = member_host_owner(sender, asker.owner);
 		if ((no = fzn_node_relay_refuse_search(&asker)) != NULL)
 			return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, no);
 		if (now != second) {

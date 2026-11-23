@@ -166,6 +166,7 @@ static void test_who_may_ask(void)
 	                                 "only this estate, or a contact about its own, introduces",
 	                         *const UNKNOWN = "not a host this one knows",
 	                         *const NO_TIME = "clocks only for this estate and its contacts",
+	                         *const NO_SEARCH = "a search only for this estate, its contacts and its groups' members",
 	                         *const OWN_USER = "where this host is reached is its own user's";
 	fzn_node_relay_asker_t member, x, y, neither;
 	const fzn_node_relay_asker_t *all[4] = { &member, &x, &y, &neither };
@@ -237,9 +238,22 @@ static void test_who_may_ask(void)
 	 * stores answering only what it reads here (sec 1291). */
 	CHECK(is(fzn_node_relay_refuse_search(&member), NULL) && is(fzn_node_relay_refuse_search(&x), NULL),
 	      "a host of this estate, or a contact's, was refused a search");
-	CHECK(is(fzn_node_relay_refuse_search(&neither), "a search only for this estate and its contacts")
-	              && is(fzn_node_relay_refuse_search(NULL), "a search only for this estate and its contacts"),
+	CHECK(is(fzn_node_relay_refuse_search(&neither), NO_SEARCH)
+	              && is(fzn_node_relay_refuse_search(NULL), NO_SEARCH),
 	      "a host of neither was answered a search");
+	/* AND A SHARED GROUP'S MEMBER, sec 1406 -- for a search alone: no other
+	 * gate here reads the mark. */
+	{
+		fzn_node_relay_asker_t in_group = neither;
+
+		in_group.group_member = 1;
+		CHECK(is(fzn_node_relay_refuse_search(&in_group), NULL),
+		      "a host a shared group lists was refused a search");
+		CHECK(is(fzn_node_relay_refuse_time(&in_group), NO_TIME)
+		              && fzn_node_relay_refuse_relay(&in_group, 1, 1u, 1) != NULL
+		              && fzn_node_relay_refuse_introduce(&in_group) != NULL,
+		      "a group's member was let past a gate other than the search's");
+	}
 
 	/* THE LOCAL VERBS: the node's own user alone, as `get relay` is. */
 	CHECK(is(fzn_node_relay_refuse_local(FZN_ORIGIN_SAME_USER), NULL),

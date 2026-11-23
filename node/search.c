@@ -504,20 +504,21 @@ int fzn_node_search_is_contact(const fzn_node_search_t *s, const uint8_t key[FZN
 	return s && s->contacts && key && fzn_contact_get(s->contacts, key, &c) == FZN_CONTACT_OK;
 }
 
-/* THE HOSTS OF A GROUP'S MEMBERS WHO ARE THIS USER'S CONTACTS, sec 1400,
- * asked `ask`: how many. A member's hosts the round keeps only as a
- * contact's; this user, a member too, is no contact and is passed over. */
+/* THE HOSTS OF A GROUP'S OTHER MEMBERS, sec 1400, asked `ask`: how many. A
+ * contact's as the round keeps them, and since sec 1406 a member who is no
+ * contact too, at the hosts the group lists -- the daemon's to tell apart.
+ * This user, a member too, is passed over: its hosts are asked already. */
 static size_t members_asked(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *group,
                             unsigned generation)
 {
 	static fzn_group_t g;
-	fzn_contact_t c;
+	const uint8_t *self = s->user ? *s->user : NULL;
 	size_t i, n = 0;
 
-	if (!s->messages || !s->contacts || fzn_group_log_get(s->messages->m.store, group, &g) != FZN_GROUP_LOG_OK)
+	if (!s->messages || fzn_group_log_get(s->messages->m.store, group, &g) != FZN_GROUP_LOG_OK)
 		return 0;
 	for (i = 0; i < g.n_members; i++)
-		if (fzn_contact_get(s->contacts, g.members[i], &c) == FZN_CONTACT_OK)
+		if (!self || memcmp(g.members[i], self, FZN_PUBKEY_LEN) != 0)
 			n += s->ask_hosts(s->ask_hosts_ctx, ask, len, g.members[i], generation);
 	return n;
 }

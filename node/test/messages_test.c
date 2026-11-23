@@ -1975,6 +1975,19 @@ static int search_put(void *ctx, const uint8_t *msg, size_t len)
 
 static uint8_t hosts_with[FZN_PUBKEY_LEN];
 static int hosts_has_with;
+/* EVERY `with` ASKED since the count was cleared, the first eight. */
+static uint8_t hosts_withs[8][FZN_PUBKEY_LEN];
+static size_t hosts_n_withs;
+
+static int hosts_asked_with(const uint8_t *key)
+{
+	size_t i;
+
+	for (i = 0; i < hosts_n_withs && i < 8u; i++)
+		if (!memcmp(hosts_withs[i], key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
 
 static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const uint8_t *with, unsigned generation)
 {
@@ -1982,6 +1995,9 @@ static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const ui
 	hosts_has_with = with != NULL;
 	if (with)
 		memcpy(hosts_with, with, FZN_PUBKEY_LEN);
+	if (with && hosts_n_withs < 8u)
+		memcpy(hosts_withs[hosts_n_withs], with, FZN_PUBKEY_LEN);
+	hosts_n_withs += with != NULL;
 	if (len > sizeof(hosts_ask))
 		return 0;
 	memcpy(hosts_ask, ask, len);
@@ -2237,22 +2253,37 @@ static void test_the_search_here(void)
 			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 0u,
 			      "carol, no member of the crew, was answered within it");
 		}
-		/* AND THE HOSTS OF ITS MEMBERS WHO ARE CONTACTS, sec 1400: the band's
-		 * log names carol, so her hosts are asked as well as this user's. */
+		/* AND THE HOSTS OF ITS OTHER MEMBERS, sec 1400: the band's log names
+		 * carol, a contact, and since sec 1406 dave, who is none -- both
+		 * asked as well as this user's hosts; this user, a member too, not
+		 * asked as one. */
 		{
 			static fzn_group_t band;
+			static const uint8_t *me_at;
+			const uint8_t *const *saved = s.user;
+			uint8_t dave[FZN_PUBKEY_LEN], me[FZN_PUBKEY_LEN];
 			char name[] = "band";
 
+			memset(dave, 0xda, sizeof(dave));
+			memset(me, 0x3e, sizeof(me));
+			me_at = me;
 			memset(&band, 0, sizeof(band));
 			memset(band.id, 0x9e, sizeof(band.id));
 			memcpy(band.members[0], X, FZN_PUBKEY_LEN);
-			band.n_members = 1;
+			memcpy(band.members[1], dave, FZN_PUBKEY_LEN);
+			memcpy(band.members[2], me, FZN_PUBKEY_LEN);
+			band.n_members = 3;
 			CHECK(fzn_node_group_rename(&A.store_ops, band.id, name, 4u) == FZN_CONTACT_OK
 			              && fzn_group_log_put(&A.store_ops, &band) == FZN_GROUP_LOG_OK,
-			      "fixture: a band whose log names carol");
-			CHECK(SEARCH("fetch search with @band carol") && replied("ok 4") && hosts_has_with
-			              && !memcmp(hosts_with, X, FZN_PUBKEY_LEN),
+			      "fixture: a band whose log names carol, dave and this user");
+			s.user = &me_at;
+			hosts_n_withs = 0;
+			CHECK(SEARCH("fetch search with @band carol") && replied("ok 6") && hosts_asked_with(X),
 			      "a search with the band did not ask carol's hosts as well as this user's");
+			CHECK(hosts_asked_with(dave), "a search with the band did not ask dave, a member who is no contact");
+			CHECK(!hosts_asked_with(me) && hosts_n_withs == 2u,
+			      "a search with the band asked this user as a member of it");
+			s.user = saved;
 		}
 		CHECK(SEARCH("list search with @crew dinner") && replied("ok 0 0"),
 		      "a search with the crew found carol's conversation");

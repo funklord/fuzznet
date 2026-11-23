@@ -150,7 +150,12 @@ int fzn_node_relay_where(const fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY
 typedef struct fzn_node_relay_asker {
 	int member;                    /* holds standing in this estate */
 	int contact;                   /* a standing contact's host */
-	uint8_t owner[FZN_PUBKEY_LEN]; /* that contact's user, when `contact` */
+	uint8_t owner[FZN_PUBKEY_LEN]; /* that contact's user, when `contact`;
+	                                * that member's, when `group_member` */
+	/* A HOST ONE OF THIS USER'S GROUPS LISTS, its user a member there and
+	 * no contact (sec 1406). Only a search reads it: a group already tells
+	 * its members who each other is. */
+	int group_member;
 } fzn_node_relay_asker_t;
 
 /* A FRAME RELAYED: this host relaying at all (`relay/enabled`), for its
@@ -171,7 +176,8 @@ const char *fzn_node_relay_refuse_time(const fzn_node_relay_asker_t *asker);
 /* A SEARCH ASKED, sec 1287: another of this estate's hosts, whose user's
  * every store this host's are (step 2); or a standing contact's host, its
  * stores run as that contact, each answering only what it already reads
- * here (step 4, sec 1291). */
+ * here (step 4, sec 1291); or a host a shared group lists, run as that
+ * member the same way (sec 1406). */
 const char *fzn_node_relay_refuse_search(const fzn_node_relay_asker_t *asker);
 
 /* THE REACHABILITY VERBS, sec 762 -- `fetch lan`, `get lan`, `get` and

@@ -70,7 +70,8 @@ typedef struct fzn_node_search {
 	 * -- so this module links none of them. An empty slot's `run` is NULL. */
 	fzn_search_store_t extra[FZN_NODE_SEARCH_EXTRA];
 	/* THIS USER'S OTHER HOSTS ASKED `ask`, the daemon's -- or, `with` a
-	 * contact's root key, that contact's hosts alone (sec 1292): how many
+	 * contact's root key, that contact's hosts alone (sec 1292), or a
+	 * shared group's member's, the hosts the group lists (sec 1406): how many
 	 * it sent to, each answer handed to `fzn_node_search_answered` with
 	 * `generation`, or NULL by the deadline. NULL asks nobody. */
 	size_t (*ask_hosts)(void *ctx, const uint8_t *ask, size_t len, const uint8_t *with, unsigned generation);
