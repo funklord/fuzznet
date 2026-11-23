@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1409
+The newest work is at the end of this file. **Read secs 1287 to 1410
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97178,4 +97178,38 @@ back as its luma plane byte for byte when grey, and in colour when not
 so its camera code had never compiled there). **Not covered by a test:**
 the queue itself -- a headless test has no camera thread; the emulator
 is where it was seen, and fuzzypickles' run is the check.
+
+## 1410. raidcfgd becomes a node: its product number, and a binary call on the local leg, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T1323Z): the holder decided on
+2026-11-23 that raidcfgd uses fuzznet's code as far as possible and that
+its root daemon links fuzznet and serves its vocabulary as a node, as
+netcfgd's does. Its pin moved to d34610a2, its bridge and tray link
+`make daemon-lib`. Three asks:
+
+1. **A product number: `FZN_PRODUCT_RAIDCFGD` 5** (`chain/service.h`),
+   assigned now, as sec 813 assigns one when a consumer needs it.
+
+2. **Room for a binary answer on the local leg.** raidcfgd's wire is
+   binary (situ-described in its tree); a status reading is 2,141 bytes
+   for a degraded RAID 5 fixture and up to 21,772 measured. Through `call`
+   today it is escaped onto one FZN_REPLY_MAX (1024) line, three bytes a
+   byte, about 340 raw bytes a page: 7 to 64 pages, each its own
+   connection. **Decided here: a binary call on the local leg**, in sec
+   1152's category-A shape -- `call` 128 under FZN_CMD_RRPC, the local
+   range, asked with the procedure's name and its arguments as bytes,
+   answered in `part` 129 messages and then a STATUS, the same caller the
+   text `call` admits, with more room for the answer than the 4096 bytes
+   a reply between hosts holds. **Rejected: the extension's `remote` hook
+   on the local leg** with SUBCMDs per consumer under FZN_CMD_EXTENSION --
+   a second way to reach a procedure, and a number to register per
+   consumer, where a procedure is already the consumer's named entry.
+   Measured beside it: a procedure's answer is bounded by
+   FZND_CALL_ANSWER_MAX (4096) for any caller, so 21 kB never fit a
+   procedure at all, local or remote; the binary call takes the bound
+   locally to what a two-byte-framed message holds, in parts.
+
+3. **SUBCMDs under FZN_CMD_EXTENSION**: none, as (2) is a binary call.
+
+The binary call is built in the section after this one.
 
