@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1414
+The newest work is at the end of this file. **Read secs 1287 to 1415
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -75,10 +75,10 @@ listener port spans (`150e3106`).
   its single-field bodies, kept by decision (sec 1398). The settings
   registry holds the contract (sec 1330), the four cell types'
   parsers are situ's generated ones (sec 1408), "007" still taken, and
-  the table itself is the registry's rows (sec 1412), and three of the
-  nine hand-only grammars are its token cells (sec 1414); the permits,
-  the group list and the erasure shape stay hand-written, each for a
-  reason sec 1414 gives. The scheduler matches a reply
+  the table itself is the registry's rows (sec 1412), three of the
+  nine hand-only grammars are its token cells (sec 1414), and the local
+  permit's grammar is situ's (sec 1415); the remote permit, the group
+  list and the erasure shape stay hand-written, each for a reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -97368,4 +97368,45 @@ kind on its own.
 **Tests:** settings_registry_test (3157) and schema_test (41) unchanged
 and passing: the value agreement now runs these three rows through the
 registry's cell. Sabotage: `schema-own-log-level-unchecked` new.
+
+## 1415. The local permit read through situ's code, 2026-11-23
+
+From situ's answer (inbox 20261123T1720Z, sec 1414). **`node/permit.situ`**
+states the grammar of a local permit (`local/permit/SUBJECT`, secs 852,
+883, 904) and of `local/events`: grants apart by spaces (`whitespace`),
+each `local:NAME`, `local:@GROUP`, `group:NAME` or `user:NAME` with its
+rights, or `any=x` / `any=r`; a name 1 to 63 of a-z A-Z 0-9 - _ ., or
+`#` and up to ten digits; rights a closed `tokens` set of five spellings
+(r, rw, rx, rwx, x). `@` is taken after `local:` alone, stated by the
+structure (a variant per scheme) because a `when` cannot compare a token
+with a named constant across structs. `node/permit.c`'s `walk` reads a
+permit through the generated view, for the check and for matching a
+caller alike; **kept in C**, as situ cannot state them: spaces after the
+last grant are trimmed (the run would ask for one more grant there), the
+grants must reach the value's end (a run stops at the first element it
+cannot read, and the rest is unchecked), and `any=r` is the events'
+alone.
+
+**Three things measured on the way**, each fixed in the schema before it
+landed: a delimited run's `max` counts the delimiter (`#` + ten digits
+needs `max 11`, a 63-byte name `max 64`); a peek needs `skip` to pass
+leading spaces; and a delimited token directly in a variant arm does
+not compile in C at situ abf7ef5d or a2fc3912 (sent to situ, inbox
+20261123T1616Z; the arm is wrapped in a struct of its own).
+
+**Held by an oracle, as secs 1404 and 1408 were**: the hand parser lives
+on header-only in `node/test/permit_ref.h`, and
+`node/test/permit_agree_fuzz` (in `make test` and `make fuzz`) compares
+the permit's check, the events' check, every right granted to a caller
+by number, and whether a caller hears: a million values, 87,407 permits
+and 9,761 rights granted by both, no difference; names and ids at their
+bounds drawn one value in eight.
+
+**Not moved: the remote permit** (sec 921): describable but for "none
+stands alone", a rule over a run's elements; kept hand-written rather
+than split across two places.
+
+**Sabotage**: `permit-situ-trailing-junk`, `permit-situ-rw-read-only`,
+`permit-situ-id-as-name` new; `events-any-reaches-every-grant`
+retargeted onto the new `any=` arm.
 

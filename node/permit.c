@@ -2,7 +2,10 @@
 
 #include "permit.h"
 
+#include "../wire/generated/permit.h"
+
 #include <grp.h>
+#include <stdio.h>
 #include <pwd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,99 +51,140 @@ struct grant {
 	unsigned rights;
 };
 
-static int parse_grant(const char *w, size_t n, struct grant *g)
+/* `target` -- a name, or `#` and digits -- into `g`: 1, or 0 for no target. */
+static int target_of(situ_view_t t, struct grant *g)
 {
-	const char *eq = memchr(w, '=', n), *name;
-	size_t name_len, i, r;
+	situ_view_t b;
 
-	memset(g, 0, sizeof(*g));
-	/* ANY LOCAL USER, sec 883: a call alone, whose procedure is handed the
-	 * caller and judges it. `r` and `w` reach fuzznet's own verbs, with no
-	 * judge behind them, so those always name somebody. */
-	if (n == 5u && memcmp(w, "any=x", 5u) == 0) {
-		g->anyone = 1;
-		g->rights = FZN_PERMIT_RRPC;
+	if (fzn_permit_target_first_get(t) == '#') {
+		uint64_t id = 0;
+
+		if (fzn_permit_target_body_id_view(t, &b) != SITU_OK || fzn_permit_numeric_id_get(b, &id) != SITU_OK)
+			return 0;
+		g->numeric = 1;
+		/* ITS DIGITS AS WRITTEN UP TO TEN, read back by `strtoul` where a
+		 * caller is matched, as the hand parser kept them. */
+		(void)snprintf(g->name, sizeof(g->name), "%llu", (unsigned long long)id);
 		return 1;
 	}
-	/* `local:NAME` AND `local:@GROUP`, sec 904: a local user as a principal,
-	 * the spelling every rule that names one takes. `user:` and `group:` are
-	 * the same two, as they were first written. */
-	if (n > 7u && memcmp(w, "local:@", 7u) == 0) {
-		g->group = 1;
-		name = w + 7;
-	} else if (n > 6u && memcmp(w, "local:", 6u) == 0) {
-		name = w + 6;
-	} else if (n > 6u && memcmp(w, "group:", 6u) == 0) {
-		g->group = 1;
-		name = w + 6;
-	} else if (n > 5u && memcmp(w, "user:", 5u) == 0) {
-		name = w + 5;
-	} else {
+	if (fzn_permit_target_body_text_view(t, &b) != SITU_OK || fzn_permit_text_name_text_len(b) == 0u
+	    || fzn_permit_text_name_text_len(b) >= sizeof(g->name))
 		return 0;
-	}
-	if (!eq || eq <= name)
-		return 0;
-	name_len = (size_t)(eq - name);
-	if (name[0] == '#') {
-		g->numeric = 1;
-		name++;
-		name_len--;
-		if (name_len == 0u || name_len > 10u)
-			return 0;
-		for (i = 0; i < name_len; i++)
-			if (name[i] < '0' || name[i] > '9')
-				return 0;
-	} else {
-		if (name_len == 0u || name_len >= sizeof(g->name))
-			return 0;
-		for (i = 0; i < name_len; i++) {
-			char c = name[i];
-
-			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-			      || c == '-' || c == '_' || c == '.'))
-				return 0;
-		}
-	}
-	memcpy(g->name, name, name_len);
-	g->name[name_len] = '\0';
-	/* RIGHTS: `r`, `w` and `x`, in that order, each at most once; a change
-	 * without a read is not a grant anybody means. */
-	r = (size_t)((w + n) - (eq + 1));
-	for (i = 1; i <= r; i++) {
-		unsigned bit = eq[i] == 'r' ? FZN_PERMIT_READ
-		               : eq[i] == 'w' ? FZN_PERMIT_CHANGE
-		               : eq[i] == 'x' ? FZN_PERMIT_RRPC
-		                              : 0u;
-
-		if (!bit || g->rights >= bit)
-			return 0;
-		g->rights |= bit;
-	}
-	if (!g->rights || ((g->rights & FZN_PERMIT_CHANGE) && !(g->rights & FZN_PERMIT_READ)))
-		return 0;
+	memcpy(g->name, fzn_permit_text_name_text_ptr(b), fzn_permit_text_name_text_len(b));
+	g->name[fzn_permit_text_name_text_len(b)] = '\0';
 	return 1;
 }
 
-/* EACH GRANT IN `value`, to `each`; 0 at the first that does not parse. */
+/* RIGHTS by their spelling, one of five (`node/permit.situ`'s `rights_word`):
+ * r, w and x in order, w never without r. 0 for none of them. */
+static unsigned rights_of(const uint8_t *word, uint32_t len)
+{
+	switch (fzn_permit_rights_word_which(word, len)) {
+	case FZN_PERMIT_RIGHTS_WORD_R:
+		return FZN_PERMIT_READ;
+	case FZN_PERMIT_RIGHTS_WORD_RW:
+		return FZN_PERMIT_READ | FZN_PERMIT_CHANGE;
+	case FZN_PERMIT_RIGHTS_WORD_RX:
+		return FZN_PERMIT_READ | FZN_PERMIT_RRPC;
+	case FZN_PERMIT_RIGHTS_WORD_RWX:
+		return FZN_PERMIT_READ | FZN_PERMIT_CHANGE | FZN_PERMIT_RRPC;
+	case FZN_PERMIT_RIGHTS_WORD_X:
+		return FZN_PERMIT_RRPC;
+	default:
+		return 0u;
+	}
+}
+
+/* ONE GRANT of a view that validated, into `g`: 1, or 0 for one this
+ * grammar does not take -- `any=r`, which is the events' alone. */
+static int grant_of(situ_view_t v, struct grant *g)
+{
+	situ_view_t b, w, t;
+	const uint8_t *rights;
+	uint32_t rights_len;
+
+	memset(g, 0, sizeof(*g));
+	switch (fzn_permit_grant_kind_get(v)) {
+	case 'a':
+		/* ANY LOCAL USER, sec 883: a call alone, whose procedure is handed
+		 * the caller and judges it. `r` and `w` reach fuzznet's own verbs,
+		 * with no judge behind them, so those always name somebody. */
+		if (fzn_permit_grant_body_anyone_view(v, &b) != SITU_OK || fzn_permit_anyone_word_len(b) != 5u
+		    || memcmp(fzn_permit_anyone_word_ptr(b), "any=x", 5u) != 0)
+			return 0;
+		g->anyone = 1;
+		g->rights = FZN_PERMIT_RRPC;
+		return 1;
+	case 'l':
+		/* `local:NAME` AND `local:@GROUP`, sec 904: a local user as a
+		 * principal, the spelling every rule that names one takes. */
+		if (fzn_permit_grant_body_local_view(v, &b) != SITU_OK || fzn_permit_local_grant_who_view(b, &w) != SITU_OK)
+			return 0;
+		if (fzn_permit_local_target_first_get(w) == '@') {
+			g->group = 1;
+			if (fzn_permit_local_target_body_group_view(w, &t) != SITU_OK
+			    || fzn_permit_group_target_who_view(t, &t) != SITU_OK)
+				return 0;
+		} else if (fzn_permit_local_target_body_user_view(w, &t) != SITU_OK) {
+			return 0;
+		}
+		rights = fzn_permit_local_grant_rights_ptr(b);
+		rights_len = fzn_permit_local_grant_rights_len(b);
+		break;
+	case 'g':
+		/* `user:` AND `group:` are the same two, as they were first written. */
+		g->group = 1;
+		if (fzn_permit_grant_body_group_view(v, &b) != SITU_OK || fzn_permit_group_grant_who_view(b, &t) != SITU_OK)
+			return 0;
+		rights = fzn_permit_group_grant_rights_ptr(b);
+		rights_len = fzn_permit_group_grant_rights_len(b);
+		break;
+	case 'u':
+		if (fzn_permit_grant_body_user_view(v, &b) != SITU_OK || fzn_permit_user_grant_who_view(b, &t) != SITU_OK)
+			return 0;
+		rights = fzn_permit_user_grant_rights_ptr(b);
+		rights_len = fzn_permit_user_grant_rights_len(b);
+		break;
+	default:
+		return 0;
+	}
+	g->rights = rights_of(rights, rights_len);
+	return g->rights && target_of(t, g);
+}
+
+/* EACH GRANT IN `value`, to `each`, read through node/permit.situ's code
+ * (sec 1415); 0 when the value is no permit. What the schema cannot say is
+ * said here: spaces after the last grant are trimmed (the run would ask
+ * for one more grant there), and the grants reach the value's end. */
 static int walk(const uint8_t *value, size_t len, int (*each)(void *, const struct grant *),
                 void *ctx, int *any)
 {
-	size_t at = 0;
+	situ_msg_t m;
+	situ_view_t p, v;
+	uint32_t i, count, at = 0;
+	struct grant g;
 
 	*any = 0;
-	while (at < len) {
-		struct grant g;
-		size_t start;
-
-		while (at < len && value[at] == ' ')
-			at++;
-		if (at == len)
-			break;
-		start = at;
-		while (at < len && value[at] != ' ')
-			at++;
-		if (!parse_grant((const char *)value + start, at - start, &g))
+	while (len && value[len - 1u] == ' ')
+		len--;
+	if (len == 0u)
+		return 1;
+	if (len > UINT32_MAX)
+		return 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)value, (uint32_t)len);
+	if (fzn_permit_permit_view(&m, 0u, (uint32_t)len, &p) != SITU_OK || fzn_permit_permit_validate(p) != SITU_OK)
+		return 0;
+	count = fzn_permit_permit_grants_count(p);
+	for (i = 0; i < count; i++) {
+		if (fzn_permit_permit_grants_at(p, i, &v) != SITU_OK || !grant_of(v, &g))
 			return 0;
+		at += fzn_permit_grant_extent(v);
+	}
+	if (at != len)
+		return 0;
+	for (i = 0; i < count; i++) {
+		(void)fzn_permit_permit_grants_at(p, i, &v);
+		(void)grant_of(v, &g);
 		*any = 1;
 		if (each && each(ctx, &g))
 			return 1;

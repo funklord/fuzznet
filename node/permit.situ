@@ -1,0 +1,84 @@
+// Who on this machine may use a node's verbs: the grammar of a local
+// permit (`local/permit/SUBJECT`, sec 852, 883, 904) and of `local/events`,
+// project.md sec 1415. A permit is grants apart by spaces; a grant is
+// `local:NAME`, `local:@GROUP`, `group:NAME` or `user:NAME` with its
+// rights, or `any=x` (`any=r` for the events). node/permit.c reads a
+// permit through the code situ generates from this, to check a value and
+// to match a caller against it; what situ cannot state -- that the grants
+// reach the value's end, `any=r` only for the events -- it keeps.
+//
+// Drawn from situ's answer (situ inbox 20261123T1720Z), held to the hand
+// parser it replaced by node/test/permit_agree_fuzz.
+
+target buffer;
+endian big;
+whitespace ' ';
+
+// RIGHTS: r, w and x in that order, each at most once, w never without r --
+// a closed set of five spellings (situ, inbox 20261123T1720Z).
+tokens rights_word { r = "r", rw = "rw", rx = "rx", rwx = "rwx", x = "x", default = error, }
+tokens anyone_word { x = "any=x", r = "any=r", default = error, }
+
+// A NAME: 1 to 63 of a-z A-Z 0-9 - _ ., or `#` and 1 to 10 digits.
+struct numeric {
+	u8           hash [must_eq = '#'];
+	decimal u64  id until "=" max 11;
+}
+struct text_name {
+	u8   text[] until "=" max 64 [chars = "a-zA-Z0-9_.-"];
+}
+struct target {
+	peek u8 first;
+	variant body switch (first) {
+		case '#': numeric id;
+		default:  text_name text;
+	}
+}
+struct group_target {
+	u8     sigil [must_eq = '@'];
+	target who;
+}
+// `local:` names a user, or a group after `@`.
+struct local_target {
+	peek u8 first;
+	variant body switch (first) {
+		case '@': group_target group;
+		default:  target user;
+	}
+}
+struct local_grant {
+	u8            scheme[6] [must_eq = "local:"];
+	local_target  who;
+	rights_word   rights until " " | end;
+}
+struct group_grant {
+	u8            scheme[6] [must_eq = "group:"];
+	target        who;
+	rights_word   rights until " " | end;
+}
+struct user_grant {
+	u8            scheme[5] [must_eq = "user:"];
+	target        who;
+	rights_word   rights until " " | end;
+}
+// `any=x` or `any=r` as a struct of its own: a delimited token directly in a
+// variant arm does not compile in C at situ abf7ef5d (situ inbox
+// 20261123T1616Z).
+struct anyone {
+	anyone_word  word until " " | end;
+}
+struct grant {
+	peek u8 kind skip;
+	variant body switch (kind) {
+		case 'a': anyone anyone;
+		case 'l': local_grant local;
+		case 'g': group_grant group;
+		case 'u': user_grant user;
+		default: error;
+	}
+}
+struct permit {
+	grant grants[] while (1) | end;
+}
+
+when size(text_name.text) < 2 refuse empty_name "a name is 1 to 63 characters";

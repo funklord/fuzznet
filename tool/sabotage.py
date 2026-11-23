@@ -15647,9 +15647,9 @@ SABOTAGES = [
 	(
 		"events-any-reaches-every-grant",
 		"node/permit.c",
-		"\tif (n == 5u && memcmp(w, \"any=x\", 5u) == 0) {\n",
-		"\tif (n == 5u && (memcmp(w, \"any=x\", 5u) == 0 || memcmp(w, EVERYONE_HEARS, 5u) == 0)) {\n",
-		"any=r taken on local/permit/ as well: every local user reads a fuzznet verb -- sec 933",
+		"		    || memcmp(fzn_permit_anyone_word_ptr(b), \"any=x\", 5u) != 0)\n",
+		"		    || (memcmp(fzn_permit_anyone_word_ptr(b), \"any=x\", 5u) != 0\n		        && memcmp(fzn_permit_anyone_word_ptr(b), EVERYONE_HEARS, 5u) != 0))\n",
+		"any=r taken on local/permit/ as well: every local user reads a fuzznet verb -- secs 933, 1415",
 	),
 	(
 		"device-word-taken-for-an-answer",
@@ -17838,6 +17838,27 @@ SABOTAGES = [
 		"\t\tif (held.ask.query.within)\n\t\t\theld.asked += members_asked(",
 		"\t\tif (0)\n\t\t\theld.asked += members_asked(",
 		"a search with a group asks none of its members' hosts -- sec 1400",
+	),
+	(
+		"permit-situ-trailing-junk",
+		"node/permit.c",
+		"	if (at != len)\n		return 0;\n",
+		"	(void)at;\n",
+		"a permit whose grants stop short of its end is taken, the rest unread -- sec 1415",
+	),
+	(
+		"permit-situ-rw-read-only",
+		"node/permit.c",
+		"	case FZN_PERMIT_RIGHTS_WORD_RW:\n		return FZN_PERMIT_READ | FZN_PERMIT_CHANGE;\n",
+		"	case FZN_PERMIT_RIGHTS_WORD_RW:\n		return FZN_PERMIT_READ;\n",
+		"a grant of rw gives read alone -- sec 1415",
+	),
+	(
+		"permit-situ-id-as-name",
+		"node/permit.c",
+		"		g->numeric = 1;\n		/* ITS DIGITS",
+		"		/* ITS DIGITS",
+		"a grant to #ID is looked up as a user or group named by its digits -- sec 1415",
 	),
 	(
 		"schema-own-log-level-unchecked",
