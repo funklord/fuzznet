@@ -85857,7 +85857,7 @@ is the register, rewritten in place as features land; "where" says where each li
 
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
-| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); none else -- backup is built, on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158), and the recogniser a backend any consumer calls (sec 1213) | | |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
@@ -97338,8 +97338,13 @@ under each row's size bounds -- 29 taken by both, none differing.
 - **The group list**: names `fzn_scope_group_id` takes, none twice --
   a uniqueness rule over a run, which no situ construct states.
 - **The permits** (`local/permit/`, `remote/permit`, `local/events`):
-  their grammar is `node/permit.c`'s, with its own suite; a move of its
-  own.
+  their grammar is `node/permit.c`'s, with its own suite, parsed both to
+  check and to match. A probe at abf7ef5d builds a list of words
+  (`rule rules[] while (1) | end`), but not a word that is a token or a
+  prefix plus a fixed hex run, nor a rule over a list's elements ("none
+  stands alone"), nor the rights' order and implication. **Asked of
+  situ** with the three grammars exactly (situ inbox 20261123T1606Z,
+  2026-11-23); kept by hand until it has a shape.
 
 **The register (sec 1070), two cells corrected**, from this run's walk
 of the aims: the typed client's "missing" listed on-demand listings
