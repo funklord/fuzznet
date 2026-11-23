@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1420
+The newest work is at the end of this file. **Read secs 1287 to 1421
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -77243,7 +77243,9 @@ than restate:
 
 A number is assigned when a consumer needs one, as sec 127 said. fuzznetd
 still requires both options: a default
-would choose a product for a program that is not this one.
+would choose a product for a program that is not this one. (**No longer
+so** -- a fuzznetd starts without them, as a node with no capability,
+sec 857; measured by raidcfgd, sec 1421.)
 
 **The default store:** a run that keeps a store, serving or a store
 command, and is given neither `--fuzznet-dir` nor `--identity` keeps it
@@ -97581,10 +97583,9 @@ re-pairs netcfgd's devices; (c) the hop accepts one capability per
 product the node carries. Open, asked of the holder.
 
 **And a node with no service and product answering `rrpc NAME` with
-its status line**: fuzznetd refuses to start without both (sec 813),
-and a daemon with an extension answers through `ext_alone`, which
-reaches `call_local` first (sec 857); the command line that reached the
-status line is asked of raidcfgd before anything is changed.
+its status line**: asked of raidcfgd for its command line, and fixed in
+sec 1421 -- this section's first reading, that fuzznetd refuses to start
+without both, was stale.
 
 ## 1420. situ at b1b05486: the seal takes its factor from the schema; the permit's two workarounds go, 2026-11-23
 
@@ -97619,4 +97620,30 @@ Sabotage: `permit-situ-trailing-junk` became
 `permit-situ-trailing-spaces-kept`, on the trim C still does;
 `events-any-reaches-every-grant` retargeted onto the unwrapped arm.
 `.gitignore` takes `libfuzznet-client.a` (sec 1418).
+
+## 1421. A node with no capability answers `rrpc`, and the rest as unsupported, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T2200Z), with the command line:
+`fuzznetd --fuzznet-dir=STORE --socket=SOCK --log-dir=LOGDIR`, no
+service or product, as the face of a store raidcfgd's daemon follows.
+`rrpc raid ...` asked of the face was answered "ok served granted: ...",
+the status line -- an `ok` a client read as the procedure's answer. With
+both options, the same call reached raidcfgd's procedure.
+
+**Why**: sec 857 gave a node with no capability a handler,
+`ext_alone`, only when it carried an extension; a plain fuzznetd
+installed none, so every verb fell back to the status line. **Fixed**:
+`ext_alone` is installed whenever the node has no capability. It
+answers `status` with the status line as before, `rrpc` as a call is
+answered -- the face forwarding to a follower's procedure, or
+`error no procedure NAME here` -- an extension's verbs where there is
+one, and everything else `unsupported this node has no capability`.
+
+**Corrected on the way**: sec 813 said fuzznetd requires both options;
+it does not, and sec 1419's reply repeated it. Both now say so where
+they stand.
+
+**Tests:** `live_face` phase d: a fuzznetd with no service, product or
+extension answers `status` with the status line, `rrpc nosuch` with
+`error no procedure nosuch here`, and `list contact` as unsupported.
 

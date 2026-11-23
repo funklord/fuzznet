@@ -16,6 +16,8 @@ One store, two fuzznetd processes on it, each with a socket of its own.
     b3 thirty clients that close before their answers leave B serving
     c  A stopped, B takes the claim within seconds and starts again as the
        face, serving its own socket
+    d  a node with no service, product or extension answers `rrpc` as a
+       call and the rest as unsupported, not with its status line (sec 1421)
 
 Against a daemon that takes no claim, B boots a second writer on A's store
 and phase b's `status` comes from B itself, not A. Against sec 667's
@@ -234,6 +236,32 @@ def main(argv):
 			if b.pid != pid_b or b.poll() is not None:
 				raise failed("c: B did not start again in place")
 			print("livecheck: c: A gone, B took the claim and serves as the face")
+
+			# d: NO CAPABILITY AND NO EXTENSION, sec 1421: a fuzznetd started
+			# with neither --fuzznet-service nor --fuzznet-product answered
+			# every verb with its status line, an `ok` a client read as a
+			# procedure's answer. `rrpc` is answered as a call is, the rest
+			# is unsupported, and `status` stays the status line.
+			stop(b)
+			alone_store = os.path.join(scratch, "store-alone")
+			os.mkdir(alone_store)
+			alone_sock = os.path.join(sock_dir, "n")
+			n_log = open(os.path.join(scratch, "n.err"), "w")
+			n_proc = subprocess.Popen([fuzznetd, "--socket=" + alone_sock, "--fuzznet-dir=" + alone_store,
+			                           "--log-dir=" + os.path.join(scratch, "log-n")],
+			                          stdout=n_log, stderr=subprocess.STDOUT, start_new_session=True)
+			procs.append(n_proc)
+			if not ask(alone_sock, "status", within=30.0).startswith("ok "):
+				raise failed("d: a node with no capability did not answer status")
+			got = ask(alone_sock, "rrpc nosuch")
+			if got != "error no procedure nosuch here":
+				raise failed("d: with no capability, rrpc nosuch answered %r" % got)
+			got = ask(alone_sock, "list contact")
+			if not got.startswith("unsupported"):
+				raise failed("d: with no capability, list contact answered %r" % got)
+			stop(n_proc)
+			print("livecheck: d: with no capability and no extension, rrpc answered as a call, "
+			      "the rest unsupported")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

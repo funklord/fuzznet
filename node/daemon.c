@@ -27040,12 +27040,16 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		 * holds what they need: its key, a store, and the capability it
 		 * grants. `add peer` then pairs a device into the RUNNING node,
 		 * which `--pair` could only do for its next start. sec 378. */
-		/* AN EXTENSION'S VERBS WITH NO CAPABILITY, sec 857: replaced below
-		 * by the whole chain wherever the node has one. */
-		if (ext && (ext->local || ext->local_from || ext->n_procedures)) {
-			state.on_local = ext_alone;
-			state.on_local_ctx = NULL;
-		}
+		/* A NODE WITH NO CAPABILITY ANSWERS WHAT IT CAN, sec 857: an
+		 * extension's verbs, and since sec 1421 its procedures and a
+		 * follower's -- the face of a store a consumer's daemon follows
+		 * may be a fuzznetd started with no service and product, and
+		 * with no handler every verb was answered by the status line,
+		 * an `ok` a client read as the procedure's answer (raidcfgd,
+		 * inbox 20261123T2200Z). Replaced below by the whole chain
+		 * wherever the node has one. */
+		state.on_local = ext_alone;
+		state.on_local_ctx = NULL;
 		if (booted && has_capability) {
 			admin.state = &state;
 			admin.peers = node_peers;
