@@ -97406,6 +97406,16 @@ bounds drawn one value in eight.
 stands alone", a rule over a run's elements; kept hand-written rather
 than split across two places.
 
+**situ's answer on the run** (2026-11-23, by message): a `while (...) |
+end` run stopping at an element it cannot read, its rest unchecked, is
+**a fault in situ**, measured there in all four backends; it is fixing
+it so such a run ends by its condition, its max, or exactly at the
+frame's end. **Keep `walk`'s grants-reach-the-end check until situ says
+the fix is pushed**, then drop it, with the `anyone` wrapper struct
+(the C fault behind it is fixed and pushed in situ 49546ceb), at one
+re-vendor. The other two bounds -- trailing spaces trimmed, a delimited
+run's `max` counting the delimiter -- are situ's design.
+
 **Sabotage**: `permit-situ-trailing-junk`, `permit-situ-rw-read-only`,
 `permit-situ-id-as-name` new; `events-any-reaches-every-grant`
 retargeted onto the new `any=` arm.
