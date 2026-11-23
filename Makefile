@@ -4404,9 +4404,9 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# THE TWO REASSEMBLY TABLES ON ONE STREAM, sec 1404: fuzznet's and the one
-# situ generates from wire/frame.situ's `reassemble pieces`, every answer
-# compared; in `test`, so the move onto the table rests on agreement.
+# THE REASSEMBLY TABLE ON SITU'S CODE AGAINST THE ONE IT REPLACED, sec
+# 1404: chunk/reassembly.c and chunk/test/reasm_ref.h, the old table kept
+# header-only as the oracle, every answer compared.
 $(BUILD_DIR)/chunk/test/reasm_agree_fuzz: $(BUILD_DIR)/chunk/test/reasm_agree_fuzz.o \
                                           $(BUILD_DIR)/chunk/reassembly.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)

@@ -1,6 +1,24 @@
-/* Datagram reassembly under a hard memory bound. See reassembly.h. */
+/* Datagram reassembly under a hard memory bound. See reassembly.h.
+ *
+ * ONE MESSAGE'S ASSEMBLY IS SITU'S, project.md sec 1404: the table it
+ * generates from wire/frame.situ's `reassemble pieces` (situ 26.1123),
+ * one message at a time over each slot's own buffer -- the stride, a last
+ * piece parked until the stride is known (sec 737), the marks of which
+ * pieces are held, a piece claiming another count or past its count, a
+ * resend compared with what is held, the 256-piece ceiling. What stays
+ * here is the table AROUND the messages, which a caller's memory shapes:
+ * which slot a message takes, the per-sender quota, time -- every
+ * deadline and the sweep, in this module's 64-bit clock, so the generated
+ * table is never asked the time -- and the hand-over of a completed
+ * message until it is released.
+ *
+ * Held to what this file did before by chunk/test/reasm_agree_fuzz.c,
+ * which runs the two on one stream (chunk/test/reasm_ref.h is that file,
+ * kept as the oracle). */
 
 #include "reassembly.h"
+#include "../wire/generated/frame_converse.h"
+#include "../wire/generated/frame_reassemble.h"
 
 /* Diagnostics through flog, vendored and possibly absent. sec 209. */
 #ifdef FZN_FLOG_ON
@@ -14,48 +32,38 @@
 #define REASM_LOG(t, sub, sev, ...) ((void)0)
 #endif
 
+#include <stdalign.h>
 #include <string.h>
 
-/* `seen` is sized FZN_REASM_MAX_CHUNKS / 8, and that division truncates.
- *
- * WHAT IT GUARDS IS AN OUT-OF-BOUNDS WRITE, which is the worse half of this
- * pair -- `seen_set` below indexes `seen[index >> 3]` for any index the
- * caller has already bounded against `chunks`, so a FZN_REASM_MAX_CHUNKS
- * that is not a multiple of eight leaves the top indices addressing a byte
- * the array does not have. At 20 the array is two bytes and index 19 wants
- * the third. It is 256 today and the question never arises; the point is
- * that changing it to something reasonable-looking and odd is a one-token
- * edit whose consequence is a heap write past the end of a caller's table.
- *
- * IT WAS ASSERTED ONLY IN wire/test/constants_test.c, WHICH A LIBRARY BUILD
- * NEVER COMPILES -- the same finding as wire/seal.c's nonce pairing, found
- * by the same sweep and for the same reason. The test copy stays; this one
- * is what a consumer gets. */
-_Static_assert(FZN_REASM_MAX_CHUNKS % 8u == 0u,
-               "FZN_REASM_MAX_CHUNKS must be a multiple of 8 or `seen` is short");
-_Static_assert(sizeof(((fzn_partial_t *)0)->seen) * 8u >= FZN_REASM_MAX_CHUNKS,
-               "the chunk bitmap is too small for the chunk bound");
+/* THE GENERATED TABLE'S STATE, kept in each slot's opaque words: its header,
+ * its one slot, and the key it holds the message under. */
+struct assembly {
+	situ_pieces_t table;
+	situ_pieces_slot_t slot;
+};
 
-static int seen_get(const fzn_partial_t *slot, uint16_t index)
+_Static_assert(sizeof(struct assembly) <= sizeof(((fzn_partial_t *)0)->assembly),
+               "FZN_REASM_ASSEMBLY_WORDS is too small for the generated table's state");
+_Static_assert(alignof(struct assembly) <= alignof(uint64_t),
+               "the generated table's state wants more alignment than its room has");
+_Static_assert(FZN_REASM_MAX_CHUNKS == SITU_PIECES_COUNT_MAX,
+               "wire/frame.situ's count_max and FZN_REASM_MAX_CHUNKS disagree");
+_Static_assert(sizeof(((fzn_partial_t *)0)->marks) == SITU_PIECES_MARKS_FOR(1u, SITU_PIECES_COUNT_MAX),
+               "a slot's marks are not what the generated table keeps for one message");
+
+static struct assembly *assembly_of(fzn_partial_t *slot)
 {
-	return (int)(((unsigned)slot->seen[index >> 3] >> (index & 7u)) & 1u);
+	return (struct assembly *)(void *)slot->assembly;
 }
 
-static void seen_set(fzn_partial_t *slot, uint16_t index)
+static const struct assembly *assembly_seen(const fzn_partial_t *slot)
 {
-	slot->seen[index >> 3] |= (uint8_t)(1u << (index & 7u));
+	return (const struct assembly *)(const void *)slot->assembly;
 }
 
-/* The offset a chunk lands at, which is fixed by the FIRST chunk's length.
- *
- * Every chunk but the last is exactly `chunk_size`; the last may be shorter.
- * That is what makes an out-of-order arrival addressable at all -- without a
- * uniform stride a receiver cannot place chunk 7 until it has seen 0 to 6,
- * which would mean buffering in arrival order and defeats the point of
- * carrying an index. */
-static size_t offset_of(const fzn_partial_t *slot, uint16_t index)
+static void key_of(const uint8_t *sender, uint32_t msg, uint8_t key[36])
 {
-	return (size_t)index * slot->chunk_size;
+	situ_conv_same_piece_of_key(msg, sender, key);
 }
 
 static fzn_partial_t *find(fzn_reasm_t *table, const uint8_t *sender, uint32_t msg)
@@ -63,13 +71,14 @@ static fzn_partial_t *find(fzn_reasm_t *table, const uint8_t *sender, uint32_t m
 	for (size_t i = 0; i < table->capacity; i++) {
 		fzn_partial_t *slot = &table->partials[i];
 
-		if (slot->live && slot->msg == msg &&
-		    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)
+		if (slot->live && slot->msg == msg && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)
 			return slot;
 	}
 	return NULL;
 }
 
+/* How many slots `sender` holds, HANDED ONES INCLUDED: the quota's own
+ * definition, which `fzn_reasm_held_by` exposes. */
 static size_t held_by(const fzn_reasm_t *table, const uint8_t *sender)
 {
 	size_t n = 0;
@@ -83,10 +92,6 @@ static size_t held_by(const fzn_reasm_t *table, const uint8_t *sender)
 	return n;
 }
 
-/* THE PUBLIC COUNT AND THE ONE THE QUOTA USES ARE ONE FUNCTION, deliberately.
- * Two would be two definitions of "held" to keep in step, and the whole reason
- * the accessor exists is that the natural second definition -- live and not
- * handed -- disagrees with this one. */
 size_t fzn_reasm_held_by(const fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN])
 {
 	if (!table || !table->partials || !sender)
@@ -98,11 +103,9 @@ fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t ca
 {
 	if (!slot || !buf || capacity == 0)
 		return FZN_REASM_ERR_MALFORMED;
-
 	memset(slot, 0, sizeof(*slot));
 	slot->buf = buf;
 	slot->buf_capacity = capacity;
-
 	return FZN_REASM_OK;
 }
 
@@ -110,7 +113,6 @@ void fzn_reasm_set_log(fzn_reasm_t *table, struct flog_t *log)
 {
 	if (!table)
 		return;
-
 	table->log = log;
 }
 
@@ -119,97 +121,15 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size
 {
 	if (!table || !partials || capacity == 0 || per_sender_max == 0 || max_hold == 0)
 		return FZN_REASM_ERR_MALFORMED;
-
 	for (size_t i = 0; i < capacity; i++) {
 		if (!partials[i].buf || partials[i].buf_capacity == 0)
 			return FZN_REASM_ERR_MALFORMED;
 	}
-
 	table->partials = partials;
 	table->capacity = capacity;
-	/* Quiet unless somebody asks. */
 	table->log = NULL;
 	table->per_sender_max = per_sender_max;
 	table->max_hold = max_hold;
-
-	return FZN_REASM_OK;
-}
-
-/* Appends a run, split so no range exceeds `limit`. Returns 0 when the
- * caller's array is full, which is a stop rather than an error: a partial
- * plan is a legitimate answer and the caller may ask again. Written once
- * because the loop below needs it twice and two copies drift. */
-static int emit_run(fzn_reasm_range_t *out, size_t cap, size_t *at, uint32_t *first,
-                    uint32_t *run, uint16_t limit)
-{
-	while (*run > 0u) {
-		uint32_t take = *run < limit ? *run : limit;
-
-		if (*at >= cap)
-			return 0;
-		out[*at].first = (uint16_t)*first;
-		out[*at].count = (uint16_t)take;
-		(*at)++;
-		*first += take;
-		*run -= take;
-	}
-	return 1;
-}
-
-/* See reassembly.h. The bitmap this walks has always been here; only the
- * accessor was missing. */
-fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
-                                     const uint8_t sender[FZN_SENDER_LEN], uint32_t msg,
-                                     uint16_t max_per_range, fzn_reasm_range_t *out, size_t cap,
-                                     size_t *count)
-{
-	const fzn_partial_t *slot = NULL;
-	uint32_t i;
-	uint32_t run_first = 0, run = 0;
-	size_t at = 0;
-
-	if (!table || !table->partials || !sender || !out || !count)
-		return FZN_REASM_ERR_MALFORMED;
-	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED, which is
-	 * `record/sync.h`'s rule inherited rather than re-decided. */
-	if (max_per_range == 0u)
-		return FZN_REASM_ERR_MALFORMED;
-
-	/* `find` takes a mutable table and this function must not, so the
-	 * search is repeated rather than casting the constness away -- eight
-	 * lines against a cast that would let a later edit write through it. */
-	for (i = 0; i < table->capacity; i++) {
-		const fzn_partial_t *candidate = &table->partials[i];
-
-		if (candidate->live && candidate->msg == msg
-		    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0) {
-			slot = candidate;
-			break;
-		}
-	}
-	if (!slot)
-		return FZN_REASM_ERR_ABSENT;
-
-	*count = 0;
-	/* `i` and the run counters are uint32 against a uint16 `chunks` so
-	 * that `chunks` at its maximum cannot make the loop bound wrap. */
-	for (i = 0; i < (uint32_t)slot->chunks; i++) {
-		if (!seen_get(slot, (uint16_t)i)) {
-			if (run == 0u)
-				run_first = i;
-			run++;
-			continue;
-		}
-		if (!emit_run(out, cap, &at, &run_first, &run, max_per_range))
-			break;
-		*count = at;
-	}
-	/* The run reaching the last chunk. Outside the loop because the loop
-	 * only closes a run on meeting a chunk that HAS arrived, and a message
-	 * missing its tail never does -- the ordinary case, not an edge one. */
-	(void)emit_run(out, cap, &at, &run_first, &run, max_per_range);
-	*count = at;
-
 	return FZN_REASM_OK;
 }
 
@@ -220,15 +140,47 @@ void fzn_reasm_release(fzn_partial_t *slot)
 
 	if (!slot)
 		return;
-
-	/* Keep the buffer, drop everything else. A slot is reusable storage
-	 * rather than a thing to re-init, and zeroing the arrived-set here is
-	 * what stops a stale bit admitting a chunk into the next message. */
 	buf = slot->buf;
 	capacity = slot->buf_capacity;
 	memset(slot, 0, sizeof(*slot));
 	slot->buf = buf;
 	slot->buf_capacity = capacity;
+}
+
+fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
+                                     const uint8_t sender[FZN_SENDER_LEN], uint32_t msg,
+                                     uint16_t max_per_range, fzn_reasm_range_t *out, size_t cap,
+                                     size_t *count)
+{
+	static uint32_t first[FZN_REASM_MAX_CHUNKS], run[FZN_REASM_MAX_CHUNKS];
+	const fzn_partial_t *slot = NULL;
+	uint8_t key[36];
+	uint32_t n, i;
+
+	if (!table || !table->partials || !sender || !out || !count || max_per_range == 0u)
+		return FZN_REASM_ERR_MALFORMED;
+	*count = 0;
+	for (i = 0; i < table->capacity && !slot; i++) {
+		const fzn_partial_t *candidate = &table->partials[i];
+
+		if (candidate->live && candidate->msg == msg
+		    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0)
+			slot = candidate;
+	}
+	if (!slot)
+		return FZN_REASM_ERR_ABSENT;
+	/* A COMPLETED MESSAGE STILL HANDED wants nothing. */
+	if (slot->handed)
+		return FZN_REASM_OK;
+	key_of(sender, msg, key);
+	n = situ_pieces_missing(&assembly_seen(slot)->table, key, first, run,
+	                        cap < FZN_REASM_MAX_CHUNKS ? (uint32_t)cap : FZN_REASM_MAX_CHUNKS, max_per_range);
+	for (i = 0; i < n; i++) {
+		out[i].first = (uint16_t)first[i];
+		out[i].count = (uint16_t)run[i];
+	}
+	*count = n;
+	return FZN_REASM_OK;
 }
 
 size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
@@ -237,50 +189,17 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 
 	if (!table || !table->partials)
 		return 0;
-
 	for (size_t i = 0; i < table->capacity; i++) {
 		fzn_partial_t *slot = &table->partials[i];
 
-		/* `!slot->handed`, or expiry takes a slot the caller is still
-		 * reading. See `handed` in reassembly.h: the promise is that the
-		 * bytes are the caller's until it releases them, and a sweep is
-		 * exactly what used to break it. */
-		/* NO `expires_at != 0` CLAUSE ANY MORE. A stored deadline is
-		 * never zero: `fzn_reasm_accept` bounds it by `max_hold`, so a
-		 * chunk claiming no expiry gets `now + max_hold` rather than
-		 * for ever. The clause that used to sit here is what made a
-		 * zero-expiry chunk hold a slot permanently. */
 		if (slot->live && !slot->handed && slot->expires_at <= now) {
-			/*
-			 * WHAT A SWEEP THROWS AWAY, SAID OUT LOUD.
-			 *
-			 * Reclaiming is the whole job and it is not the whole
-			 * story: the bytes in this slot were accepted, and a
-			 * host whose `max_hold` is shorter than a message
-			 * takes to arrive expires every one of them JUST
-			 * BEFORE IT COMPLETES. Nothing about that is visible
-			 * from outside -- the table stays roomy, `accept`
-			 * refuses nothing, `fzn_reasm_print` says HOLDING, and
-			 * the consumer simply never receives anything.
-			 *
-			 * TWO OR MORE CHUNKS IS THE LINE, and it is a
-			 * description rather than a diagnosis. One chunk is a
-			 * sender that spoke once and stopped, which is
-			 * ordinary loss; two or more means chunks were
-			 * arriving over time and this host gave up while they
-			 * were still coming. That says what was observed and
-			 * names the field to look at -- it does not claim
-			 * `max_hold` is the cause, because a sender that
-			 * genuinely died mid-transfer produces the same slot.
-			 */
 			if (slot->arrived > 1u)
 				REASM_LOG(table, "chunk/reasm", FLOG_WARN,
 				          "expiring a message that was arriving: %u of %u "
 				          "chunks and %zu bytes are dropped, so if this "
 				          "repeats max_hold is shorter than a transfer "
 				          "takes",
-				          (unsigned)slot->arrived, (unsigned)slot->chunks,
-				          slot->bytes);
+				          (unsigned)slot->arrived, (unsigned)slot->chunks, slot->bytes);
 			else
 				REASM_LOG(table, "chunk/reasm", FLOG_DEBUG,
 				          "expiring a message that never progressed: %u of "
@@ -300,8 +219,6 @@ size_t fzn_reasm_forget(fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN]
 
 	if (!table || !table->partials || !sender)
 		return 0;
-	/* `!slot->handed` for the reason `fzn_reasm_expire` gives: a handed
-	 * slot is the caller's until it releases it. */
 	for (size_t i = 0; i < table->capacity; i++) {
 		fzn_partial_t *slot = &table->partials[i];
 
@@ -314,107 +231,106 @@ size_t fzn_reasm_forget(fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN]
 	return dropped;
 }
 
-/* The latest instant a slot may be held, saturating rather than wrapping --
- * `now + max_hold` on caller-chosen uint64s overflows, and a wrapped deadline
- * would expire a slot the moment it was taken. Named after
- * `frame/freshness.c`'s `horizon_of`, which does the same arithmetic for the
- * same reason. */
 static uint64_t hold_until(uint64_t now, uint64_t max_hold)
 {
 	return max_hold > UINT64_MAX - now ? UINT64_MAX : now + max_hold;
 }
 
-/* Take a slot for a message not yet being held, sizing it from this chunk. */
+/* A FIRST PIECE: a slot taken for its message, the generated table set up
+ * over the slot's buffer -- or the refusal that takes none. Freshness and
+ * the bounds a stranger could otherwise spend a slot on come first. */
 static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, uint32_t msg,
                                    uint16_t index, uint16_t chunks, size_t payload_len,
-                                   uint64_t expires_at, fzn_partial_t **out_slot)
+                                   uint64_t deadline, fzn_partial_t **out_slot)
 {
 	fzn_partial_t *slot = NULL;
+	struct assembly *a;
+	size_t capacity;
 
-	/* Bounded before a slot is taken, so a claim nobody can satisfy costs
-	 * nothing. `chunks` is a u16 off the wire and could say 65535. */
 	if (chunks == 0 || chunks > FZN_REASM_MAX_CHUNKS)
 		return FZN_REASM_ERR_TOO_LARGE;
 	if (index >= chunks)
 		return FZN_REASM_ERR_MISMATCH;
-
-	/* The quota before the search for a free slot: one sender filling the
-	 * table is the denial of service the capacity bound alone does not
-	 * prevent, it only relocates. */
 	if (held_by(table, sender) >= table->per_sender_max)
 		return FZN_REASM_ERR_QUOTA;
-
-	for (size_t i = 0; i < table->capacity; i++) {
-		if (!table->partials[i].live) {
+	for (size_t i = 0; i < table->capacity && !slot; i++)
+		if (!table->partials[i].live)
 			slot = &table->partials[i];
-			break;
-		}
-	}
 	if (!slot) {
-		/* SATURATED, WHICH IS PRESSURE RATHER THAN A STATE. Slots are
-		 * reclaimed when a partial expires, so this recovers -- but one
-		 * refused chunk and a table that has been full for a minute
-		 * look identical to a caller, and this header's own argument is
-		 * that a table refusing when full is one a single sender can
-		 * fill. */
 		REASM_LOG(table, "chunk/reasm", FLOG_WARN,
 		          "reassembly table saturated: all %zu slots live, so this chunk is "
 		          "dropped and the message will not complete",
 		          table->capacity);
 		return FZN_REASM_ERR_FULL;
 	}
-
-	/* Sized up front from what this chunk claims. A chunk that is not the
-	 * last sets the stride; one that IS the last cannot, since it may be
-	 * short. Last chunk first, then, the stride stays unknown (0) and is
-	 * not guessed -- guessing would let the stride be chosen by whoever
-	 * sends the final piece first. The piece is parked at the end of the
-	 * buffer instead, and placed when a piece that is not the last sets
-	 * the stride (`fzn_reasm_accept`, sec 737). It was refused until then,
-	 * and under loss the first piece is often the one lost: the last one
-	 * was thrown away and a resend had to bring both again. The bound below
-	 * holds for it as for a stride, since the last piece is never longer. */
-	slot->chunk_size = (chunks > 1 && index + 1u == chunks) ? 0u : payload_len;
-
-	/* THE SIZE IS CHECKED BY DIVISION, and the multiplication it replaces
-	 * is gone rather than merely unused.
-	 *
-	 * `payload_len` is a size_t the caller supplies, and this used to size
-	 * the slot with `payload_len * chunks`: 2^62 with four chunks is
-	 * exactly 2^64 -- zero -- which sailed through a capacity test and left
-	 * a live slot claiming a stride of 2^62. Measured rather than reasoned
-	 * about, before it was changed: `slot.live` set, `chunk_size` at 2^62,
-	 * and the only thing between that and a memcpy of 2^62 bytes was the
-	 * offset guard in `fzn_reasm_accept`, which no test and no fuzz case
-	 * had ever made fire.
-	 *
-	 * Division cannot overflow, and `payload_len <= capacity / chunks` is
-	 * exactly equivalent to `payload_len * chunks <= capacity` over the
-	 * integers, so this is the same bound rather than a stricter one.
-	 *
-	 * The product was kept for a day afterwards, still compared against the
-	 * capacity as defence in depth, and `make coverage` reported that
-	 * comparison as a branch which had never gone both ways -- because
-	 * `floor(capacity / chunks) * chunks <= capacity` makes it unreachable.
-	 * It is deleted rather than silenced: dead code that cannot be tested
-	 * is not depth, and leaving a wrapping multiplication in the file for a
-	 * reader to puzzle over is worse than not having it. */
+	/* NO BYTES, OR MORE THAN A PIECE MAY CARRY: refused before the slot is
+	 * taken, so a refused first piece costs nothing. A message of one
+	 * empty piece is refused too, which the generated table would take. */
 	if (payload_len == 0 || payload_len > slot->buf_capacity / (size_t)chunks)
 		return FZN_REASM_ERR_TOO_LARGE;
-
-
+	capacity = slot->buf_capacity < SITU_PIECES_CAPACITY ? slot->buf_capacity : SITU_PIECES_CAPACITY;
+	a = assembly_of(slot);
+	memset(slot->assembly, 0, sizeof(slot->assembly));
+	memset(slot->marks, 0, sizeof(slot->marks));
+	if (situ_pieces_init_in(&a->table, 1u, (uint32_t)capacity, 1u, &a->slot, slot->buf, slot->marks, 1u)
+	    != SITU_OK)
+		return FZN_REASM_ERR_MALFORMED;
 	memcpy(slot->sender, sender, FZN_SENDER_LEN);
 	slot->msg = msg;
 	slot->chunks = chunks;
 	slot->arrived = 0;
-	slot->expires_at = expires_at;
+	slot->expires_at = deadline;
 	slot->bytes = 0;
-	slot->parked = 0;
-	memset(slot->seen, 0, sizeof(slot->seen));
 	slot->live = 1;
-
 	*out_slot = slot;
 	return FZN_REASM_OK;
+}
+
+/* A RESEND TO A MESSAGE ALREADY HANDED, which the generated table no longer
+ * holds: compared with the bytes at its place, as every resend is. */
+static fzn_reasm_err_t resend_handed(const fzn_partial_t *slot, uint16_t index, uint16_t chunks,
+                                     const uint8_t *payload, size_t payload_len)
+{
+	const situ_pieces_slot_t *m = &assembly_seen(slot)->slot;
+	size_t at, held;
+
+	if (chunks != slot->chunks || index >= slot->chunks)
+		return FZN_REASM_ERR_MISMATCH;
+	at = (size_t)index * m->stride;
+	held = index + 1u == slot->chunks ? m->last_len : m->stride;
+	if (slot->chunks == 1u) {
+		at = 0;
+		held = slot->bytes;
+	}
+	if (payload_len != held || at > slot->bytes || held > slot->bytes - at
+	    || memcmp(slot->buf + at, payload, payload_len) != 0)
+		return FZN_REASM_ERR_CONFLICT;
+	return FZN_REASM_OK;
+}
+
+/* THE GENERATED TABLE'S REFUSAL in this module's words. */
+static fzn_reasm_err_t refusal_of(uint32_t why)
+{
+	switch (why) {
+	case SITU_PIECES_WHY_FULL:
+		return FZN_REASM_ERR_FULL;
+	case SITU_PIECES_WHY_PER:
+		return FZN_REASM_ERR_QUOTA;
+	case SITU_PIECES_WHY_TOO_LARGE:
+		return FZN_REASM_ERR_TOO_LARGE;
+	case SITU_PIECES_WHY_EXPIRED:
+		return FZN_REASM_ERR_EXPIRED;
+	case SITU_PIECES_WHY_CONFLICT:
+		return FZN_REASM_ERR_CONFLICT;
+	case SITU_PIECES_WHY_INDEX:
+	case SITU_PIECES_WHY_COUNT:
+	case SITU_PIECES_WHY_EMPTY:
+	case SITU_PIECES_WHY_STRIDE:
+	case SITU_PIECES_WHY_LAST_LONGER:
+		return FZN_REASM_ERR_MISMATCH;
+	default:
+		return FZN_REASM_ERR_MALFORMED;
+	}
 }
 
 fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN],
@@ -423,48 +339,31 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
                                   uint64_t expires_at, uint64_t now, fzn_partial_t **out)
 {
 	fzn_partial_t *slot;
+	struct assembly *a;
 	fzn_reasm_err_t err;
-	size_t offset;
+	situ_err_t e;
 	uint64_t deadline;
+	uint8_t key[36];
+	const uint8_t *whole = NULL;
+	uint32_t whole_len = 0, held_before;
+	int first = 0;
 
 	if (!table || !table->partials || !sender || !payload || !out)
 		return FZN_REASM_ERR_MALFORMED;
-
 	*out = NULL;
 
 	/* THE SWEEP BEFORE ANYTHING THAT CAN RETURN EARLY, so "reclaimed on
-	 * every call" is true rather than nearly true.
-	 *
-	 * It used to sit BELOW the freshness return under this, which meant a
-	 * stale chunk skipped it -- so a receiver whose traffic was made
-	 * entirely of stale chunks never handed a slot back. Measured: four
-	 * partials taken at an expiry of 200, then a thousand stale chunks at
-	 * now = 100000, and all four partials were still live holding messages
-	 * that had expired 99800 ticks earlier. An explicit
-	 * `fzn_reasm_expire` then dropped all four, which is the proof they
-	 * were reclaimable the whole time and nothing was reclaiming them.
-	 *
-	 * `frame/freshness.c` records the identical defect and its fix in the
-	 * identical words -- "It used to sit below the two returns beneath
-	 * this ... so traffic made entirely of grants, or entirely of stale
-	 * commands, left dead entries holding partials indefinitely." The two
-	 * modules are the same shape and only one of them had been corrected.
-	 *
-	 * Freshness still comes before a slot is TAKEN, which is what the old
-	 * comment here was really about: a stale chunk must not cost a slot.
-	 * That ordering is unchanged -- the sweep costs nothing and takes
-	 * nothing. */
+	 * every call" is true rather than nearly true: a receiver whose
+	 * traffic is all stale chunks still hands its slots back. Freshness
+	 * still comes before a slot is TAKEN -- a stale chunk must not cost
+	 * one -- and the sweep takes nothing. */
 	(void)fzn_reasm_expire(table, now);
-
-	/* Freshness before a slot is taken, so a stale chunk never costs one --
-	 * the same ordering frame/freshness.c uses and for the same reason. */
 	if (expires_at != 0 && expires_at <= now)
 		return FZN_REASM_ERR_EXPIRED;
 
-	/* THE DEADLINE THIS SLOT WILL ACTUALLY BE HELD TO. A chunk's own
-	 * expiry is honoured when it is sooner, and bounded by `max_hold`
-	 * when it is later or absent -- see `max_hold` in reassembly.h for
-	 * what a zero used to cost. */
+	/* THE DEADLINE THIS SLOT WILL BE HELD TO, fixed at its first piece: a
+	 * chunk's own expiry where sooner, `max_hold` where later or absent
+	 * (see `max_hold` in reassembly.h for what a zero used to cost). */
 	deadline = expires_at == 0 ? hold_until(now, table->max_hold)
 	                           : (expires_at < hold_until(now, table->max_hold)
 	                                      ? expires_at
@@ -472,141 +371,63 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 
 	slot = find(table, sender, msg);
 	if (!slot) {
-		err = admit_first(table, sender, msg, index, chunks, payload_len, deadline,
-		                  &slot);
+		err = admit_first(table, sender, msg, index, chunks, payload_len, deadline, &slot);
 		if (err != FZN_REASM_OK)
 			return err;
-	} else {
-		/* frame.situ's `same_message` relation, enforced. Each clause
-		 * is an attack rather than an accident: a differing `chunks`
-		 * resizes a buffer already sized against the first claim, and a
-		 * differing `sender` cannot reach here at all because it is
-		 * part of the key. */
-		if (slot->chunks != chunks)
-			return FZN_REASM_ERR_MISMATCH;
-		if (index >= slot->chunks)
-			return FZN_REASM_ERR_MISMATCH;
-
-		/* Every chunk but the last is exactly the stride; the last may
-		 * be shorter but never longer. With the stride not yet known (a
-		 * last piece parked) there is nothing to hold a piece's length
-		 * to here; below holds it. */
-		if (index + 1u == slot->chunks) {
-			if (payload_len == 0
-			    || (slot->chunk_size && payload_len > slot->chunk_size))
-				return FZN_REASM_ERR_MISMATCH;
-		} else if (slot->chunk_size && payload_len != slot->chunk_size) {
-			return FZN_REASM_ERR_MISMATCH;
-		}
+		first = 1;
+	} else if (slot->handed) {
+		/* HANDED ONCE, NOT ONCE PER RETRANSMISSION: a resend of a message
+		 * the caller holds is compared and changes nothing, and is never
+		 * handed again -- two pointers to one slot released twice let one
+		 * peer's retransmission destroy another's message. */
+		return resend_handed(slot, index, chunks, payload, payload_len);
+	} else if (payload_len == 0) {
+		return FZN_REASM_ERR_MISMATCH;
 	}
 
-	/* THE LAST CHECK BEFORE A WRITE, AND IT IS NOT DEAD -- which is worth
-	 * saying, because an audit reported it as provably unreachable and
-	 * cited this file's own rule that "dead code that cannot be tested is
-	 * not depth" fifteen lines above.
-	 *
-	 * Through the public API with a consistent table it is unreachable, and
-	 * that much is right: `admit_first` bounds `chunk_size` by
-	 * `buf_capacity / chunks` and `index < chunks`, so `index * chunk_size
-	 * + payload_len <= buf_capacity` by construction. An exhaustive sweep
-	 * over the API fires it zero times.
-	 *
-	 * But `fzn_reasm_t` and its partials are CALLER-OWNED, and this module
-	 * already treats a hand-built table as inside its threat model --
-	 * `usable()` exists for that and `log_test.c` exercises the same shape.
-	 * Measured: take a slot normally, then set `buf_capacity` to something
-	 * smaller than what has already been placed in it, and this returns
-	 * TOO_LARGE. The construction that makes it unreachable lives in a
-	 * DIFFERENT function, and those bounds have moved twice today.
-	 *
-	 * So the rule above is right and does not reach this. What it forbids
-	 * is a branch no input can take; this one takes a corrupt argument, and
-	 * a bounds check immediately before a memcpy is the last place to trade
-	 * a demonstrable branch for a proof that lives elsewhere. */
-	/* THE STRIDE NOT YET KNOWN, a last piece parked or arriving to be,
-	 * sec 737. The last piece waits at the end of the buffer; the first
-	 * piece that is not the last sets the stride, and the parked piece is
-	 * moved to its place before anything is placed below it. */
-	if (slot->chunk_size == 0u) {
-		size_t at = slot->buf_capacity - slot->parked;
-
-		if (index + 1u == slot->chunks) {
-			if (!slot->parked) {
-				memcpy(slot->buf + slot->buf_capacity - payload_len, payload, payload_len);
-				slot->parked = payload_len;
-				seen_set(slot, index);
-				slot->arrived++;
-				slot->bytes += payload_len;
-				return FZN_REASM_OK;
-			}
-			/* A repeat while parked: byte-identical, or a rewrite. */
-			if (payload_len != slot->parked || memcmp(slot->buf + at, payload, payload_len) != 0)
-				return FZN_REASM_ERR_CONFLICT;
-			return FZN_REASM_OK;
-		}
-		/* A stride shorter than the last piece claims a last piece
-		 * longer than the rest, which no plan makes. And the stride is
-		 * held to the bound an in-order arrival is, by the same division,
-		 * so the two orders take exactly the same messages: with the
-		 * parked piece no longer than the stride, the whole then fits. */
-		if (payload_len == 0 || payload_len < slot->parked)
-			return FZN_REASM_ERR_MISMATCH;
-		if (payload_len > slot->buf_capacity / (size_t)slot->chunks)
-			return FZN_REASM_ERR_TOO_LARGE;
-		slot->chunk_size = payload_len;
-		memmove(slot->buf + offset_of(slot, (uint16_t)(slot->chunks - 1u)), slot->buf + at,
-		        slot->parked);
-	}
-
-	offset = offset_of(slot, index);
-	if (offset > slot->buf_capacity || payload_len > slot->buf_capacity - offset)
+	a = assembly_of(slot);
+	/* A SLOT WHOSE CAPACITY SHRANK below what the table was given for it:
+	 * caller-owned, so inside the threat model, and the generated table
+	 * keeps its own copy of the capacity. Refused before any write. */
+	if (a->table.capacity > slot->buf_capacity)
 		return FZN_REASM_ERR_TOO_LARGE;
-
-	if (seen_get(slot, index)) {
-		/* A byte-identical repeat is what a retransmission looks like,
-		 * so it is accepted and changes nothing. A differing repeat is
-		 * an attempt to rewrite part of a message after the rest was
-		 * accepted, and is refused. */
-		if (memcmp(slot->buf + offset, payload, payload_len) != 0)
-			return FZN_REASM_ERR_CONFLICT;
-	} else {
-		memcpy(slot->buf + offset, payload, payload_len);
-		seen_set(slot, index);
-		slot->arrived++;
-		slot->bytes += payload_len;
-	}
-
-	/* HANDED ONCE, NOT ONCE PER RETRANSMISSION.
-	 *
-	 * `find` matches on `live`, and a handed slot is still live, so an
-	 * identical resend of the last chunk -- which `reassembly.h` says is
-	 * accepted and changes nothing, because that is what loss recovery
-	 * looks like -- used to hand the caller the SAME slot a second time.
-	 *
-	 * The caller then holds two pointers to one slot and releases twice,
-	 * which is exactly what the ownership contract asks of it. Measured:
-	 * alice completes, resends, and is handed the slot twice; the first
-	 * release frees it; bob takes it and puts a chunk in; the second
-	 * release wipes bob's message and bob's next chunk is refused as a
-	 * MISMATCH -- so one peer's ordinary retransmission destroys another's
-	 * message and the damage is blamed on the victim. The completed
-	 * message is also delivered twice, which at sec 4.4a is a router
-	 * reconfigured twice.
-	 *
-	 * `fzn_reasm_release` says it is "safe on a slot that is already
-	 * free", and that is what makes the second release look correct. It is
-	 * not safe on a slot that is free AND REALLOCATED, and nothing in the
-	 * caller can tell those apart.
-	 *
-	 * The `handed` flag was added to keep the sweep off a slot the caller
-	 * still holds. It did that and left this open, so the ownership
-	 * promise it exists to make true was half true. */
-	if (slot->arrived == slot->chunks && !slot->handed) {
+	held_before = a->slot.held;
+	key_of(sender, msg, key);
+	/* The generated table is never asked the time: this module holds every
+	 * deadline in its own clock, so the piece's deadline given it is one it
+	 * cannot have reached. */
+	a->table.why = SITU_PIECES_WHY_NONE;
+	e = situ_pieces_add_parts(&a->table, key, index, chunks, payload, (uint32_t)payload_len, 1u, 0u, &whole,
+	                          &whole_len);
+	if (e == SITU_OK) {
+		/* WHERE A CALLER READS IT, the start of `buf`: a message of one
+		 * piece the generated table completes where that piece was
+		 * parked, at the buffer's end. */
+		if (whole != slot->buf)
+			memmove(slot->buf, whole, whole_len);
+		slot->arrived = slot->chunks;
+		slot->bytes = whole_len;
 		slot->handed = 1;
 		*out = slot;
+		return FZN_REASM_OK;
 	}
-
-	return FZN_REASM_OK;
+	if (e == SITU_ERR_TRUNCATED) {
+		if (a->slot.held != held_before) {
+			slot->arrived = (uint16_t)a->slot.held;
+			slot->bytes += payload_len;
+		}
+		return FZN_REASM_OK;
+	}
+	/* A REFUSED FIRST PIECE TAKES NO SLOT, as before the table was situ's. */
+	if (first)
+		fzn_reasm_release(slot);
+	/* THE STRIDE BEFORE THE REPEAT, as this module always checked: a held
+	 * piece resent at a length its stride rules out is a piece that
+	 * disagrees with the first, before it is a conflicting resend. */
+	if (a->table.why == SITU_PIECES_WHY_CONFLICT && a->slot.stride_known
+	    && (index + 1u == chunks ? payload_len > a->slot.stride : payload_len != a->slot.stride))
+		return FZN_REASM_ERR_MISMATCH;
+	return refusal_of(a->table.why);
 }
 
 /* See reassembly.h.

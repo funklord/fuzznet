@@ -354,17 +354,19 @@ static inline uint32_t situ_pieces_missing(const situ_pieces_t *t,
 			continue;
 		}
 		uint32_t n = 0u;
-		for (uint32_t i = 0u; i < m->count && n < cap; i++) {
+		for (uint32_t i = 0u; i < m->count; i++) {
 			if (situ_pieces_marked(t, s, i)) {
 				continue;
 			}
 			if (n > 0u && first[n - 1u] + count[n - 1u] == i
 			    && count[n - 1u] < most) {
 				count[n - 1u]++;
-			} else {
+			} else if (n < cap) {
 				first[n] = i;
 				count[n] = 1u;
 				n++;
+			} else {
+				break;
 			}
 		}
 		return n;

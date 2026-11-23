@@ -317,7 +317,7 @@ _Static_assert(FZN_AEAD_TAG_LEN == SITU_FZN_FRAME_TAG_COUNT,
  * Comparing the array to the index range rather than checking `% 8u`, since
  * that is the property the code depends on and it stays correct if the array
  * is ever sized some other way. */
-_Static_assert(sizeof(((fzn_partial_t *)0)->seen) * 8u >= FZN_REASM_MAX_CHUNKS,
+_Static_assert(sizeof(((fzn_partial_t *)0)->marks) * 8u >= FZN_REASM_MAX_CHUNKS,
                 "the arrived-set has fewer bits than there are chunk indices, so "
                 "the highest chunks write past it");
 

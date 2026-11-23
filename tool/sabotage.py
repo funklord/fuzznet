@@ -1737,24 +1737,45 @@ SABOTAGES = [
 	# as unable to see this; `sim_near_identity` closed it and this entry is
 	# what keeps it closed.
 	(
+		"reasm-capacity-shrunk-refused",
+		"chunk/reassembly.c",
+		"\tif (a->table.capacity > slot->buf_capacity)\n\t\treturn FZN_REASM_ERR_TOO_LARGE;\n",
+		"",
+		"a slot whose capacity shrank below what the generated table was given is written past -- sec 1404",
+	),
+	(
+		"reasm-stride-before-the-repeat",
+		"chunk/reassembly.c",
+		"\tif (a->table.why == SITU_PIECES_WHY_CONFLICT && a->slot.stride_known\n",
+		"\tif (0 && a->slot.stride_known\n",
+		"a held piece resent at a length its stride rules out is a conflict, where it always was a mismatch -- sec 1404",
+	),
+	(
+		"reasm-one-piece-at-the-start",
+		"chunk/reassembly.c",
+		"\t\tif (whole != slot->buf)\n\t\t\tmemmove(slot->buf, whole, whole_len);\n",
+		"",
+		"a message of one piece is handed from the buffer's start while it lies at its end -- sec 1404",
+	),
+	(
 		"reasm-sender-compare-length",
 		"chunk/reassembly.c",
-		"\t\t    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
-		"\t\t    memcmp(slot->sender, sender, 1u) == 0)\n\t\t\treturn slot;\n",
+		"\t\tif (slot->live && slot->msg == msg && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
+		"\t\tif (slot->live && slot->msg == msg && memcmp(slot->sender, sender, 1u) == 0)\n\t\t\treturn slot;\n",
 		"the sender comparison must read the whole key, not its first byte",
 	),
 	(
 		"reasm-lookup-ignores-sender",
 		"chunk/reassembly.c",
-		"\t\t    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
-		"\t\t    1)\n\t\t\treturn slot;\n",
+		"\t\tif (slot->live && slot->msg == msg && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
+		"\t\tif (slot->live && slot->msg == msg)\n\t\t\treturn slot;\n",
 		"the sender term in the reassembly slot lookup",
 	),
 	(
 		"reasm-plan-want-reads-the-whole-sender",
 		"chunk/reassembly.c",
-		"\t\t    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0) {",
-		"\t\t    && memcmp(candidate->sender, sender, 1u) == 0) {",
+		"\t\t    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\tslot = candidate;",
+		"\t\t    && memcmp(candidate->sender, sender, 1u) == 0)\n\t\t\tslot = candidate;",
 		"fzn_reasm_plan_want repeats find's sender match with its own memcmp; a prefix read lets a sender one byte off the slot's owner be told which chunks it lacks, the leak the sender-in-the-match prevents. find and held_by are near-miss-tested and this third compare was not: the absent-message test uses alice and bob, who differ at byte 0. sec 316",
 	),
 	(
@@ -2825,13 +2846,6 @@ SABOTAGES = [
 		"\tif (expires_at != 0 && expires_at <= now)\n\t\treturn FZN_REASM_ERR_EXPIRED;",
 		"\tif (expires_at != 0 && expires_at < now)\n\t\treturn FZN_REASM_ERR_EXPIRED;",
 		"a chunk whose expiry equals the clock is already dead and must not cost a slot; the same boundary as the reap, at accept",
-	),
-	(
-		"reasm-existing-slot-index-in-range",
-		"chunk/reassembly.c",
-		"\t\tif (index >= slot->chunks)\n\t\t\treturn FZN_REASM_ERR_MISMATCH;",
-		"\t\tif (index > slot->chunks)\n\t\t\treturn FZN_REASM_ERR_MISMATCH;",
-		"a chunk sent to an already-admitted slot whose index equals the chunk count is one past the last and must be refused; the admit-path index check is held by agreement_test but this one, on a subsequent chunk, was tested only with an index far past the total (9 against 3) which > rejects too -- at index == chunks with a slack buffer > writes the chunk into the slack and counts it, completing a message with a real chunk still missing. sec 299",
 	),
 	(
 		"expire-separates-loss-from-abandonment",
@@ -11113,48 +11127,6 @@ SABOTAGES = [
 		"\t\tif (opened.kind == FZN_KIND_NOP || 0) {\n",
 		"the peer's own request reaching a caller is no answer; taken, one under the awaited "
 		"number is that wait's answer; pair_test -- sec 737",
-	),
-	(
-		'reasm-parks-a-last-piece-first',
-		'chunk/reassembly.c',
-		"\tslot->chunk_size = (chunks > 1 && index + 1u == chunks) ? 0u : payload_len;\n",
-		"\tif (chunks > 1 && index + 1u == chunks)\n\t\treturn FZN_REASM_ERR_MISMATCH;\n\tslot->chunk_size = payload_len;\n",
-		"a last piece arriving first is parked until a piece that is not the last sets the stride; "
-		"refused, a message whose first piece is lost waits on a resend; reassembly_test, "
-		"split_test, agreement_test, roundtrip_fuzz -- sec 737",
-	),
-	(
-		'reasm-stride-not-shorter-than-parked',
-		'chunk/reassembly.c',
-		"\t\tif (payload_len == 0 || payload_len < slot->parked)\n",
-		"\t\tif (payload_len == 0)\n",
-		"a stride shorter than the parked last piece is refused, a last piece longer than the "
-		"rest; reassembly_test -- sec 737",
-	),
-	(
-		'reasm-parked-stride-bounded-as-in-order',
-		'chunk/reassembly.c',
-		"\t\tif (payload_len > slot->buf_capacity / (size_t)slot->chunks)\n",
-		"\t\tif (0)\n",
-		"a stride set after a parked piece is held to the bound an in-order arrival is, so both "
-		"orders take the same messages; reassembly_test -- sec 737",
-	),
-	(
-		'reasm-parked-piece-not-rewritten',
-		'chunk/reassembly.c',
-		"\t\t\tif (payload_len != slot->parked || memcmp(slot->buf + at, payload, payload_len) != 0)\n",
-		"\t\t\tif (payload_len != slot->parked)\n",
-		"a repeat of a parked last piece must be byte-identical; a differing one is a rewrite "
-		"and refused; reassembly_test -- sec 737",
-	),
-	(
-		'reasm-parked-piece-moved-to-its-place',
-		'chunk/reassembly.c',
-		"\t\tmemmove(slot->buf + offset_of(slot, (uint16_t)(slot->chunks - 1u)), slot->buf + at,\n",
-		"\t\tmemmove(slot->buf + at, slot->buf + at,\n",
-		"the parked last piece is moved to its place once the stride is known; left at the end "
-		"of the buffer the message completes with the wrong bytes; reassembly_test, "
-		"roundtrip_fuzz -- sec 737",
 	),
 	(
 		'caller-carry-numbers-on',

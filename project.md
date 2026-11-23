@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1404
+The newest work is at the end of this file. **Read secs 1287 to 1405
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -73,14 +73,8 @@ listener port spans (`150e3106`).
   registry holds the contract (sec 1330); reading through it waits on the
   holder (non-minimal spellings, sec 1330). The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
-  `chunk/reassembly.c` for now: situ built all six gaps of sec 1399
-  (forget af5ee8d4; per-sender cap, add from parts, a piece's expiry and
-  bounds at init 724bd60b; the cap at init cad797b8). Two last asks went
-  to situ on 2026-11-22 before the move loses nothing: which bound
-  refused a piece (fuzznet logs FULL, QUOTA, TOO_LARGE and EXPIRED
-  apart), and a differing repeat of a held piece refused (CONFLICT)
-  rather than ignored. The wrapper keeps the handed-until-released
-  guard.
+  `chunk/reassembly.c` assembles each message through situ's generated
+  table now (sec 1405); its slots, quota and clock stay its own.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). The checker it waited on is built (sec 1403). Moved
@@ -96872,3 +96866,68 @@ wrapper doing what the fuzzer's does -- the expiry sweep first, a piece
 with no count or no bytes refused before the table, the
 handed-until-released guard -- with `reasm_agree_fuzz` and the existing
 suite as the evidence.
+
+## 1405. chunk/reassembly.c on situ's generated table, 2026-11-23
+
+**Built: each message's assembly is the generated table's.** Every slot of
+`fzn_reasm_t` keeps, in opaque words of `fzn_partial_t`, a one-message
+table situ generates from `wire/frame.situ`'s `reassemble pieces` over the
+slot's own buffer: the stride, a last piece parked until the stride is
+known (sec 737), the marks of which pieces are held -- 32 bytes, by
+`count_max` -- a piece past its count or claiming another, a resend
+compared with what is held. **The API is unchanged**, every caller's call
+too. What stays hand-written is the table around the messages, which the
+caller's memory shapes: which slot a message takes, the per-sender quota,
+and **time** -- every deadline, the sweep, expiry, in this module's 64-bit
+clock, so the generated table is never asked the time and tests that run
+clocks to `UINT64_MAX` mean what they meant. And the hand-over: a
+completed message stays in its slot until released, a resend of it
+compared here from the slot's buffer and the stride the generated slot
+still holds, never handed twice. A slot's size is checked against the
+generated state at build time, so a change in situ's layout fails the
+build rather than a run.
+
+**Rejected: the whole generated table**, its slots, quota and expiry
+included. Its memory is three contiguous arrays and its clock 32 bits
+wrapping; fzn_reasm takes a buffer per slot and a 64-bit clock, and some
+sixty call sites and tests build tables that way. A per-message table
+keeps them all, and leaves here only what a caller's memory decides.
+
+**The evidence: `reasm_agree_fuzz` now holds the new table to the old
+one**, kept whole, header-only, as `chunk/test/reasm_ref.h` with its symbols renamed --
+every answer code for code, every completed message byte for byte, every
+forget and expiry count, and the missing-piece plan after every piece
+taken. A million steps: 39178 messages alike, 163147 plans alike, **no
+difference** but one accepted by name -- a held piece resent shorter, a
+prefix of what is held, which the old table took as identical and this
+one refuses (sec 1404). Removing the wrapper's workaround below makes 397
+of 3274 plans differ against the unfixed `_missing`, so the comparison
+has teeth.
+
+**What building it found:**
+
+- **A message of one piece** the generated table completes where it was
+  parked, at the buffer's end; it is moved to the start, where every
+  caller reads it.
+- **The order of two refusals:** a held piece resent at a length its
+  stride rules out was always MISMATCH here; the table calls it a
+  conflict, and the wrapper keeps the old code.
+- **A capacity shrunk under a live slot** (reassembly_test's threat-model
+  case): the generated table keeps its own copy, so the wrapper checks
+  the slot still holds what the table was given.
+- **A bug in situ's `_missing`:** it stopped as soon as its array filled,
+  so the last range it wrote was cut short where the gap went on. Caught
+  by reassembly_test's "a short array stops and says how far it got";
+  fixed in situ the same day (6d634b2f, C and C++; its four-backend
+  stream had never filled the array), and the table here is regenerated
+  at it.
+
+**Tests changed, each for its reason:** reassembly_test's two hand-built
+cases -- a stride set past the buffer, a dirty arrived-set -- reach the
+first through the API now and the second through `marks`;
+reassembly_fuzz's stride and parking invariants, opaque now, become a
+bound on bytes per piece; constants_test pins `marks`. Sabotage: five
+entries on the parking logic and one on an existing slot's index check
+removed with the code they guarded, now situ's and held by
+reasm_agree_fuzz; three retargeted onto the wrapper's lookups; three new on
+what the wrapper adds.
