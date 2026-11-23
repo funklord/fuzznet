@@ -180,6 +180,7 @@
 /chunk/test/split_test
 /chunk/test/erasure_test
 /chunk/test/reassembly_fuzz
+/chunk/test/reasm_agree_fuzz
 /chain/test/chain_fuzz
 /chain/test/chain_store_fuzz
 /chain/test/authz_fuzz

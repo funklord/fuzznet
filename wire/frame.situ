@@ -458,6 +458,29 @@ relation same_message(first: fzn_frame, later: fzn_frame) {
 	must later.head.sender == first.head.sender;
 }
 
+// ONE MESSAGE FROM MANY DATAGRAMS, situ 26.1123, by `same_message`: the
+// table chunk/reassembly.c is to sit on (project.md sec 1404). The numbers
+// are maxima; each table fuzznet keeps is given its own at init. A message
+// is at most 256 chunks of 1024 bytes (FZN_REASM_MAX_CHUNKS), so a slot at
+// most 256 KiB, and at most 64 slots (FZN_NODE_ASKS_MAX, the largest
+// table); a sender at most all of them; held at most 1000 s. A piece's
+// own expiry bounds its slot, as `max_hold` and `expires_at` do now.
+//
+// KEYED BY THE MESSAGE ALONE, sender and number, as chunk/reassembly.c
+// keys it: `same_message` makes the count part of the key too, and a
+// piece claiming another count would then be another message, holding
+// another slot, where fuzznet refuses it as not its message's count.
+relation same_piece_of(first: fzn_frame, later: fzn_frame) {
+	must later.head.msg    == first.head.msg;
+	must later.head.sender == first.head.sender;
+}
+
+reassemble pieces(f: fzn_frame) by same_piece_of [
+	index = f.head.index, count = f.head.chunks,
+	piece = f.sealed.payload, messages = 64, bytes = 16777216,
+	timeout = 1000, unit = s,
+	per = f.head.sender, per_max = 64, expires = f.head.expires_at];
+
 // A reply belongs to its request. Weaker than the above -- it says only that
 // the identifier matches -- and it is here because a dissector and a fuzz
 // harness both want it: one to say "response to frame N", the other to

@@ -281,6 +281,233 @@ static inline situ_err_t situ_conv_same_message_peek(const situ_conv_same_messag
 	return situ_conv_same_message_peek_from(table, later, 0u, id);
 }
 
+/* Pending requests for `same_piece_of`.
+ *
+ * The slots are yours and so is their number. A full table answers
+ * SITU_ERR_BOUNDS rather than evicting an exchange you still wanted.
+ *
+ * `peer` is yours too: a number for whatever the reply must come
+ * back through to count -- a session, the context that verifies it
+ * -- where the key alone would let two of them meet (26.1122).
+ * Reuse one only once nothing can verify under the old. The calls
+ * without `_from` hold peer 0. */
+typedef struct {
+	uint8_t  key[36u];
+	uint32_t id;	/* your handle for the request */
+	uint32_t peer;
+	uint8_t  live;
+} situ_conv_same_piece_of_slot_t;
+
+typedef struct {
+	situ_conv_same_piece_of_slot_t *slots;
+	uint32_t cap;
+} situ_conv_same_piece_of_t;
+
+static inline void situ_conv_same_piece_of_init(situ_conv_same_piece_of_t *table,
+                               situ_conv_same_piece_of_slot_t *slots, uint32_t cap)
+{
+	table->slots = slots;
+	table->cap   = cap;
+	for (uint32_t i = 0u; i < cap; i++) {
+		slots[i].live = 0u;
+	}
+}
+
+/* The key a request with these values would have, packed as the
+ * table packs one it reads. */
+static inline void situ_conv_same_piece_of_key(uint64_t head_msg,
+                                               const uint8_t *head_sender,
+                                               uint8_t key[36])
+{
+	uint32_t at = 0u;
+	for (uint32_t b = 0u; b < 4u; b++) {
+		key[at + b] = (uint8_t)(head_msg >> (8u * (4u - 1u - b)));
+	}
+	at += 4u;
+	memcpy(&key[at], head_sender, 32u);
+	at += 32u;
+	(void)at;
+}
+
+/* Remember a request by its key alone, under `peer`, against your
+ * handle for it: one this side awaits without holding its bytes --
+ * sealed and sent by somebody else, or forwarded -- built with
+ * `situ_conv_same_piece_of_key` (fuzznet, inbox 20261121T0600Z). */
+static inline situ_err_t situ_conv_same_piece_of_record_key_from(situ_conv_same_piece_of_t *table,
+                                                const uint8_t key[36],
+                                                uint32_t peer,
+                                                uint32_t id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live == 0u) {
+			memcpy(table->slots[i].key, key, 36u);
+			table->slots[i].id   = id;
+			table->slots[i].peer = peer;
+			table->slots[i].live = 1u;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/* Remember `first` under its key and `peer`, against your
+ * handle for it. */
+static inline situ_err_t situ_conv_same_piece_of_record_from(situ_conv_same_piece_of_t *table,
+                                            situ_view_t first,
+                                            uint32_t peer,
+                                            uint32_t id)
+{
+	uint8_t key[36u];
+	uint32_t at = 0u;
+	situ_view_t situ_k_2;
+	if (situ_fzn_frame_head_view(first, &situ_k_2) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint64_t situ_k_3 = (uint64_t)situ_fzn_head_msg_get(situ_k_2);	/* first.head.msg */
+	for (uint32_t b = 0u; b < 4u; b++) {
+		key[at + b] = (uint8_t)(situ_k_3 >> (8u * (4u - 1u - b)));
+	}
+	at += 4u;
+	situ_view_t situ_k_6;
+	if (situ_fzn_frame_head_view(first, &situ_k_6) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(&key[at], situ_fzn_head_sender_ptr(situ_k_6), 32u);	/* first.head.sender */
+	at += 32u;
+	(void)at;
+
+	return situ_conv_same_piece_of_record_key_from(table, key, peer, id);
+}
+
+/* Remember `first` under its key, against your handle for it. */
+static inline situ_err_t situ_conv_same_piece_of_record(situ_conv_same_piece_of_t *table,
+                                       situ_view_t first,
+                                       uint32_t id)
+{
+	return situ_conv_same_piece_of_record_from(table, first, 0u, id);
+}
+
+/* Match `later`, from `peer`, to a request, and forget it --
+ * or, `_match_key_from`, a key from `situ_conv_same_piece_of_key`: for a caller that
+ * verifies and reassembles a reply before matching it, and holds its
+ * key's values by then rather than the frame (fuzznet, inbox
+ * 20261121T1530Z).
+ *
+ * Forgetting is what makes a second reply to one request answer
+ * SITU_ERR_CONSTRAINT: a late or duplicated response names an
+ * exchange that is over, which is not the same as one that never
+ * happened and is reported the same way because a caller can do
+ * nothing different about either. */
+static inline situ_err_t situ_conv_same_piece_of_match_key_from(situ_conv_same_piece_of_t *table,
+                                               const uint8_t key[36],
+                                               uint32_t peer,
+                                               uint32_t *id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && memcmp(table->slots[i].key, key, 36u) == 0) {
+			*id = table->slots[i].id;
+			table->slots[i].live = 0u;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
+static inline situ_err_t situ_conv_same_piece_of_match_from(situ_conv_same_piece_of_t *table,
+                                           situ_view_t later,
+                                           uint32_t peer,
+                                           uint32_t *id)
+{
+	uint8_t key[36u];
+	uint32_t at = 0u;
+	situ_view_t situ_k_0;
+	if (situ_fzn_frame_head_view(later, &situ_k_0) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint64_t situ_k_1 = (uint64_t)situ_fzn_head_msg_get(situ_k_0);	/* later.head.msg */
+	for (uint32_t b = 0u; b < 4u; b++) {
+		key[at + b] = (uint8_t)(situ_k_1 >> (8u * (4u - 1u - b)));
+	}
+	at += 4u;
+	situ_view_t situ_k_4;
+	if (situ_fzn_frame_head_view(later, &situ_k_4) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(&key[at], situ_fzn_head_sender_ptr(situ_k_4), 32u);	/* later.head.sender */
+	at += 32u;
+	(void)at;
+
+	return situ_conv_same_piece_of_match_key_from(table, key, peer, id);
+}
+
+static inline situ_err_t situ_conv_same_piece_of_match(situ_conv_same_piece_of_t *table,
+                                      situ_view_t later,
+                                      uint32_t *id)
+{
+	return situ_conv_same_piece_of_match_from(table, later, 0u, id);
+}
+
+/* Forget the request held under `id`, if one is. An exchange that
+ * ended without its reply -- expired, or refused a driver slot --
+ * leaves no key a late reply could match and no slot taken: the
+ * driver dropped its own and kept this one, so after `cap`
+ * expiries every send was SITU_ERR_BOUNDS for good (26.1054).
+ * Every key held for `id`: a relayed exchange is awaited under
+ * two (26.1126). */
+static inline void situ_conv_same_piece_of_forget(situ_conv_same_piece_of_t *table, uint32_t id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live != 0u && table->slots[i].id == id) {
+			table->slots[i].live = 0u;
+		}
+	}
+}
+
+/* Whether `later` answers a request still pending, and which,
+ * without taking it: a reply in many pieces is asked once a piece,
+ * and only the last should end the exchange (26.1009). */
+static inline situ_err_t situ_conv_same_piece_of_peek_from(const situ_conv_same_piece_of_t *table,
+                                          situ_view_t later,
+                                          uint32_t peer,
+                                          uint32_t *id)
+{
+	uint8_t key[36u];
+	uint32_t at = 0u;
+	situ_view_t situ_k_0;
+	if (situ_fzn_frame_head_view(later, &situ_k_0) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint64_t situ_k_1 = (uint64_t)situ_fzn_head_msg_get(situ_k_0);	/* later.head.msg */
+	for (uint32_t b = 0u; b < 4u; b++) {
+		key[at + b] = (uint8_t)(situ_k_1 >> (8u * (4u - 1u - b)));
+	}
+	at += 4u;
+	situ_view_t situ_k_4;
+	if (situ_fzn_frame_head_view(later, &situ_k_4) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(&key[at], situ_fzn_head_sender_ptr(situ_k_4), 32u);	/* later.head.sender */
+	at += 32u;
+	(void)at;
+
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && memcmp(table->slots[i].key, key, 36u) == 0) {
+			*id = table->slots[i].id;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
+static inline situ_err_t situ_conv_same_piece_of_peek(const situ_conv_same_piece_of_t *table,
+                                     situ_view_t later,
+                                     uint32_t *id)
+{
+	return situ_conv_same_piece_of_peek_from(table, later, 0u, id);
+}
+
 /* Pending requests for `reply_to`.
  *
  * The slots are yours and so is their number. A full table answers

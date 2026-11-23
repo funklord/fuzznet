@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1403
+The newest work is at the end of this file. **Read secs 1287 to 1404
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96801,3 +96801,65 @@ which the date rule fixed.
 **Next for the split:** move the dated sweeps and closed narratives,
 whole and byte for byte, to `doc/journal.md`, saying in each commit how
 many lines went.
+
+## 1404. The two reassembly tables on one stream, and what still differs, 2026-11-23
+
+situ built every gap sec 1399 named, and the last two asks of sec 0
+(which bound refused a piece, `t->why`; a differing resend refused as a
+conflict) at situ 52fbff31. Before `chunk/reassembly.c` moves onto the
+table, **the two are run side by side**: `chunk/test/reasm_agree_fuzz.c`
+(`make reasm-agree`) gives each the same seeded stream of 20000 steps --
+three senders, messages that complete and ones that never do, resends
+identical and altered, pieces off the stride, past their count and past
+their expiry, forgets and expiries between -- and compares every answer
+by its reason, and every completed message byte for byte.
+
+**`wire/frame.situ` declares the table**, `reassemble pieces`, with the
+largest bounds any of fuzznet's seven tables uses (64 slots of 256 KiB,
+held up to 1000 s, a sender up to all of them); each table is given its
+own at init. **It is keyed by a relation of its own, `same_piece_of` --
+sender and number --** not `same_message`, whose count is part of its key:
+keyed so, a piece claiming another count opened another message and held
+another slot, where fuzznet refuses it as not its message's count. That
+was the first thing the run found.
+
+**The run found three differences of state, each a slot held or freed
+differently:**
+
+1. **fuzznet's `accept` sweeps what has expired before it looks**; the
+   generated table drops it only when asked. The wrapper asks first --
+   the fuzzer does as it will.
+2. **A slot's deadline.** fuzznet fixes it from the first piece; a later
+   piece's expiry never changes it. fuzznet's own ask to situ (sec 1399,
+   item 4) said "the earliest any piece gives" -- **a description of
+   fuzznet that was wrong**, and situ built it. And the generated add
+   lowers the deadline before its count check, so a refused piece or a
+   resend shortens a held message. Both sent to situ, 2026-11-23.
+3. **A refused piece drops a held message.** While the stride is unknown,
+   three refusals clear the slot even when it already holds pieces; fuzznet
+   refuses only the piece. Sent to situ.
+
+**situ fixed 2 and 3 the same night** (ff3d592e: a slot's deadline fixed
+at its first piece, a held message kept on refusal), and the table here
+is regenerated at it. **The run now agrees: 20000 steps, 740 messages
+completed by both and byte for byte the same, no disagreement.** It is in
+`make test`. 103 answers differ only as accepted, each counted and named:
+
+- **a piece the wrapper refuses before the table** -- no count, more than
+  fuzznet's 256 chunks, or no bytes (an empty message the table would
+  complete) -- where fuzznet refuses too, by a reason that depends on
+  whether a slot is held;
+- **a held piece resent at another length**, a conflict to the table where
+  fuzznet checks the stride first: both refuse;
+- **a held piece resent shorter**, below.
+
+**And one fault in fuzznet's own table:** a held piece resent SHORTER,
+its bytes a prefix of what is held, passes the repeat check as identical
+-- `memcmp` over the new piece's length alone. Nothing is written, so no
+message changes, but the contract says a differing repeat is refused. The
+generated table refuses it; the move fixes it.
+
+**Next:** move `chunk/reassembly.c` onto the table behind its own API, the
+wrapper doing what the fuzzer's does -- the expiry sweep first, the three
+refusals before the table, the handed-until-released guard -- with
+`reasm_agree_fuzz` and the existing suite as the evidence.

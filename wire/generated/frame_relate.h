@@ -33,6 +33,20 @@ extern "C" {
  */
 situ_err_t situ_rel_same_message(situ_view_t first, situ_view_t later);
 
+/** Whether `later` is a well-formed counterpart to `first`.
+ *
+ * Pure: reads two views, holds nothing, allocates nothing, and does
+ * not know which messages exist. The caller owns the pairing.
+ *
+ * Parameter order is temporal -- `first` is the message seen
+ * first, which is what lets a dissector say "response to frame N".
+ *
+ * SITU_OK              every constraint holds
+ * SITU_ERR_CONSTRAINT  one did not
+ * SITU_ERR_BOUNDS      a sub-view did not fit the view it was in
+ */
+situ_err_t situ_rel_same_piece_of(situ_view_t first, situ_view_t later);
+
 /** Whether `reply` is a well-formed counterpart to `request`.
  *
  * Pure: reads two views, holds nothing, allocates nothing, and does

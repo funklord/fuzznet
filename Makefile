@@ -581,7 +581,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
-             chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
+             chunk/test/reassembly_fuzz.c chunk/test/reasm_agree_fuzz.c chain/test/chain_fuzz.c \
              chain/test/chain_store_fuzz.c \
              chain/test/authz_fuzz.c \
              chain/test/service_fuzz.c \
@@ -828,6 +828,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chunk/test/erasure_test \
              $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chunk/test/reassembly_fuzz \
+             $(BUILD_DIR)/chunk/test/reasm_agree_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/chain/test/chain_store_fuzz \
              $(BUILD_DIR)/chain/test/authz_fuzz \
@@ -2351,7 +2352,7 @@ DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(THORVG_OBJS:.o=.d) $(QR_DECODE_OBJS:.o=.d) \
        $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d $(BUILD_DIR)/tool/sticker_convert.d
 
-.PHONY: cites sticker-convert embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: cites reasm-agree sticker-convert embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -4402,6 +4403,17 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
                                           $(BUILD_DIR)/chunk/reassembly.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# THE TWO REASSEMBLY TABLES ON ONE STREAM, sec 1404: fuzznet's and the one
+# situ generates from wire/frame.situ's `reassemble pieces`, every answer
+# compared; in `test`, so the move onto the table rests on agreement.
+$(BUILD_DIR)/chunk/test/reasm_agree_fuzz: $(BUILD_DIR)/chunk/test/reasm_agree_fuzz.o \
+                                          $(BUILD_DIR)/chunk/reassembly.o $(BUILD_DIR)/wire/generated/situ.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+reasm-agree: $(BUILD_DIR)/chunk/test/reasm_agree_fuzz
+	$(BUILD_DIR)/chunk/test/reasm_agree_fuzz
 
 $(BUILD_DIR)/spool/test/message_fuzz: $(BUILD_DIR)/spool/test/message_fuzz.o \
                                       $(BUILD_DIR)/spool/message.o $(BUILD_DIR)/wire/generated/message_wire.o $(BUILD_DIR)/wire/generated/situ.o
@@ -6591,6 +6603,7 @@ runtests: $(TEST_BINS)
 CASES ?= 200000
 
 FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
+             $(BUILD_DIR)/chunk/test/reasm_agree_fuzz \
              $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/chain/test/chain_store_fuzz \
@@ -8952,7 +8965,7 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_objects \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ node/objects.vectors >/dev/null 2>&1
-	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h frame_converse.h frame_drive.h call.c call.h \
+	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h frame_converse.h frame_drive.h frame_reassemble.h call.c call.h \
 	          call_vectors.c call_edit.h call_build.h status.c status.h status_edit.h status_build.h \
 	          status_vectors.c \
 	          address.c address.h address_edit.h address_build.h \

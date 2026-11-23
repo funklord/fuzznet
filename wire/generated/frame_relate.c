@@ -66,6 +66,50 @@ situ_err_t situ_rel_same_message(situ_view_t first, situ_view_t later)
 	return SITU_OK;
 }
 
+situ_err_t situ_rel_same_piece_of(situ_view_t first, situ_view_t later)
+{
+	situ_err_t err = SITU_OK;
+	(void)err;
+
+	{
+		situ_view_t situ_v_0;	/* later.head */
+		err = situ_fzn_frame_head_view(later, &situ_v_0);
+		if (err != SITU_OK) {
+			return err;
+		}
+		uint64_t situ_v_1 = (uint64_t)situ_fzn_head_msg_get(situ_v_0);	/* later.head.msg */
+		situ_view_t situ_v_2;	/* first.head */
+		err = situ_fzn_frame_head_view(first, &situ_v_2);
+		if (err != SITU_OK) {
+			return err;
+		}
+		uint64_t situ_v_3 = (uint64_t)situ_fzn_head_msg_get(situ_v_2);	/* first.head.msg */
+		if (!(situ_v_1 == situ_v_3)) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+
+	{
+		situ_view_t situ_v_4;	/* later.head */
+		err = situ_fzn_frame_head_view(later, &situ_v_4);
+		if (err != SITU_OK) {
+			return err;
+		}
+		const uint8_t *situ_v_5 = situ_fzn_head_sender_ptr(situ_v_4);	/* later.head.sender */
+		situ_view_t situ_v_6;	/* first.head */
+		err = situ_fzn_frame_head_view(first, &situ_v_6);
+		if (err != SITU_OK) {
+			return err;
+		}
+		const uint8_t *situ_v_7 = situ_fzn_head_sender_ptr(situ_v_6);	/* first.head.sender */
+		if (memcmp(situ_v_5, situ_v_7, 32u) != 0) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+
+	return SITU_OK;
+}
+
 situ_err_t situ_rel_reply_to(situ_view_t request, situ_view_t reply)
 {
 	situ_err_t err = SITU_OK;
