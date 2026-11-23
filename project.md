@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1410
+The newest work is at the end of this file. **Read secs 1287 to 1411
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97212,4 +97212,45 @@ netcfgd's does. Its pin moved to d34610a2, its bridge and tray link
 3. **SUBCMDs under FZN_CMD_EXTENSION**: none, as (2) is a binary call.
 
 The binary call is built in the section after this one.
+
+## 1411. A procedure called in binary on the local leg, 2026-11-23
+
+Sec 1410's second item, built. **`node/rrpc_local.situ`**: FZN_CMD_RRPC
+(16) with `call` 128 -- the procedure's name, 1 to 32 of a-z and 0-9,
+then its arguments as bytes to the message's end -- and `part` 129, the
+next of the answer's bytes. Golden vectors by hand
+(`wire/test/rrpc_local_vectors`), generated and checked as the objects
+pilot's are (sec 1152). Between hosts RRPC keeps 49 and 50.
+
+- **The node** (`node/rrpc_binary.c`, `fzn_node_rrpc_binary`) reads the
+  call, refuses a name past a-z and 0-9 as MALFORMED without running
+  anything, hands the name and arguments to the daemon's `run`, and
+  answers `part` messages of at most FZN_NODE_RRPC_PART_MAX (8189) bytes
+  in order, then a STATUS ok; a refusal is one STATUS: UNSUPPORTED for no
+  such procedure, DENIED, ERROR. An answer cut short ends without its ok.
+- **fuzznetd** (`local_rrpc`) admits the node's own user alone, as the
+  text `call` does, runs fuzznet's procedure or the extension's with
+  **256 KiB of room** (FZND_CALL_LOCAL_ANSWER_MAX, allocated per call),
+  and asks the follower serving a procedure it does not, with the 4096
+  bytes a reply between them has. `call NAME at HOST` stays text: an
+  answer between hosts is 4096 bytes, in binary or not.
+- **The typed client**: `fzn_rpc_procedure(c, name, args, args_len, out,
+  cap, &out_len)`. BUFFER_TOO_SMALL with the whole length when the
+  answer is longer than `cap`; UNKNOWN_MSG_TYPE for no such procedure or
+  a node from before the call. **The client checks the name itself**:
+  a node refuses a bad one with a first STATUS malformed, which is also
+  how a node from before a binary category answers anything, so the two
+  could not be told apart from the answer.
+
+**Tests:** rpc_test, against the node's own answerer as the scripted
+node: a 12,000-byte answer of every byte value across two parts, the
+arguments' bytes (NUL, 0xff, a space, a newline) as sent, an unknown
+procedure said so, no name or one past a-z and 0-9 never sent, a short
+room said with the whole length; on the node, raidcfgd's 21,772 bytes as
+three parts and ok, and a bad name refused with nothing run.
+`livecheck`'s rpc_probe: a running fuzznetd's own `object` procedure in
+binary answers the lamp's value as the object call reads it, and a
+procedure nobody serves is refused as none. Sabotage: five entries, on
+the parts, the node's and the client's name checks, the closing ok and
+the room.
 

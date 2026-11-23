@@ -1,0 +1,43 @@
+// A procedure called on the local leg in binary, project.md secs 1410-1411:
+// FZN_CMD_RRPC (16), its local operations the SUBCMD from 128, as sec
+// 1152's category A puts every local operation. Between hosts RRPC asks
+// with 49 and answers with 50 (node/types.h); those stay as they are.
+//
+// A caller sends one `call`: the procedure's name and its arguments as
+// bytes, which the procedure reads as it reads them from `call` in text.
+// The node answers with `part` messages, the answer's bytes in order, and
+// then a STATUS -- ok once the whole answer is sent, or why not: no such
+// procedure, denied, or it failed. Each message is framed by its two-byte
+// length on the local socket, so a part holds at most what that frame
+// does less its own two bytes of head, and an answer is as many parts as
+// it needs.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	call = 128, // a procedure asked, by name, with its arguments
+	part = 129, // the next of its answer's bytes
+	default = error,
+}
+
+// The name as `call NAME` takes it: a-z and 0-9, at most FZN_RRPC_NAME_MAX.
+struct call {
+	u8   name_len [min = 1, max = 32];
+	u8   name[name_len];
+	u8   args[remaining];
+}
+
+struct part {
+	u8   bytes[remaining];
+}
+
+struct message {
+	u8   cmd [must_eq = 16];
+	op   op;
+	variant body switch (op) {
+		case op.call: call call;
+		case op.part: part part;
+		default: error;
+	}
+}

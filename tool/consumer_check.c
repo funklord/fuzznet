@@ -165,6 +165,7 @@
 #include <fuzznet/node/records.h>
 #include <fuzznet/node/objects.h>
 #include <fuzznet/node/objects_binary.h>
+#include <fuzznet/node/rrpc_binary.h>
 #include <fuzznet/node/decisions.h>
 #include <fuzznet/node/decisions_binary.h>
 #include <fuzznet/node/invite.h>
@@ -439,6 +440,7 @@
 #include "node/records.h"
 #include "node/objects.h"
 #include "node/objects_binary.h"
+#include "node/rrpc_binary.h"
 #include "node/decisions.h"
 #include "node/invite.h"
 #include "node/presets.h"

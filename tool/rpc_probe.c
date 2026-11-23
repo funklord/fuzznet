@@ -122,6 +122,31 @@ int main(int argc, char **argv)
 	}
 	ASK(fzn_rpc_unread_all, unread, 8, &count, &total);
 
+	/* A PROCEDURE CALLED IN BINARY (sec 1411): the node's own `object`,
+	 * which answers the probe's lamp; and one no node serves, refused as
+	 * none rather than read. */
+	{
+		static uint8_t answer[4096];
+		size_t answer_len = 0;
+		int none;
+
+		const char *want = object.value[0] ? object.value : "-";
+
+		ASK(fzn_rpc_procedure, "object", (const uint8_t *)"get probe_lamp", 14, answer, sizeof answer, &answer_len);
+		if (answer_len != strlen(want) || memcmp(answer, want, answer_len) != 0) {
+			failed++;
+			fprintf(stderr, "rpc_probe: the object procedure in binary said %.*s of the lamp, the object "
+			        "call %s\n", (int)answer_len, (const char *)answer, want);
+		}
+		none = fzn_rpc_procedure(&c, "probenosuch", NULL, 0, answer, sizeof answer, &answer_len);
+		made++;
+		if (none != FZN_RPC_ERR_UNKNOWN_MSG_TYPE || !strstr(c.error, "no such procedure")) {
+			failed++;
+			fprintf(stderr, "rpc_probe: a procedure no node serves was not refused as none: %d %s\n", none,
+			        c.error);
+		}
+	}
+
 	/* THE ONE SEARCH, in binary (sec 1318): the group made found by its
 	 * name among the contacts and groups; fetched and its page got; a
 	 * contact that is not there refused, said rather than read. */

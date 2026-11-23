@@ -89,6 +89,15 @@ int fzn_rpc_status(fzn_rpc_t *c, fzn_rpc_status_resp_t *out);
 int fzn_rpc_object_add(fzn_rpc_t *c, const char *name, const char *values);
 int fzn_rpc_object_set(fzn_rpc_t *c, const char *name, const char *value);
 int fzn_rpc_object_get(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, int *found);
+/* A PROCEDURE CALLED IN BINARY on the node, fuzznet sec 1411: `name`, 1 to
+ * FZN_RPC_PROCEDURE_NAME_MAX of a-z and 0-9, with `args` as bytes; its answer
+ * into `out`, `*out_len` its length. FZN_RPC_ERR_BUFFER_TOO_SMALL when the
+ * answer is longer than `cap`, `*out_len` then the whole answer's length;
+ * FZN_RPC_ERR_UNKNOWN_MSG_TYPE for no such procedure, or a node from before
+ * the binary call, whose text `call` is the caller's to ask. */
+#define FZN_RPC_PROCEDURE_NAME_MAX 32u
+int fzn_rpc_procedure(fzn_rpc_t *c, const char *name, const uint8_t *args, size_t args_len, uint8_t *out,
+                      size_t cap, size_t *out_len);
 int fzn_rpc_object_list(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out);
 int fzn_rpc_object_remove(fzn_rpc_t *c, const char *name);
 

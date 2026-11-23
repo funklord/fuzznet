@@ -33,6 +33,8 @@
 #include "../wire/cmd.h"
 #include "../wire/status.h"
 #include "../wire/generated/objects.h"
+#include "../wire/generated/rrpc_local.h"
+#include "../wire/generated/rrpc_local_build.h"
 #include "../wire/generated/objects_build.h"
 #include "../wire/generated/messages_local.h"
 #include "../wire/generated/messages_local_build.h"
@@ -12087,4 +12089,97 @@ int fzn_rpc_search_get(fzn_rpc_t *c, fzn_rpc_search_page_t *out) {
 		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
 		            a.why[0] ? a.why : "the node refused it");
 	return out->count == a.want ? FZN_RPC_OK : unreadable(c);
+}
+
+/* ---- a procedure called in binary, sec 1411 ----------------------------- */
+
+struct procedure_answer {
+	uint8_t *out;
+	size_t cap, len;
+	int bad, over, status_seen, after_status;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void procedure_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct procedure_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	/* NOTHING AFTER THE STATUS: it ends the answer. */
+	if (a->status_seen) {
+		a->bad = 1;
+		return;
+	}
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (!fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_rrpc_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_rrpc_local_message_validate(v) != SITU_OK || fzn_rrpc_local_message_op_get(v) != FZN_RRPC_LOCAL_OP_PART
+	    || fzn_rrpc_local_message_body_part_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	/* WHAT DOES NOT FIT IS COUNTED, not kept: the caller is told how much
+	 * room the whole answer wants. */
+	if (a->len + fzn_rrpc_local_part_bytes_len(b) > a->cap)
+		a->over = 1;
+	else
+		memcpy(a->out + a->len, fzn_rrpc_local_part_bytes_ptr(b), fzn_rrpc_local_part_bytes_len(b));
+	a->len += fzn_rrpc_local_part_bytes_len(b);
+}
+
+/* A NAME AS `call NAME` TAKES IT, checked here as well as on the node: the
+ * node says a bad one with a first STATUS malformed, which is also how a
+ * node from before the binary call answers any, so the two could not be
+ * told apart. */
+static int procedure_name_ok(const char *name) {
+	size_t i, n = name ? strlen(name) : 0u;
+	for (i = 0; i < n; i++)
+		if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= '0' && name[i] <= '9'))) return 0;
+	return n && n <= FZN_RPC_PROCEDURE_NAME_MAX;
+}
+
+int fzn_rpc_procedure(fzn_rpc_t *c, const char *name, const uint8_t *args, size_t args_len, uint8_t *out,
+                      size_t cap, size_t *out_len) {
+	static uint8_t body[FZN_LOCAL_BINARY_MAX], req[FZN_LOCAL_BINARY_MAX];
+	uint32_t body_len = 0, n = 0;
+	struct procedure_answer a;
+	int text = 0, rc;
+	if (!c || !out_len || (cap && !out)) return FZN_RPC_ERR_MALFORMED;
+	*out_len = 0;
+	if (!procedure_name_ok(name) || (args_len && !args)
+	    || fzn_rrpc_local_call_build(body, sizeof body, (const uint8_t *)name, (uint32_t)strlen(name), args,
+	                                 (uint32_t)args_len, &body_len) != SITU_OK
+	    || fzn_rrpc_local_message_build_call(req, sizeof req, (uint8_t)FZN_CMD_RRPC, body, body_len, &n) != SITU_OK)
+		return fail(c, FZN_RPC_ERR_MALFORMED, "a procedure's name is 1 to 32 of a-z and 0-9, its arguments "
+		                                      "what one local message holds");
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	a.cap = cap;
+	rc = fzn_rpc_binary(c, req, n, procedure_each, &a, &text);
+	if (rc != FZN_RPC_OK) return rc;
+	/* A NODE FROM BEFORE THE BINARY CALL: its text `call` escapes the answer
+	 * onto one line, which is the caller's to page if it must. */
+	if (text) return fail(c, FZN_RPC_ERR_UNKNOWN_MSG_TYPE, "this node takes no binary call; ask `call` in text");
+	if (a.bad || !a.status_seen) return unreadable(c); /* an answer cut short */
+	if (a.code != FZN_STATUS_OK) {
+		const int code = a.code == FZN_STATUS_DENIED        ? FZN_RPC_ERR_NOT_AUTHORIZED
+		                 : a.code == FZN_STATUS_MALFORMED   ? FZN_RPC_ERR_MALFORMED
+		                 : a.code == FZN_STATUS_UNSUPPORTED ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                    : FZN_RPC_ERR_STORAGE_IO;
+		return fail(c, code, a.why[0] ? a.why : "the procedure was refused");
+	}
+	*out_len = a.len;
+	if (a.over) return fail(c, FZN_RPC_ERR_BUFFER_TOO_SMALL, "the answer is longer than the room given; *out_len says how long");
+	return FZN_RPC_OK;
 }

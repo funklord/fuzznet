@@ -107,6 +107,7 @@
 #include "records.h"
 #include "objects.h"
 #include "objects_binary.h"
+#include "rrpc_binary.h"
 #include "messages_binary.h"
 #include "contacts_binary.h"
 #include "groups_binary.h"
@@ -18848,6 +18849,58 @@ static int local_put(void *ctx, const uint8_t *msg, size_t len)
 	return local_binary_send_wait(*(const int *)ctx, msg, len);
 }
 
+/* A PROCEDURE CALLED IN BINARY, sec 1411: what `call NAME ARGS` runs, by
+ * the same rule -- the node's own user's alone -- with room for an answer
+ * past what one escaped reply line holds. A procedure this daemon does not
+ * serve is asked of the follower serving it, as the text verb asks, with
+ * the room a reply between them has. */
+#define FZND_CALL_LOCAL_ANSWER_MAX (256u * 1024u)
+
+static size_t rrpc_binary_run(void *ctx, const uint8_t *name, size_t name_len, const uint8_t *args,
+                              size_t args_len, uint8_t *answer, size_t cap, fzn_status_t *status,
+                              const char **why)
+{
+	const fzn_peer_t *peer = ctx;
+	const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
+	unsigned forwarded = FZN_RRPC_UNKNOWN;
+	size_t n;
+
+	*status = FZN_STATUS_ERROR;
+	if (!p) {
+		n = call_forward(name, name_len, NULL, peer, args, args_len, answer,
+		                 cap < FZND_CALL_ANSWER_MAX ? cap : FZND_CALL_ANSWER_MAX, &forwarded);
+		if (forwarded == FZN_RRPC_OK) {
+			*status = FZN_STATUS_OK;
+			return n;
+		}
+		*status = forwarded == FZN_RRPC_UNKNOWN ? FZN_STATUS_UNSUPPORTED : FZN_STATUS_ERROR;
+		*why = forwarded == FZN_RRPC_UNKNOWN ? "no such procedure here" : "the follower serving it failed";
+		return 0;
+	}
+	n = p->call(daemon_ext ? daemon_ext->ctx : NULL, NULL, peer, args, args_len, answer, cap);
+	if (!n || n > cap) {
+		*why = "the procedure failed";
+		return 0;
+	}
+	*status = FZN_STATUS_OK;
+	return n;
+}
+
+static int local_rrpc(int fd, fzn_origin_t origin, const fzn_peer_t *peer, const uint8_t *msg, size_t len)
+{
+	uint8_t *answer;
+
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "calls are this node's own user's"), 0;
+	answer = malloc(FZND_CALL_LOCAL_ANSWER_MAX);
+	if (!answer)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no room for the answer"), 0;
+	(void)fzn_node_rrpc_binary(msg, len, rrpc_binary_run, (void *)(uintptr_t)peer, answer,
+	                           FZND_CALL_LOCAL_ANSWER_MAX, local_put, &fd);
+	free(answer);
+	return 0;
+}
+
 /* NAMED OBJECTS IN BINARY, sec 1152: the node's own user, or a caller
  * `local/permit/object` lets read or change, judged as the text verbs are
  * (sec 852). */
@@ -20505,6 +20558,8 @@ static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn
 	(void)ctx;
 	if (len && msg[0] == FZN_CMD_OBJECTS)
 		return local_objects(fd, origin, peer, msg, len);
+	if (len && msg[0] == FZN_CMD_RRPC)
+		return local_rrpc(fd, origin, peer, msg, len);
 	if (len && msg[0] == FZN_CMD_MESSAGES)
 		return local_messages(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_CONTACTS)

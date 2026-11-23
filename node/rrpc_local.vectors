@@ -1,0 +1,6 @@
+# Golden vectors for node/rrpc_local.situ, written by hand from the layout in
+# its header comment, so the description is held to a writer other than its
+# compiler. 0x10 is FZN_CMD_RRPC (16); the op is the SUBCMD, 128 (0x80) on.
+
+message call    10 80 06 73 74 61 74 75 73 01 02 03
+message part    10 81 00 01 FF

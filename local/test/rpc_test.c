@@ -29,6 +29,8 @@
 #include "../../wire/generated/notes_local_build.h"
 #include "../../wire/generated/time_local_build.h"
 #include "../../wire/generated/settings_local_build.h"
+#include "../../node/rrpc_binary.h"
+#include "../../local/vocabulary.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -2573,6 +2575,161 @@ static void test_capabilities_in_binary(void)
 	CHECK(fzn_rpc_cap_list(&c, &caps) != FZN_RPC_OK, "a capabilities listing cut before its STATUS was read as whole");
 }
 
+/* A PROCEDURE CALLED IN BINARY, sec 1411, against the node's own answerer
+ * (node/rrpc_binary.c) as the scripted node: the name and arguments
+ * reach the procedure as bytes, its answer comes back whole across parts,
+ * an unknown one is said so, a name that is no name is never sent, and an
+ * answer longer than the room is said with its length. */
+struct procedure_node {
+	uint8_t reply[2u * FZN_LOCAL_BINARY_MAX + 4u];
+	size_t len;
+	uint8_t asked_args[64];
+	size_t asked_args_len;
+	char asked_name[40];
+	size_t answer_len;
+	int calls;
+};
+
+static size_t procedure_run(void *ctx, const uint8_t *name, size_t name_len, const uint8_t *args,
+                            size_t args_len, uint8_t *answer, size_t cap, fzn_status_t *status, const char **why)
+{
+	struct procedure_node *p = ctx;
+	size_t i;
+
+	p->calls++;
+	snprintf(p->asked_name, sizeof p->asked_name, "%.*s", (int)name_len, (const char *)name);
+	p->asked_args_len = args_len < sizeof p->asked_args ? args_len : sizeof p->asked_args;
+	memcpy(p->asked_args, args, p->asked_args_len);
+	if (name_len != 6u || memcmp(name, "status", 6u) != 0) {
+		*status = FZN_STATUS_UNSUPPORTED;
+		*why = "no such procedure here";
+		return 0;
+	}
+	if (p->answer_len > cap) {
+		*status = FZN_STATUS_ERROR;
+		return 0;
+	}
+	/* EVERY BYTE VALUE, NUL and 0xff included: binary, not text. */
+	for (i = 0; i < p->answer_len; i++)
+		answer[i] = (uint8_t)(i * 7u);
+	*status = FZN_STATUS_OK;
+	return p->answer_len;
+}
+
+static int procedure_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	struct procedure_node *p = ctx;
+
+	if (p->len + 2u + len > sizeof p->reply)
+		return 0;
+	p->reply[p->len] = (uint8_t)(len >> 8);
+	p->reply[p->len + 1u] = (uint8_t)len;
+	memcpy(p->reply + p->len + 2u, msg, len);
+	p->len += 2u + len;
+	return 1;
+}
+
+static int procedure_answer(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply, size_t reply_cap,
+                            size_t *reply_len)
+{
+	static uint8_t room[64 * 1024];
+	struct procedure_node *p = ctx;
+
+	p->len = 0;
+	(void)fzn_node_rrpc_binary(msg, len, procedure_run, p, room, sizeof room, procedure_put, p);
+	if (p->len > reply_cap)
+		return FZN_RPC_ERR_SEND_FAILED;
+	memcpy(reply, p->reply, p->len);
+	*reply_len = p->len;
+	return FZN_RPC_OK;
+}
+
+/* What the node's answerer said, collected: parts, their bytes, the last
+ * STATUS's code. */
+struct procedure_said {
+	size_t parts, bytes;
+	int status;
+};
+
+static int procedure_collect(void *ctx, const uint8_t *msg, size_t len)
+{
+	struct procedure_said *s = ctx;
+
+	if (len >= 2u && msg[0] == FZN_CMD_STATUS) {
+		s->status = msg[1];
+		return 1;
+	}
+	if (len < 2u || msg[0] != FZN_CMD_RRPC || msg[1] != 129u || len - 2u > FZN_LOCAL_BINARY_MAX - 2u)
+		return 0;
+	s->parts++;
+	s->bytes += len - 2u;
+	return 1;
+}
+
+static void test_procedure_in_binary(void)
+{
+	static uint8_t got[16 * 1024];
+	static uint8_t room[64 * 1024];
+	static const uint8_t args[] = { 0x00, 0x01, 0xff, ' ', '\n' };
+	struct procedure_node p;
+	fzn_rpc_t pc;
+	size_t n = 0, i;
+	int ok = 1;
+
+	memset(&p, 0, sizeof p);
+	memset(&pc, 0, sizeof pc);
+	pc.binary_answer = procedure_answer;
+	pc.binary_ctx = &p;
+
+	/* AN ANSWER IN TWO PARTS, every byte as written, the arguments as sent. */
+	p.answer_len = 12000u;
+	CHECK(fzn_rpc_procedure(&pc, "status", args, sizeof args, got, sizeof got, &n) == FZN_RPC_OK && n == 12000u
+	              && !strcmp(p.asked_name, "status") && p.asked_args_len == sizeof args
+	              && !memcmp(p.asked_args, args, sizeof args),
+	      "a procedure's answer or its arguments did not cross in binary");
+	for (i = 0; i < n; i++)
+		ok &= got[i] == (uint8_t)(i * 7u);
+	CHECK(ok, "a procedure's answer came back with a byte changed");
+
+	/* AN UNKNOWN ONE IS SAID SO, as no such thing here. */
+	CHECK(fzn_rpc_procedure(&pc, "absent", NULL, 0, got, sizeof got, &n) == FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+	              && strstr(pc.error, "no such procedure"),
+	      "an unknown procedure was not said to be one");
+
+	/* NO NAME, OR ONE PAST a-z AND 0-9, IS NEVER SENT. */
+	p.calls = 0;
+	CHECK(fzn_rpc_procedure(&pc, "", NULL, 0, got, sizeof got, &n) == FZN_RPC_ERR_MALFORMED && p.calls == 0,
+	      "a call with no name was sent");
+	CHECK(fzn_rpc_procedure(&pc, "Status", NULL, 0, got, sizeof got, &n) == FZN_RPC_ERR_MALFORMED && p.calls == 0,
+	      "a name past a-z and 0-9 was sent");
+
+	/* LONGER THAN THE ROOM: said, with the whole length. */
+	CHECK(fzn_rpc_procedure(&pc, "status", NULL, 0, got, 100u, &n) == FZN_RPC_ERR_BUFFER_TOO_SMALL && n == 12000u,
+	      "an answer longer than the room was not said, with its length");
+
+	/* AND ON THE NODE, raidcfgd's largest reading, 21,772 bytes: three
+	 * parts no longer than a local message, then ok. */
+	{
+		static const uint8_t call[] = { FZN_CMD_RRPC, 128u, 6u, 's', 't', 'a', 't', 'u', 's' };
+		struct procedure_said s = { 0, 0, -1 };
+
+		p.answer_len = 21772u;
+		CHECK(fzn_node_rrpc_binary(call, sizeof call, procedure_run, &p, room, sizeof room, procedure_collect, &s)
+		              && s.parts == 3u && s.bytes == 21772u && s.status == FZN_STATUS_OK,
+		      "a 21,772-byte answer did not go as three parts and ok");
+	}
+	/* AND A NAME PAST a-z AND 0-9 REFUSED THERE TOO, nothing run. */
+	{
+		static const uint8_t call[] = { FZN_CMD_RRPC, 128u, 6u, 'S', 't', 'a', 't', 'u', 's' };
+		struct procedure_said s = { 0, 0, -1 };
+
+		p.calls = 0;
+		CHECK(fzn_node_rrpc_binary(call, sizeof call, procedure_run, &p, room, sizeof room, procedure_collect, &s)
+		              && s.parts == 0u && s.status == FZN_STATUS_MALFORMED && p.calls == 0,
+		      "the node ran a procedure named past a-z and 0-9");
+	}
+}
+
 int main(void)
 {
 	test_capabilities_in_binary();
@@ -2617,6 +2774,7 @@ int main(void)
 	test_a_file_not_fetched_says_so();
 	test_an_empty_library_lists_nothing();
 	test_objects_in_binary();
+	test_procedure_in_binary();
 	test_a_node_that_reads_no_binary_is_asked_in_text();
 	test_groups_are_read_across_pages();
 	test_a_group_row_that_does_not_parse_is_unreadable();
