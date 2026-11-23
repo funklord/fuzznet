@@ -265,7 +265,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "journal/window",
@@ -284,7 +284,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "archive/replicas",
@@ -303,7 +303,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "archive/erasure",
@@ -322,7 +322,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "archive/gone",
@@ -341,7 +341,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 2u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION,
 	},
 	{
 		.key       = "routing/public",
@@ -360,7 +360,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVERTISED,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "routing/advertise",
@@ -379,7 +379,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVERTISED,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "stream/grant/",
@@ -398,7 +398,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_VERB,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "contact/name/",
@@ -417,7 +417,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_VERB,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "metric/log/",
@@ -436,7 +436,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "net/address",
@@ -455,7 +455,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVERTISED,
-		.cell      = 4u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_ADDRESS,
 	},
 	{
 		.key       = "host/name",
@@ -474,7 +474,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "local/permit/",
@@ -493,7 +493,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "remote/permit/",
@@ -512,7 +512,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "remote/permit",
@@ -531,7 +531,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "preset/chosen",
@@ -550,7 +550,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "preset/applied",
@@ -569,7 +569,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "local/events",
@@ -588,7 +588,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "pressure/rank/",
@@ -607,7 +607,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "group/member",
@@ -626,7 +626,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "net/budget",
@@ -645,7 +645,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "net/budget-window",
@@ -664,7 +664,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "net/metric",
@@ -683,7 +683,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED | FZN_SETTINGS_REGISTRY_DISPLAY_ADVERTISED,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "net/discovery",
@@ -702,7 +702,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "call/ring",
@@ -721,7 +721,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 2u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION,
 	},
 	{
 		.key       = "call/ring-burst",
@@ -740,7 +740,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "call/ring-refill",
@@ -759,7 +759,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 2u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION,
 	},
 	{
 		.key       = "call/block-max",
@@ -778,7 +778,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 2u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION,
 	},
 	{
 		.key       = "location/enabled",
@@ -797,7 +797,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "location/gpsd",
@@ -816,7 +816,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 4u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_ADDRESS,
 	},
 	{
 		.key       = "location/every",
@@ -835,7 +835,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "location/accuracy",
@@ -854,7 +854,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "message/read-marks",
@@ -873,7 +873,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "message/read/",
@@ -892,7 +892,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "message/unsend",
@@ -911,7 +911,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "location/share-new",
@@ -930,7 +930,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "location/share-new-precision",
@@ -949,7 +949,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "location/follow",
@@ -968,7 +968,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "log/level",
@@ -987,7 +987,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "log/segment",
@@ -1006,7 +1006,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_ADVANCED,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "log/scope",
@@ -1025,7 +1025,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_SENSITIVE,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "invite/confirm",
@@ -1044,7 +1044,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "relay/enabled",
@@ -1063,7 +1063,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "relay/quota",
@@ -1082,7 +1082,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "relay/window",
@@ -1101,7 +1101,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
-		.cell      = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT,
 	},
 	{
 		.key       = "remote/admin",
@@ -1120,7 +1120,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_SENSITIVE,
-		.cell      = 3u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG,
 	},
 	{
 		.key       = "retention/",
@@ -1139,7 +1139,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_VERB,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 	{
 		.key       = "sticker/",
@@ -1158,7 +1158,7 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE | FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = FZN_SETTINGS_REGISTRY_DISPLAY_VERB,
-		.cell      = 1u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},
 };
 

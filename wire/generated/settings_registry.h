@@ -719,6 +719,14 @@ situ_err_t fzn_settings_registry_address_check(situ_view_t view, uint32_t *which
  */
 #define FZN_SETTINGS_REGISTRY_NODE_COUNT 48u
 
+/** Which type a cell is: an entry's `cell`, by name.
+ */
+#define FZN_SETTINGS_REGISTRY_NODE_CELL_COUNT 0u
+#define FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT 1u
+#define FZN_SETTINGS_REGISTRY_NODE_CELL_DURATION 2u
+#define FZN_SETTINGS_REGISTRY_NODE_CELL_FLAG 3u
+#define FZN_SETTINGS_REGISTRY_NODE_CELL_ADDRESS 4u
+
 typedef struct fzn_settings_registry_node_entry {
 	const char *key;        /* NUL-ended, as written */
 	uint32_t    key_len;
