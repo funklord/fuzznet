@@ -3886,7 +3886,9 @@ int main(void)
 			what.capability = cap_id;
 			what.payload = payload;
 			what.payload_len = sizeof(payload);
-			what.expires_at = 0x0102030405060708ull;
+			/* Seconds, as the call takes them, within what the frame's
+			 * microseconds hold (sec 1417): every byte still distinct. */
+			what.expires_at = 0x0000000102030405ull;
 			what.msg = 0xCAFEBABEu;
 			what.index = 2u;
 			what.chunks = 5u;

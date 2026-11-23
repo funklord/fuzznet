@@ -228,7 +228,10 @@ static void build_sealed(uint8_t *f, const uint8_t *nonce, uint64_t expires)
 	f[OFF_VERSION] = 1;
 	f[OFF_KIND] = 2; /* chunk */
 	memcpy(f + OFF_SENDER, SENDER, 32);
-	put_be32(f + OFF_EXPIRES + 4, (uint32_t)expires);
+	/* MICROSECONDS on the frame (sec 1417); `expires` is in seconds, as the
+	 * library's calls and `now` are. */
+	put_be32(f + OFF_EXPIRES, (uint32_t)((expires * 1000000u) >> 32));
+	put_be32(f + OFF_EXPIRES + 4, (uint32_t)(expires * 1000000u));
 	memcpy(f + OFF_NONCE, nonce, 24);
 	fzn_commitment_for_nonce(&hash, commit_key, f + OFF_NONCE, f + OFF_COMMIT);
 	put_be32(f + OFF_MSG, 7);

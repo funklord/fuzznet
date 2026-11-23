@@ -154,7 +154,7 @@ typedef struct fzn_opened {
 	 * so that a caller need not learn the accessors to use them. */
 	const uint8_t *sender; /* 32 bytes */
 	const uint8_t *nonce;  /* FZN_AEAD_NONCE_LEN bytes */
-	uint64_t expires_at;
+	uint64_t expires_at; /* seconds since 1970; the frame carries microseconds (sec 1417) */
 	uint32_t msg;
 	uint16_t index;
 	uint16_t chunks;
@@ -355,7 +355,7 @@ typedef struct fzn_peek {
 	const uint8_t *sender;     /* 32 bytes */
 	const uint8_t *nonce;      /* FZN_AEAD_NONCE_LEN bytes */
 	const uint8_t *commitment; /* FZN_COMMITMENT_LEN bytes */
-	uint64_t expires_at;
+	uint64_t expires_at; /* seconds since 1970; the frame carries microseconds (sec 1417) */
 	uint32_t msg;
 	uint16_t index;
 	uint16_t chunks;
@@ -498,7 +498,7 @@ typedef struct fzn_send {
 	 * none, and a caller says which rule applies per frame. A frame meant
 	 * to be grant-like must be admitted as optional, not merely built with
 	 * a zero here. */
-	uint64_t expires_at;
+	uint64_t expires_at; /* seconds since 1970; the frame carries microseconds (sec 1417) */
 	uint32_t msg;
 	uint16_t index;
 	/* MUST BE AT LEAST 1, INCLUDING FOR A `unit` FRAME, so a zeroed

@@ -18,7 +18,7 @@ extern "C" {
 
 /* `pieces`: one message from up to `SITU_PIECES_MESSAGES` in flight, each
  * of at most `SITU_PIECES_CAPACITY` bytes, pieces keyed by `same_piece_of` and
- * placed by `f.head.index` of `f.head.chunks`. The clock is yours, in s:
+ * placed by `f.head.index` of `f.head.chunks`. The clock is yours, in us:
  * a message whose pieces stop is dropped `SITU_PIECES_TIMEOUT` after its first.
  * The three are maxima: `_init_in` takes smaller ones and the caller's
  * memory (fuzznet, inbox 20261122T1804Z), `_init` the schema's and a
@@ -26,7 +26,7 @@ extern "C" {
  * heap rather than a stack frame. */
 #define SITU_PIECES_MESSAGES 64u
 #define SITU_PIECES_CAPACITY 262144u
-#define SITU_PIECES_TIMEOUT  1000u
+#define SITU_PIECES_TIMEOUT  1000000000u
 #define SITU_PIECES_PER_MAX  64u
 #define SITU_PIECES_COUNT_MAX 256u	/* the most pieces a message has */
 /* Why `_add` refused, in `t->why` after any answer but SITU_OK and

@@ -300,7 +300,9 @@ static void build(uint8_t *f)
 	f[OFF_VERSION] = 1;
 	f[OFF_KIND] = 2; /* chunk */
 	memset(f + OFF_SENDER, 0xa1, 32);
-	put_be32(f + OFF_EXPIRES + 4, 5000); /* u64, big-endian low word */
+	/* 5000 s, as the frame carries it: microseconds since 1970 (sec 1417). */
+	put_be32(f + OFF_EXPIRES, (uint32_t)(5000000000ull >> 32));
+	put_be32(f + OFF_EXPIRES + 4, (uint32_t)5000000000ull);
 	memset(f + OFF_NONCE, 0x33, 24);
 	fzn_commitment_for_nonce(&hash, commitment_key, f + OFF_NONCE, f + OFF_COMMIT);
 	put_be32(f + OFF_MSG, 7);
@@ -743,6 +745,44 @@ int main(void)
 		check(verdict == FZN_SEAL_OK && opened.msg == 7 && opened.index == 1 &&
 		              opened.chunks == 4 && opened.kind == 2 && opened.expires_at == 5000,
 		      "a header field did not survive build and open");
+
+		/* THE FRAME'S CLOCK IS MICROSECONDS, sec 1417: 5000 s asked is
+		 * 5,000,000,000 on the wire; and read back, a stated expiry under a
+		 * second is 1 s, never 0 -- which is "no expiry" -- and 0 stays 0. */
+		{
+			uint8_t edge[FRAME_LEN];
+			fzn_peek_t peek;
+			uint64_t wire = 0;
+			int b;
+
+			for (b = 0; b < 8; b++)
+				wire = (wire << 8) | built[OFF_EXPIRES + b];
+			check(wire == 5000000000ull, "an expiry of 5000 s did not go on the wire as microseconds");
+			memcpy(edge, built, FRAME_LEN);
+			memset(edge + OFF_EXPIRES, 0, 8);
+			put_be32(edge + OFF_EXPIRES + 4, 500000u);
+			check(fzn_seal_peek(edge, FRAME_LEN, &peek) == FZN_SEAL_OK && peek.expires_at == 1u,
+			      "half a second on the wire read back as other than 1 s -- 0 would be no expiry");
+			put_be32(edge + OFF_EXPIRES + 4, 0u);
+			check(fzn_seal_peek(edge, FRAME_LEN, &peek) == FZN_SEAL_OK && peek.expires_at == 0u,
+			      "no expiry on the wire read back as one");
+		}
+		/* AND A LIFETIME PAST WHAT MICROSECONDS HOLD SATURATES rather than
+		 * wrap into the past or inside a horizon. */
+		{
+			fzn_send_t far = what;
+			uint8_t big[FRAME_LEN];
+			size_t big_len = 0;
+			int b, all_ff = 1;
+
+			far.expires_at = UINT64_MAX / 1000000u + 1u;
+			check(fzn_seal_build(big, sizeof(big), &big_len, &far, key, commitment_key, &hash, &rng, &aead)
+			              == FZN_SEAL_OK,
+			      "a frame with a far expiry was refused");
+			for (b = 0; b < 8; b++)
+				all_ff &= big[OFF_EXPIRES + b] == 0xffu;
+			check(all_ff, "an expiry past what microseconds hold wrapped rather than saturating");
+		}
 
 		/* A FRESH NONCE PER FRAME, which is the trap this call exists to
 		 * close. Two frames built from identical arguments must differ,

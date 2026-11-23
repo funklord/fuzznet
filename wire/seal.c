@@ -8,6 +8,30 @@
 
 #include <string.h>
 
+/* THE FRAME'S CLOCK IS MICROSECONDS SINCE 1970 (sec 1417, the holder's
+ * (c) of sec 1407); the library's calls speak seconds, and these convert
+ * at the frame, so nothing above it changed meaning.
+ *
+ * WRITTEN, seconds to microseconds, SATURATING: a lifetime past what a u64
+ * of microseconds holds is past any horizon anyway, and a wrapped product
+ * would put it in the past or inside one.
+ *
+ * READ, microseconds to seconds, rounding DOWN -- an expiry read earlier
+ * than stated is the safe direction -- but NEVER TO ZERO: 0 is "no expiry"
+ * (FZN_FRESH_NO_EXPIRY), which a grant may carry, and a stated expiry under
+ * a second must not read as none. It reads as 1, long past. */
+#define US_PER_S 1000000u
+
+static uint64_t frame_us(uint64_t seconds)
+{
+	return seconds > UINT64_MAX / US_PER_S ? UINT64_MAX : seconds * US_PER_S;
+}
+
+static uint64_t frame_seconds(uint64_t us)
+{
+	return us == 0u ? 0u : us < US_PER_S ? 1u : us / US_PER_S;
+}
+
 /* The head's nonce field and the AEAD's nonce are the same 24 bytes, and
  * this file reads each through the other's length.
  *
@@ -229,7 +253,7 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	out->payload_len = situ_fzn_frame_sealed_payload_len(gate);
 	out->sender = situ_fzn_head_sender_ptr(hv);
 	out->nonce = situ_fzn_head_nonce_ptr(hv);
-	out->expires_at = situ_fzn_head_expires_at_get(hv);
+	out->expires_at = frame_seconds(situ_fzn_head_expires_at_get(hv));
 	out->msg = situ_fzn_head_msg_get(hv);
 	out->index = situ_fzn_head_index_get(hv);
 	out->chunks = situ_fzn_head_chunks_get(hv);
@@ -262,7 +286,7 @@ fzn_seal_err_t fzn_seal_peek(const uint8_t *frame, size_t frame_len, fzn_peek_t 
 	out->sender = situ_fzn_head_sender_ptr(hv);
 	out->nonce = situ_fzn_head_nonce_ptr(hv);
 	out->commitment = situ_fzn_head_commitment_ptr(hv);
-	out->expires_at = situ_fzn_head_expires_at_get(hv);
+	out->expires_at = frame_seconds(situ_fzn_head_expires_at_get(hv));
 	out->msg = situ_fzn_head_msg_get(hv);
 	out->index = situ_fzn_head_index_get(hv);
 	out->chunks = situ_fzn_head_chunks_get(hv);
@@ -499,7 +523,7 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * `situ_view_t` -- and it is the second time this exact confusion has
 	 * cost time here; `wire/test/generated_test.c` records the first. */
 	situ_fzn_frame_head_kind_set(&msg, fv, (situ_fzn_kind_t)what->kind);
-	situ_fzn_frame_head_expires_at_set(&msg, fv, what->expires_at);
+	situ_fzn_frame_head_expires_at_set(&msg, fv, frame_us(what->expires_at));
 	situ_fzn_frame_head_msg_set(&msg, fv, what->msg);
 	situ_fzn_frame_head_index_set(&msg, fv, what->index);
 	situ_fzn_frame_head_chunks_set(&msg, fv, what->chunks);

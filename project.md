@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1416
+The newest work is at the end of this file. **Read secs 1287 to 1417
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,12 +58,11 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
-- **The clock's unit** (sec 368; sec 1323): stated in the frame since
-  sec 1413, seconds since 1970 as fuzznetd stamps. Measured in sec 1407:
-  the u64 holds microseconds since 1970 for 584,600 years, so one fixed
-  fine unit (c) beats both (a) set at start and (b) carried. **The
-  holder's to confirm**; the nonce set's move onto situ's replay form
-  waits on it, since that form fixes the unit and a horizon ceiling.
+- **The clock's unit**: **microseconds since 1970 on the frame** (sec
+  1417, the holder's choice of sec 1407's (c), 2026-11-23); the
+  library's calls still speak seconds, converted at the frame. Next: the
+  calls in microseconds where a sub-second lifetime is wanted, and the
+  nonce set onto situ's replay form, which can now state the unit.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -97445,4 +97444,63 @@ test:** the daemon's judgement itself -- it needs a caller of another
 unix user, which no test here can be; `fzn_node_permit_allows`, which
 decides it, is permit_test's and permit_agree_fuzz's. raidcfgd's tray
 against root's node is the check.
+
+## 1417. The frame carries microseconds since 1970; "007" stays accepted, 2026-11-23
+
+**The holder, 2026-11-23**: "go with (c), microseconds, later we
+optimize this using testing and more careful design. If there is not
+downside to supporting 007, we should allow for it. do you agree?"
+
+**Microseconds, built.** `wire/frame.situ`'s `expires_at` is `[time =
+us, epoch = unix]`: a u64 of microseconds holds 584,600 years at a
+resolution finer than any two hosts' clocks agree (sec 1407). The step
+is the smallest that puts the unit on the wire: **`wire/seal.c`
+converts at the frame** -- seconds to microseconds as it writes,
+saturating past what a u64 holds; microseconds to seconds as it opens
+or peeks, rounding down (an expiry read early is the safe side) but
+never to 0, which is "no expiry", so a stated sub-second expiry reads
+as 1 s, long past. Everything above the seal -- stamps, horizons, the
+replay window, reassembly, the caller's offsets -- keeps its meaning in
+seconds; a call taking microseconds, for a sub-second lifetime on a fast
+link, is the holder's "later we optimize" and goes where the evidence
+puts it. The reassembly declaration's timeout is restated in the
+field's unit (1000 s as 1,000,000,000 us); its generated code changes
+in that constant and its comment alone.
+
+**The golden frame** (`wire/test/golden_frame_test.c`), produced in
+fuzzypickles' session and never regenerated from a run, changes in the
+expiry's bytes and the tag alone. They were re-derived from the frozen
+frame by an AEAD that is not this tree's -- Python's `cryptography`
+ChaCha20-Poly1305 under an HChaCha20 from the XChaCha draft -- which
+first verified the old frame's tag, then sealed the same plaintext under
+the new head; this build's frame equals it byte for byte.
+
+**A wire change, breaking both ways**: a host from before this section
+reads a microsecond expiry as an instant thousands of years ahead and
+refuses it past its horizon; a host from after reads a seconds expiry
+as minutes after 1970 and refuses it expired. Neither admits the
+other's frames, and neither misreads one as fresh. **No version bump**:
+every consumer builds both ends from one fuzznet (as the exchange's
+version 7 recorded, sec 1047), and the refusals already name a clock
+fault. `situc wire --check` called the unit change compatible; sent to
+situ (inbox 20261123T1801Z), which now reports a changed unit, epoch or
+kind as breaking (situ f7446caf, not yet pushed).
+
+**"007": yes, agreed, and it is what fuzznet already does** (sec 1408
+kept it). Measured downside, small: "7" and "007" are two spellings of
+one value, so a setting rewritten from one to the other is a change
+that changes nothing a reader sees -- signed, journaled and sent round
+as any change is -- and situ's per-row registry check takes a number
+padded past its bound's digits that the readers refuse (the contract
+test's one named difference). No reader compares spellings: every
+reader parses the number first. Tightening stays one word,
+`[leading_zeros = refused]` (situ 26.1166).
+
+**Tests:** seal_test (160): 5000 s goes on the wire as 5,000,000,000;
+half a second reads back as 1 s and no expiry as 0; a lifetime past
+what microseconds hold saturates. golden_frame_test (10) against the
+re-derived vector; sequence_test and seal_test's hand-built frames write
+microseconds. `make livecheck` passes: every scenario's hosts speak
+microsecond frames to each other. Sabotage: `seal-expiry-in-seconds`,
+`seal-subsecond-expiry-is-none`, `seal-far-expiry-wraps`.
 

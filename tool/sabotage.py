@@ -17840,6 +17840,27 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"seal-expiry-in-seconds",
+		"wire/seal.c",
+		"situ_fzn_frame_head_expires_at_set(&msg, fv, frame_us(what->expires_at));",
+		"situ_fzn_frame_head_expires_at_set(&msg, fv, what->expires_at);",
+		"a frame carries its expiry in seconds, read as microseconds by every peer -- sec 1417",
+	),
+	(
+		"seal-subsecond-expiry-is-none",
+		"wire/seal.c",
+		"	return us == 0u ? 0u : us < US_PER_S ? 1u : us / US_PER_S;\n",
+		"	return us / US_PER_S;\n",
+		"an expiry under a second reads as 0, no expiry, which a grant may carry -- sec 1417",
+	),
+	(
+		"seal-far-expiry-wraps",
+		"wire/seal.c",
+		"	return seconds > UINT64_MAX / US_PER_S ? UINT64_MAX : seconds * US_PER_S;\n",
+		"	return seconds * US_PER_S;\n",
+		"a lifetime past what microseconds hold wraps into the past or inside a horizon -- sec 1417",
+	),
+	(
 		"permit-situ-trailing-junk",
 		"node/permit.c",
 		"	if (at != len)\n		return 0;\n",
