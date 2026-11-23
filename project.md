@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1421
+The newest work is at the end of this file. **Read secs 1287 to 1422
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97522,7 +97522,8 @@ and none of the client's, and raidcfgd moved off copied source lists the
 same day because one went 147 symbols stale on a pin move.
 
 **Built, as `daemon-lib` is**: `make client-lib` archives RPC_LINK_OBJS
--- the objects every view and test here links for `fzn_rpc_` -- into
+-- the objects every view and test here links for `fzn_rpc_` -- and,
+since sec 1422, what they call, into
 `libfuzznet-client.a`; `make client-flags` prints
 FZN_CLIENT_CFLAGS and FZN_CLIENT_LIBS; `make client-link-check`
 (`tool/client_link_check.sh`) compiles a program of its own from those
@@ -97646,4 +97647,36 @@ they stand.
 **Tests:** `live_face` phase d: a fuzznetd with no service, product or
 extension answers `status` with the status line, `rrpc nosuch` with
 `error no procedure nosuch here`, and `list contact` as unsupported.
+
+## 1422. The client archive closed over what it calls, 2026-11-23
+
+**From raidcfgd** (inbox 20261123T2230Z), with the link: sec 1418's
+`libfuzznet-client.a` held `provision.o` and `provision_record.o` but not
+the chain, prekey, trust and record objects they call, so raidcfgd's GUI,
+linking the provisioning card, failed with `fzn_hop_open`,
+`fzn_prekey_open`, `fzn_trust_fingerprint` and their records undefined.
+`client-link-check` passed because its program pulled none of them --
+a check over the members a program happens to use, not the archive.
+RPC_LINK_OBJS is what this tree's views and tests link beside their own
+objects, so it was never closed.
+
+**Fixed**: the archive also takes `CLIENT_LIB_EXTRA`, found by linking
+the whole archive (`--whole-archive`) and adding the object defining each
+symbol it named until it named nothing -- 26 objects, from the contact
+card's record through the chain, prekey, trust, root log, revocation,
+setting and record kinds -- and `MONO_OBJS` and `FLOG_OBJS`, as the
+daemon's link takes them. **`client-link-check` links the whole archive
+now**, so a member calling what the archive does not hold fails there;
+against the archive before this section the same link named 13 undefined
+symbols.
+
+**Linking both archives**, asked: raidcfgd linked the client archive
+first and `libfuzznetd.a` after it. Both are built from one build's
+objects, so a symbol the first defines is not pulled again from the
+second and no definition is doubled; that is safe while both come from
+the same build with the same flags. With this section the client archive
+needs no second one.
+
+**Tests:** `make client-link-check`: the whole archive links, and a
+program of its own runs and is answered "the node is not running".
 

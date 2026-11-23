@@ -38,6 +38,18 @@ SOURCE
 "$cc" $cflags -c "$scratch/main.c" -o "$scratch/main.o"
 # shellcheck disable=SC2086
 "$cc" "$scratch/main.o" $libs -o "$scratch/client"
+# AND THE WHOLE ARCHIVE, every member pulled (sec 1422): a member calling
+# what the archive does not hold fails here, where a program using a few
+# members would pass. The archive is the first word of the libraries.
+archive=${libs%% *}
+printf 'int main(void) { return 0; }\n' > "$scratch/empty.c"
+# shellcheck disable=SC2086
+if ! "$cc" "$scratch/empty.c" -Wl,--whole-archive "$archive" -Wl,--no-whole-archive ${libs#* } \
+	-o "$scratch/whole" 2> "$scratch/whole.err"; then
+	echo "client-link-check: FAILED -- the archive is not closed:"
+	grep -o "undefined reference to .*" "$scratch/whole.err" | sort -u
+	exit 1
+fi
 if said=$(timeout 10 "$scratch/client" "$scratch/no-node.sock" 2>&1); then
 	echo "client-link-check: a client of its own linked and ran: $said"
 else

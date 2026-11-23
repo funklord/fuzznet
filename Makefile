@@ -6008,12 +6008,36 @@ daemon-link-check: $(BUILD_DIR)/libfuzznetd.a
 	@tool/daemon_link_check.sh "$(CC)" "$(MAKE)"
 
 # THE TYPED CLIENT AS A CONSUMER LINKS IT, sec 1418: the objects every view
-# and test here links for `fzn_rpc_` (RPC_LINK_OBJS), as one archive, so a
+# and test here links for `fzn_rpc_` (RPC_LINK_OBJS) and what they call, as
+# one archive, so a
 # tray or a CLI links the client without copying a source list -- raidcfgd's
 # went 147 symbols stale on one pin move. `make client-flags` prints what to
 # compile and link with, and `make client-link-check` links a program from
 # those alone. Link this or `daemon-lib`, not both: they share objects.
-$(BUILD_DIR)/libfuzznet-client.a: $(RPC_LINK_OBJS)
+# AND WHAT THOSE CALL, sec 1422: RPC_LINK_OBJS is what this tree's views and
+# tests link beside their own objects, so it is not closed -- the card's
+# provision.o calls the chain, the prekey and the trust, and an archive of
+# it alone left raidcfgd's GUI with fourteen undefined symbols while
+# client-link-check, pulling none of them, passed. Found by linking the
+# whole archive and adding what it named until it named nothing; the check
+# links it whole now.
+CLIENT_LIB_EXTRA := $(BUILD_DIR)/wire/generated/contact_card_record.o \
+                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/contact/contact.o \
+                    $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/chain/chain.o \
+                    $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/prekey/prekey.o \
+                    $(BUILD_DIR)/wire/generated/prekey_record.o \
+                    $(BUILD_DIR)/wire/generated/root_act_record.o \
+                    $(BUILD_DIR)/wire/generated/chain_wire.o \
+                    $(BUILD_DIR)/wire/generated/contact_devices_wire.o $(BUILD_DIR)/chain/manifest.o \
+                    $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/wire/generated/persist_wire.o \
+                    $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/record/record.o \
+                    $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/state/setting.o \
+                    $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
+                    $(BUILD_DIR)/wire/generated/manifest_record.o $(BUILD_DIR)/ratchet/ratchet.o \
+                    $(BUILD_DIR)/wire/generated/record_row.o \
+                    $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/state/scope.o \
+                    $(BUILD_DIR)/wire/generated/setting_record.o
+$(BUILD_DIR)/libfuzznet-client.a: $(RPC_LINK_OBJS) $(CLIENT_LIB_EXTRA) $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	@rm -f $@
 	$(AR) rcs $@ $(sort $(filter %.o,$^))
