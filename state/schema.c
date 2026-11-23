@@ -1,5 +1,8 @@
 #include "schema.h"
 
+#include "../wire/generated/settings_registry.h"
+
+#include <stdint.h>
 #include <string.h>
 
 static size_t key_len_of(const char *key)
@@ -50,32 +53,53 @@ int fzn_schema_overlap(const char *a, const char *b)
 	return b[lb - 1u] == '/' && memcmp(a, b, lb) == 0;
 }
 
+/* THE FOUR CELL TYPES ON SITU'S GENERATED PARSERS, sec 1408: the grammar
+ * of a count, a duration, a flag and an address is
+ * node/settings_registry.situ's, and these keep only what the hand
+ * parsers decided beyond it -- the caller's bounds, and a count no longer
+ * than its maximum's digits, so "0007" stays refused where 255 is the
+ * most. state/test/schema_ref.h keeps the hand parsers, and
+ * schema_agree_fuzz holds the two to one verdict. */
+
+/* `value` as a message for a generated parser, or 0 when it cannot be. */
+static int wrap(situ_msg_t *m, const uint8_t *value, size_t len)
+{
+	if (!value || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(m, (uint8_t *)(uintptr_t)value, (uint32_t)len);
+	return 1;
+}
+
+static size_t digits_of(uint64_t max)
+{
+	size_t digits = 1;
+
+	while (max /= 10u)
+		digits++;
+	return digits;
+}
+
 int fzn_schema_flag(const uint8_t *value, size_t len)
 {
-	if (!value)
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (!wrap(&m, value, len) || fzn_settings_registry_flag_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_registry_flag_validate(v) != SITU_OK)
 		return -1;
-	if ((len == 2u && memcmp(value, "on", 2u) == 0) || (len == 1u && value[0] == '1'))
-		return 1;
-	if ((len == 3u && memcmp(value, "off", 3u) == 0) || (len == 1u && value[0] == '0'))
-		return 0;
-	return -1;
+	return fzn_settings_registry_flag_value_get(v) ? 1 : 0;
 }
 
 int fzn_schema_count(const uint8_t *value, size_t len, uint64_t min, uint64_t max, uint64_t *out)
 {
-	uint64_t n = 0, m;
-	size_t i, digits = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	uint64_t n = 0;
 
-	for (m = max; m; m /= 10u)
-		digits++;
-	if (!value || len == 0u || len > (digits ? digits : 1u))
-		return 0;
-	for (i = 0; i < len; i++) {
-		if (value[i] < '0' || value[i] > '9')
-			return 0;
-		n = (n * 10u) + (uint64_t)(value[i] - '0');
-	}
-	if (n < min || n > max)
+	if (len > digits_of(max) || !wrap(&m, value, len)
+	    || fzn_settings_registry_count_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_registry_count_validate(v) != SITU_OK
+	    || fzn_settings_registry_count_value_get(v, &n) != SITU_OK || n < min || n > max)
 		return 0;
 	if (out)
 		*out = n;
@@ -85,28 +109,19 @@ int fzn_schema_count(const uint8_t *value, size_t len, uint64_t min, uint64_t ma
 int fzn_schema_duration(const uint8_t *value, size_t len, uint64_t min, uint64_t max,
                         uint64_t *seconds)
 {
-	uint64_t unit, n = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t n = 0;
+	uint64_t unit;
 
-	if (!value || len < 2u)
+	if (len < 2u || !wrap(&m, value, len)
+	    || fzn_settings_registry_duration_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_registry_duration_validate(v) != SITU_OK
+	    || fzn_settings_registry_duration_count_get(v, &n) != SITU_OK || n == 0u)
 		return 0;
-	switch (value[len - 1u]) {
-	case 'd':
-		unit = 86400u;
-		break;
-	case 'h':
-		unit = 3600u;
-		break;
-	case 'm':
-		unit = 60u;
-		break;
-	case 's':
-		unit = 1u;
-		break;
-	default:
-		return 0;
-	}
+	unit = fzn_settings_registry_duration_value_get(v) / n;
 	/* AT MOST `max` IN WHICHEVER UNIT, so the product cannot overflow. */
-	if (!fzn_schema_count(value, len - 1u, 1u, max / unit, &n) || n * unit < min)
+	if (len - 1u > digits_of(max / unit) || n > max / unit || n * unit < min)
 		return 0;
 	if (seconds)
 		*seconds = n * unit;
@@ -116,30 +131,26 @@ int fzn_schema_duration(const uint8_t *value, size_t len, uint64_t min, uint64_t
 int fzn_schema_address(const uint8_t *value, size_t len, char *host, size_t host_cap,
                        uint16_t *port)
 {
-	size_t space, i;
-	uint64_t p = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	uint16_t p = 0;
+	size_t space;
 
-	if (!value)
+	if ((host && !host_cap) || !wrap(&m, value, len)
+	    || fzn_settings_registry_address_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_registry_address_validate(v) != SITU_OK
+	    || fzn_settings_registry_address_port_get(v, &p) != SITU_OK)
 		return 0;
-	for (space = 0; space < len && value[space] != ' '; space++)
-		;
-	if (space == 0u || space == len || (host_cap && space >= host_cap) || (host && !host_cap))
-		return 0;
-	for (i = 0; i < space; i++) {
-		uint8_t c = value[i];
-
-		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-		      || c == '.' || c == '-' || c == ':'))
-			return 0;
-	}
-	if (!fzn_schema_count(value + space + 1u, len - space - 1u, 1u, 65535u, &p))
+	space = 1u + fzn_settings_registry_address_host_len(v);
+	/* THE PORT IN AT MOST FIVE DIGITS, as the hand parser counted them. */
+	if (len - space - 1u > 5u || (host_cap && space >= host_cap))
 		return 0;
 	if (host) {
 		memcpy(host, value, space);
 		host[space] = '\0';
 	}
 	if (port)
-		*port = (uint16_t)p;
+		*port = p;
 	return 1;
 }
 

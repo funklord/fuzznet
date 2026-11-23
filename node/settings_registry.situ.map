@@ -11,16 +11,16 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct address size=2.. access=Sequential mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic
+struct address size=2.. access=Sequential mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic canonical=NonCanonical
   address.lead                           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   address.host                           offset=AbsoluteStatic(0x01) size=Bounded(1, 252) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  address.port                           offset=Scanned size=Unbounded align=Unaligned repr=TextConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  address.port                           offset=Scanned size=Unbounded align=Unaligned repr=TextConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable canonical=NonCanonical
 
-struct count size=0.. mutate=Shifting repr=TextConverted
-  count.value                            offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=TextConverted atomic=AtomicWord mutate=Shifting
+struct count size=0.. mutate=Shifting repr=TextConverted canonical=NonCanonical
+  count.value                            offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=TextConverted atomic=AtomicWord mutate=Shifting canonical=NonCanonical
 
-struct duration size=1.. mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic
-  duration.count                         offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=TextConverted atomic=AtomicWord mutate=Shifting
+struct duration size=1.. mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic canonical=NonCanonical
+  duration.count                         offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=TextConverted atomic=AtomicWord mutate=Shifting canonical=NonCanonical
   duration.unit                          offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
   duration.value                         let u64 = count * ((unit == time_unit.d) * 86400 + (unit == time_unit.h) * 3600 + (unit == time_unit.m) * 60 + (unit == time_unit.s))
 

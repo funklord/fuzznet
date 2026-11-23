@@ -7,9 +7,11 @@
  * both checkers.
  *
  * Where the hand entry has no check of its own the two must agree, but for
- * one known difference, counted and named: a count or duration spelled
- * with a leading zero ("007") the hand parser takes and situ's `[minimal]`
- * refuses, one spelling per value. Where it has one -- a permit, a rank, a
+ * one known difference, counted and named: a number padded with leading
+ * zeros past its bound's digits ("007" where 16 is the most), which the
+ * hand parser refuses by counting digits and the registry, without
+ * `[minimal]` since sec 1408, takes. A leading zero within the digits
+ * ("07") the two now take alike. Where it has one -- a permit, a rank, a
  * group list, a log level or scope -- situ types the cell as printable
  * text, so it must take at least what the hand table takes.
  */
@@ -95,14 +97,20 @@ static void test_every_row_agrees(void)
 	}
 }
 
-/* A NUMBER SPELLED WITH A LEADING ZERO -- the value, or an address's port
- * after its space: the one difference allowed. */
-static int leading_zero(const char *v)
+/* A NUMBER PADDED PAST ITS BOUND'S DIGITS -- the value, or an address's
+ * port after its space, with a leading zero and more digits than `max`
+ * (65535 for a port) has: the one difference allowed (sec 1408). */
+static int padded_past(const char *v, uint64_t max)
 {
 	const char *space = strchr(v, ' ');
 	const char *n = space ? space + 1 : v;
+	size_t digits = 1;
 
-	return n[0] == '0' && n[1] >= '0' && n[1] <= '9';
+	if (space)
+		max = 65535u;
+	while (max /= 10u)
+		digits++;
+	return n[0] == '0' && n[1] >= '0' && n[1] <= '9' && strlen(n) > digits;
 }
 
 static void test_every_value_agrees(void)
@@ -115,7 +123,7 @@ static void test_every_value_agrees(void)
 		"member", "group:x=r", "36500", "36501", "86400", "315360000", "315360001",
 		"18446744073709551616", "1099511627776", "1099511627777",
 	};
-	size_t i, k, zero_only = 0, values = 0;
+	size_t i, k, padded_only = 0, values = 0;
 
 	for (i = 0; i < fzn_node_schema_own_n; i++) {
 		const fzn_schema_entry_t *e = &fzn_node_schema_own[i];
@@ -144,18 +152,18 @@ static void test_every_value_agrees(void)
 				CHECK(!hand || gen, "%s: \"%s\" the hand table takes and the registry refuses", e->key, v);
 				continue;
 			}
-			if (hand && !gen && leading_zero(v)) {
-				zero_only++;
+			if (!hand && gen && padded_past(v, e->max)) {
+				padded_only++;
 				continue;
 			}
 			CHECK(hand == gen, "%s: \"%s\" the hand table %s and the registry %s", e->key, v,
 			      hand ? "takes" : "refuses", gen ? "takes" : "refuses");
 		}
 	}
-	CHECK(zero_only > 0, "no leading-zero spelling told the two apart: the known difference is gone, say so");
-	printf("settings_registry_test: %zu values through both; %zu leading-zero spellings the hand table "
-	       "alone takes\n",
-	       values, zero_only);
+	CHECK(padded_only > 0, "no padded spelling told the two apart: the known difference is gone, say so");
+	printf("settings_registry_test: %zu values through both; %zu spellings padded past their bound the "
+	       "registry alone takes\n",
+	       values, padded_only);
 }
 
 /* A FAMILY'S INSTANCE is found as the hand table finds it. */

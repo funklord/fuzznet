@@ -19,14 +19,6 @@ situ_err_t fzn_settings_registry_count_check(situ_view_t view, uint32_t *which)
 		which = &sink;
 	}
 	*which = 0xFFFFFFFFu;
-	/* `[minimal]`: one spelling per value, so a leading zero
-	 * is a second way to write a number that already has one. */
-	if (!situ_digits_minimal(fzn_settings_registry_count_value_ptr(view),
-			fzn_settings_registry_count_value_len(view), 10u)) {
-		*which = FZN_SETTINGS_REGISTRY_COUNT_VALUE_CHECK;
-		 return SITU_ERR_CONSTRAINT;
-	}
-
 	/* count.value: its digits have to be digits, in range. */
 	{
 		uint64_t parsed;
@@ -90,14 +82,6 @@ situ_err_t fzn_settings_registry_duration_check(situ_view_t view, uint32_t *whic
 		*which = 0xFFFFFFFFu;
 		return SITU_ERR_BOUNDS;
 	}
-	/* `[minimal]`: one spelling per value, so a leading zero
-	 * is a second way to write a number that already has one. */
-	if (!situ_digits_minimal(fzn_settings_registry_duration_count_ptr(view),
-			fzn_settings_registry_duration_count_len(view), 10u)) {
-		*which = FZN_SETTINGS_REGISTRY_DURATION_COUNT_CHECK;
-		 return SITU_ERR_CONSTRAINT;
-	}
-
 	/* duration.count: its digits have to be digits, in range. */
 	{
 		uint32_t parsed;
@@ -238,14 +222,6 @@ situ_err_t fzn_settings_registry_address_check(situ_view_t view, uint32_t *which
 			}
 		}
 	}
-	/* `[minimal]`: one spelling per value, so a leading zero
-	 * is a second way to write a number that already has one. */
-	if (!situ_digits_minimal(fzn_settings_registry_address_port_ptr(view),
-			fzn_settings_registry_address_port_len(view), 10u)) {
-		*which = FZN_SETTINGS_REGISTRY_ADDRESS_PORT_CHECK;
-		 return SITU_ERR_CONSTRAINT;
-	}
-
 	/* address.port: its digits have to be digits, in range. */
 	{
 		uint16_t parsed;

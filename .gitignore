@@ -233,6 +233,7 @@
 /state/test/scope_test
 /state/test/setting_test
 /state/test/setting_fuzz
+/state/test/schema_agree_fuzz
 /node/test/stage_fuzz
 /notes/test/note_test
 /notes/test/note_fuzz

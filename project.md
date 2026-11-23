@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1407
+The newest work is at the end of this file. **Read secs 1287 to 1408
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -72,9 +72,9 @@ listener port spans (`150e3106`).
   **every layout is on generated code** (the naming rule, sec 1313;
   the last, persist, secs 1396-1398), but for persist's two-byte head and
   its single-field bodies, kept by decision (sec 1398). The settings
-  registry holds the contract (sec 1330); whether a stored "007" is
-  refused is fuzznet's choice of `[minimal]` -- situ already makes it
-  programmable, asked to confirm (sec 1406). The scheduler matches a reply
+  registry holds the contract (sec 1330), and the four cell types'
+  parsers are situ's generated ones (sec 1408), "007" still taken; the
+  table itself and the hand-only checks are next. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -97079,3 +97079,55 @@ someone can recompute:
 A question that survives these five steps is a real decision for whoever
 owns it, and goes to them with the numbers.
 
+
+## 1408. The settings' four cell types read through situ's generated parsers, 2026-11-23
+
+Sec 1330's next step, the part that does not wait on a decision:
+`state/schema.c`'s `fzn_schema_count`, `fzn_schema_duration`,
+`fzn_schema_flag` and `fzn_schema_address` -- the readers of every
+setting, fuzznet's own and every extension's table (sec 686) -- now
+parse through `node/settings_registry.situ`'s generated `count`,
+`duration`, `flag` and `address` structs. Their grammar is situ's; what
+stays in C is what the hand parsers decided beyond a grammar: the
+caller's bounds, a count no longer than its maximum's digits ("0007"
+refused where 255 is the most), a port in at most five digits, and the
+caller's host room. The hand `fzn_node_schema_own` table, its `find` and
+its entries' own checks are unchanged.
+
+**Leading zeros kept.** The registry's numbers lose `[minimal]`, so
+"007" reads as seven, as the hand parsers always read it. The holder
+asked only that situ make it programmable (sec 1406), which it does, and
+the move is to change no behaviour; tightening is one word in the
+schema, the holder's to ask for. settings_registry_test's known
+difference narrows: the hand parsers refuse a number padded past its
+bound's digits ("007" where 16 is the most, by counting digits), and
+situ's per-row registry check, which nothing reads yet, takes it. The
+readers keep the digit limit in C, so what fuzznet takes is unchanged;
+the test counts the three such spellings in its corpus and fails if they
+stop differing unsaid.
+
+**Held by an oracle, as reassembly was** (sec 1404): the hand parsers
+live on header-only in `state/test/schema_ref.h`, and
+`state/test/schema_agree_fuzz` (in `make test` and `make fuzz`) runs
+seeded strings under seeded bounds through both, comparing verdict,
+value, port and host. A million strings: 7477 counts, 829 durations,
+6729 flags and 3501 addresses taken by both, no difference. One
+difference is known and not drawn: a duration count past 2^32 - 1, which
+the generated `decimal u32` refuses, reachable only from a table whose
+maximum passes 136 years in seconds; none does.
+
+**Cost**: `wire/generated/settings_registry.o` joins the five links that
+carried `state/schema.o` without it; the library already held it.
+
+**Sabotage**: six entries on the hand parsers retargeted onto what C
+keeps -- the bounds (`settings-window-is-bounded`,
+`settings-gone-at-most-ten-years`), the digit limits
+(`schema-count-digit-limit`, `settings-address-port-five-digits`), the
+host room (`settings-address-host-room`) and the flag's value
+(`schema-flag-read`). The grammar's own guards (a host's characters, a
+port's least value, the spelling `on`) are situ's code now, held by
+schema_agree_fuzz against the oracle rather than by an entry here.
+
+**Next on sec 1330's line**: `fzn_node_schema_own` itself generated --
+its rows are the registry's -- and the hand-only checks (a permit's
+grammar the hardest) as situ types.

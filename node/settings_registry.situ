@@ -6,7 +6,8 @@
 //
 // A CONTRACT FIRST, as the layouts were (sec 1313): node/schema.c still
 // serves the table, and node/test/settings_registry_test holds the two to
-// agreeing, row by row and value by value. What the registry cannot say
+// agreeing, row by row and value by value. Since sec 1408 the cell types'
+// parsers ARE state/schema.c's count, duration, flag and address. What the registry cannot say
 // yet, the hand table still checks: a permit's grammar, a pressure rank,
 // a group list, a log level or scope (their entries' `check` functions);
 // the registry types those as printable text of their bounds.
@@ -20,9 +21,10 @@ policy display { restart, sensitive, advanced, verb, advertised }
 tokens flag_word { on = "on", off = "off", one = "1", zero = "0", default = error, }
 tokens time_unit { d = "d", h = "h", m = "m", s = "s", default = error, }
 
-// A COUNT: decimal digits, one spelling per value.
+// A COUNT: decimal digits, a leading zero taken as the hand parser took it
+// (sec 1408): "007" is seven. `[minimal]` would refuse it.
 struct count {
-	decimal u64  value[remaining]  [minimal];
+	decimal u64  value[remaining];
 }
 
 // A FLAG: on, off, 1 or 0.
@@ -33,7 +35,7 @@ struct flag {
 
 // A DURATION: a count and one of d h m s, worth its seconds.
 struct duration {
-	decimal u32  count[remaining]  [minimal];
+	decimal u32  count[remaining];
 	time_unit    unit[1];
 	let u64 value = count * ((unit == time_unit.d) * 86400
 	                       + (unit == time_unit.h) * 3600
@@ -52,7 +54,7 @@ struct text {
 struct address {
 	u8           lead[1]  [chars = "a-zA-Z0-9.:-"];
 	u8           host[] until " " max 252  [chars = "a-zA-Z0-9.:-"];
-	decimal u16  port[remaining]  [minimal, min = 1];
+	decimal u16  port[remaining]  [min = 1];
 }
 
 registry node {
