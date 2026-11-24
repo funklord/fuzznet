@@ -689,13 +689,6 @@ SABOTAGES = [
 		"unsayable while the parser went on expecting it. sec 364",
 	),
 	(
-		"client-face-copy-without-a-socket",
-		"local/client.c",
-		"\tif (stat(path, &sock_st) != 0)\n\t\treturn 0;\n",
-		"\t(void)stat(path, &sock_st);\n",
-		"with no socket there is no owner to match the copy against, and a copy lying beside nothing would be taken -- sec 1434",
-	),
-	(
 		"client-face-copy-through-a-link",
 		"local/client.c",
 		"\tfd = open(at, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);\n\tif (fd < 0)\n\t\treturn 0;\n\tif (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != sock_st.st_uid\n",

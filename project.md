@@ -77849,8 +77849,12 @@ else's socket. It now takes the copy only when it is a regular file, not
 reached through a link, owned by the user who owns the socket, and not
 writable by group or others. `local/test/client_test.c` refuses a copy
 beside no socket, one others may write and one reached through a link;
-`tool/sabotage.py` holds each check (`client-face-copy-*`). **Not
-tested**: a copy owned by another user, which needs a second account.
+`tool/sabotage.py` holds the last two (`client-face-copy-through-a-link`,
+`-others-may-write`, both caught). **Not tested**: a copy owned by
+another user, which needs a second account; and the refusal of a copy
+beside no socket on its own -- without it the owner compared is
+unset, and for a tester who is not root that refuses the copy anyway, so
+its sabotage entry hung the suite rather than failing it and was dropped.
 
 ## 1435. Devices of other products, and showing by services: the holder's correction, relayed, 2026-11-24
 
