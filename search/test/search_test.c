@@ -4,6 +4,7 @@
  * the distributed design rests on: hosts each answering their best K after a
  * cursor, merged, give exactly the page one search over everything gives. */
 #include "../search.h"
+#include "../filter.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -320,8 +321,22 @@ static void test_the_snippet(void)
 	      "a long text's snippet did not hold the word, or cut a character");
 }
 
+/* A FILTER WORD, and a null filter refused rather than read: the count was
+ * read before the null check (gcc -fanalyzer). */
+static void test_a_filter_word(void)
+{
+	static fzn_search_filter_words_t f;
+
+	CHECK(fzn_search_filter_word(NULL, 0, "kind=photo", 10) == 0, "a null filter was taken");
+	memset(&f, 0, sizeof(f));
+	CHECK(fzn_search_filter_word(&f, 0, "kind=photo", 10) == 1 && f.n_pos == 1u,
+	      "a filter word was not taken");
+	CHECK(fzn_search_filter_word(&f, 0, "kind", 4) == 0, "a word with no value was taken");
+}
+
 int main(void)
 {
+	test_a_filter_word();
 	test_the_words();
 	test_one_order_one_hit_each();
 	test_pages_merge_as_one();

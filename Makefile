@@ -6193,7 +6193,9 @@ $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachmen
 
 # One search over every store, sec 1287: the engine and the words.
 $(BUILD_DIR)/search/test/search_test: $(BUILD_DIR)/search/test/search_test.o \
-                                      $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o
+                                      $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
+                                      $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o \
+                                      $(BUILD_DIR)/facet/codec.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

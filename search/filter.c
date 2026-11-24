@@ -10,10 +10,13 @@ int fzn_search_filter_word(fzn_search_filter_words_t *f, int negated, const char
 	fzn_facet_term_t *t;
 	const uint8_t *w = (const uint8_t *)word;
 	const uint8_t *eq = w ? memchr(w, '=', n) : NULL, *v, *end = w + n;
-	size_t dim_len, first = f->n_members;
+	size_t dim_len, first;
 
 	if (!f || !eq || eq == w || eq + 1 == end || (negated ? f->n_neg : f->n_pos) == FZN_SEARCH_FILTER_TERMS)
 		return 0;
+	/* READ AFTER THE CHECK, not in the declaration above it: there a null
+	 * `f` was dereferenced before it was refused (gcc -fanalyzer). */
+	first = f->n_members;
 	dim_len = (size_t)(eq - w);
 	t = negated ? &f->neg[f->n_neg++] : &f->pos[f->n_pos++];
 	memset(t, 0, sizeof(*t));
