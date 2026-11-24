@@ -29,6 +29,7 @@ extern "C" {
 #include "../notebook_view.h"
 #include "../combo.h"
 
+#include <QAccessible>
 #include <QApplication>
 #include <QComboBox>
 #include <QLineEdit>
@@ -41,6 +42,23 @@ extern "C" {
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+
+/* A ROW TOGGLED AS ANDROID TOGGLES IT for a screen reader's double tap, sec
+ * 1423: through the row's accessible cell. 1 when there was such a cell. */
+static bool toggle_row(QAbstractItemView *view, int row)
+{
+	QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(view);
+	QAccessibleTableInterface *table = iface ? iface->tableInterface() : nullptr;
+	QAccessibleInterface *cell = table && row < table->rowCount() ? table->cellAt(row, 0) : nullptr;
+	QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+	if (!act || !act->actionNames().contains(QAccessibleActionInterface::toggleAction()))
+		return false;
+	act->doAction(QAccessibleActionInterface::toggleAction());
+	QCoreApplication::processEvents();
+	return true;
+}
 
 static int failures;
 static int checks;
@@ -459,6 +477,11 @@ static void test_notes_are_made_saved_and_read_back(void)
 	CHECK(w.list()->count() == 1 && w.list()->item(0)->text() == QStringLiteral("Recipes/"),
 	      "and listed as a folder");
 	folder = w.listed_ids().value(0);
+	/* A SCREEN READER ENTERS IT, sec 1423: its double tap only selects, and
+	 * enters a folder as activation does. Then back out, for what follows. */
+	CHECK(toggle_row(w.list(), 0) && w.location() == QStringLiteral("Recipes"),
+	      "a folder toggled as a screen reader toggles it was not entered");
+	CHECK(w.ascend(), "out of the folder entered by a screen reader");
 	CHECK(w.descend(folder, QStringLiteral("Recipes")) && w.location() == QStringLiteral("Recipes"),
 	      "the folder opens, and the location says where");
 	CHECK(w.status().contains(QStringLiteral("Nothing here")), "an empty folder says so");

@@ -11,7 +11,9 @@
 
 #include "../library_view.h"
 
+#include <QAccessible>
 #include <QApplication>
+#include <QTableWidget>
 
 #include <stdio.h>
 #include <string.h>
@@ -121,6 +123,23 @@ int main(int argc, char **argv)
 	v.select(2);
 	CHECK(v.fetch() && !strcmp(last, "fetch file " TALK) && v.status().contains("talk.webm"),
 	      "the file held elsewhere was not asked for by its root");
+	/* AND CHOSEN BY A SCREEN READER, sec 1423: its double tap only selects;
+	 * the row is made current, so "Get the file" asks for that one. */
+	{
+		QTableWidget *table = v.findChild<QTableWidget *>();
+		QAccessibleInterface *iface = table ? QAccessible::queryAccessibleInterface(table) : nullptr;
+		QAccessibleTableInterface *t = iface ? iface->tableInterface() : nullptr;
+		QAccessibleInterface *cell = t ? t->cellAt(2, 0) : nullptr;
+		QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+		v.select(0);
+		if (act)
+			act->doAction(QAccessibleActionInterface::toggleAction());
+		QCoreApplication::processEvents();
+		last[0] = '\0';
+		CHECK(act && v.fetch() && !strcmp(last, "fetch file " TALK),
+		      "a file toggled as a screen reader toggles it was not the one asked for");
+	}
 
 	v.select(0);
 	last[0] = '\0';

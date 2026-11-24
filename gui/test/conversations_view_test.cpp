@@ -10,6 +10,7 @@
 
 #include "../conversations_view.h"
 
+#include <QAccessible>
 #include <QApplication>
 #include <QTreeWidget>
 
@@ -129,6 +130,22 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
 }
 
+/* A ROW TOGGLED AS ANDROID TOGGLES IT for a screen reader's double tap, sec
+ * 1423: through the row's accessible cell. 1 when there was such a cell. */
+static bool toggle_row(QAbstractItemView *view, int row)
+{
+	QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(view);
+	QAccessibleTableInterface *table = iface ? iface->tableInterface() : nullptr;
+	QAccessibleInterface *cell = table && row < table->rowCount() ? table->cellAt(row, 0) : nullptr;
+	QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+	if (!act || !act->actionNames().contains(QAccessibleActionInterface::toggleAction()))
+		return false;
+	act->doAction(QAccessibleActionInterface::toggleAction());
+	QCoreApplication::processEvents();
+	return true;
+}
+
 int main(int argc, char **argv)
 {
 	qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -165,6 +182,17 @@ int main(int argc, char **argv)
 	      "a line taken back, a conversation's newest, was not said so (sec 1284)");
 	about_line = 0;
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
+	/* AND BY A SCREEN READER, sec 1423: its double tap only selects, and
+	 * opens the conversation as activation does. */
+	{
+		QTreeWidget *tree = v.findChild<QTreeWidget *>();
+
+		opened.clear();
+		for (int r = 0; tree && opened.isEmpty() && r < 8; r++)
+			if (!toggle_row(tree, r))
+				break;
+		CHECK(opened == "bob", "a conversation toggled as a screen reader toggles it was not opened");
+	}
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: three ways, the one
 	 * standing marked; chosen, set or cleared for bob's key alone. */
 	CHECK(v.actions(0, 0).contains("Read marks: As everywhere (off) *")

@@ -97726,9 +97726,13 @@ interface (`tableInterface()->cellAt(row, 0)->actionInterface()`,
 toggle), offscreen: settings_view_test -- a setting's row toggled comes
 up chosen, its notes said; removing the view's call fails it (measured).
 sticker_picker_view_test -- a sticker toggled is sent. Every GUI test
-(45) passes. **Not covered by a test**: the other fourteen views' calls,
-the same one line each; and TalkBack itself, which is fuzzypickles'
-Fold. Sabotage: `a11y-settings-not-chosen`, `a11y-sticker-not-sent`,
+(45) passes. **Added the next day**, for the views where the toggle must
+act, not only choose: conversations_view_test -- a conversation toggled
+opens; notebook_view_test -- a folder toggled is entered; and
+library_view_test -- a file toggled becomes the one "Get the file" asks
+for, which fails with the view's call removed (measured). **Not covered
+by a test**: the other eleven views' calls, the same one line each; and
+TalkBack itself, which is fuzzypickles' Fold. Sabotage: `a11y-settings-not-chosen`, `a11y-sticker-not-sent`,
 `a11y-current-not-moved`.
 
 ## 1424. Where the face serves, said beside every daemon's own socket, 2026-11-24
