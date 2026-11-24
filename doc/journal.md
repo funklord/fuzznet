@@ -15977,6 +15977,469 @@ both comparisons settled it: thirteen real disagreements, so the edge is
 reachable and worth holding. It is the inclusive-bound miss (sec 292, 294, 295)
 a fifth time, in the version chooser of the QR encoder.
 
+## 301. Provisioning the remote hop end to end, 2026-09-17
+
+sec 300 left the remote hop's session and capability "provisioned, the
+holder's decision, not built". The holder directed building it, and this is
+it: `node/provision.h` and the pairing card of `provision/provision.h`
+composed into the flow that turns a device into a peer the node serves.
+`provision_test` drives the whole path under real Monocypher primitives and
+over a real UDP socket -- nothing is stubbed.
+
+### The two legs, and the card between them
+
+"Server and client is a matter of perspective" (sec 2): both parties are a
+`fzn_node_identity_t` -- an Ed25519 identity, an X25519 secret, a signed
+prekey, the crypto ops.
+
+- **`fzn_node_make_card`** mints the device its capability, this node as root,
+  and packs a card carrying the root, the node's prekey, and that capability,
+  signed. It is the QR string a device is handed out of band, and it survives
+  `fzn_provision_text` / `fzn_provision_from_text` byte-for-byte.
+- **`fzn_node_accept_card`** is the device side: open and verify the card under
+  the root it names, pin the node's prekey, and establish the session the
+  device seals with.
+- **`fzn_node_provision_peer`** is the node side for the return leg: given the
+  device's prekey (reached out of band), pin it, establish the session that
+  opens the device's frames, mint the device's capability, and fill a
+  `fzn_node_peer_t`. Afterwards `node/remote.c` serves that device.
+
+The two sessions are the same key by X25519 symmetry -- `provision_test`
+asserts `node_peer.recv_key` equals the device's send key -- so the device's
+sealed request opens under the node's provisioned session.
+
+### End to end, over a real socket
+
+`provision_test` builds two real identities, runs the card round trip and both
+provisioning legs, binds two real UDP sockets on loopback, has the device seal
+a request and send it, and turns the daemon loop once: `fzn_node_run_once`
+receives the datagram, finds the provisioned peer by its sender, authenticates
+by opening the seal, authorises the capability as `FZN_ORIGIN_REMOTE`, and
+hands the opened request to a handler that records it was granted with the
+payload intact. One path, no fake behind any seam.
+
+### A lifetime bug the composition surfaced, fixed here
+
+`fzn_chain_hop_t` is a VIEW -- a pointer into hop bytes the caller must keep
+alive (`chain.h` says so). `fzn_node_peer_t` had stored the views while the
+bytes were a caller's temporary, which passed in `remote_test` only because
+that buffer stayed in scope. Provisioning, which fills a peer and returns, made
+the dangling view visible: the frame authenticated and the capability then
+failed to verify against freed stack. The peer now owns the hop BYTES
+(`fzn_node_peer_t.hop_bytes`) and `node/remote.c` opens the views locally per
+call, so a peer copied by value stays self-contained. It is the composition
+being the evidence a per-module test could not be.
+
+### The handler seam, where the vocabulary will land
+
+`fzn_node_state` gained `on_remote`: the node calls it after a remote caller is
+authenticated and decided, with the opened request. This is where a consumer's
+handler -- its verbs, the §5 vocabulary still the holder's -- plugs in. The
+node authenticates and authorises; the handler acts.
+
+### Still not built above this
+
+Sealing a reply back to the caller and the replay window remain
+`node/remote.h`'s named next work. The reverse session already exists, since
+the session key is symmetric, so a reply is a `fzn_seal_build` away; nothing
+packs one yet.
+
+## 302. Sealing the reply back to the caller, 2026-09-17
+
+sec 301 left "sealing a reply back to the caller" as the remote hop's named
+next work: the reverse session already existed, since the session key is
+symmetric, so a reply was a `fzn_seal_build` away. It is built now.
+
+### One function, and the daemon carries it
+
+`fzn_node_seal_reply` (`node/remote.c`) seals a response under the peer's
+session key -- the same key the caller seals its requests with, so the caller
+opens the reply with it. The reply's sender is the node's identity, which the
+caller established the session with, and it carries no capability: a reply is
+not a capability exercise, and the caller does not authorise the node.
+
+`fzn_node_state` gained a random source, the node's identity, and a
+reply-shaped handler: `on_remote` now returns the reply payload it wants sent,
+up to `FZN_NODE_REPLY_MAX`. The daemon loop seals that reply and sends it back
+to the address the datagram came from. A handler returns zero to answer nothing
+-- a denied caller, or a request that needs no reply -- so the node never
+becomes an oracle it did not choose to be.
+
+### Proven both ways
+
+`remote_test` seals a reply and opens it directly under the caller's key,
+checking the payload survives and the sender is the node. `provision_test`
+drives the whole round trip over real UDP: after the node grants the
+provisioned request, its handler returns a reply, the daemon seals and sends
+it, and the device receives it on its own socket and opens it with the key it
+sealed the request with. Request and reply, end to end, nothing stubbed.
+
+### The replay window, which is built next
+
+The replay window is the last thing above the transport, and it is built in
+sec 303. This reply path draws a fresh random nonce per frame, as every seal
+here does, so nonce reuse was never the gap -- recording them to refuse a
+replayed request was, and now is.
+
+## 304. The capability hop as a situ schema, 2026-09-17
+
+The situ re-evaluation the holder directed settled that situ owns every
+wire/disk/mem layout, and that fuzznet hand-writes all but the frame. This is
+the first layout converted: `chain/hop.situ` describes the capability hop, and
+`situc` measures it against the hand-written `chain/chain.h`.
+
+### Measured, and it matches exactly
+
+`situc map chain/hop.situ` places every field where `FZN_HOP_OFF_*` already
+puts it -- version 0, object 1, grantor 2, grantee 34, capability 66,
+issued_at 98, expires_at 106, delegable 114, signature 115 -- at size 179, the
+same as `FZN_HOP_LEN`. `situc advise` finds nothing to improve. So the schema
+is a faithful, reviewed description of the layout the hand-written code already
+carries.
+
+### Adopted as a checked contract first, not a rewrite
+
+The committed `chain/hop.situ.wire` and `.map` are the byte contract and the
+capability map, checked by `make schema SITU_DIR=../situ` exactly as the
+frame's are (sec 6). The hand-written codec in `chain/chain.c` still produces
+the bytes; nothing was ripped out. This is situ's adopt-without-codegen path
+(`situc verify` / `wire --check`), and it is the low-risk first step of a
+per-layout migration the holder sequences: the schema now governs the layout,
+and a change to the schema or the offsets that the other does not match fails
+the contract check.
+
+### The owned form is why this one went first
+
+`situc build --owned chain/hop.situ` generates `situ_fzn_chain_hop_t` with a
+decode that copies and byte-swaps every field, so the decoded value is
+independent of the buffer -- nothing aliases it. That is the fix for the
+lifetime bug sec 301 records: `fzn_node_peer_t` holds `hop_bytes` and opens a
+view locally per call because a view over a temporary dangled. Replacing that
+with the generated owned form is the next increment, and it closes the bug's
+whole class rather than the one instance the peer fixed.
+
+### Why the codec replacement waits
+
+situ's own tree is being actively changed (its codegen, 2026-09-17), so
+vendoring generated hop code now would pin against a moving target. The schema
+and its contract are situc-version-stable; the generated accessors and the
+owned form are taken once situ settles. The wire-to-memory generator this would
+most benefit from is the feature filed to situ's `suggestion/fuzznet.md` the
+same day.
+
+## 305. Nine more layouts as situ schemas, 2026-09-17
+
+Continuing sec 304, nine more hand-written layouts are described as situ
+schemas and adopted as checked contracts (committed `.wire`/`.map`, pinned by
+`make schema`), the hand-written codecs unchanged. Measured with `situc map`,
+every offset matches the hand-written constants:
+
+    chain/revocation.situ  revocation and withdrawal (fixed, 202)
+    chain/manifest.situ    revocation manifest (variable, count-driven pairs)
+    prekey/prekey.situ     the prekey record (fixed, 138)
+    persist/persist.situ   the on-disk blobs (a tagged union, target file)
+    spool/message.situ     the four sync messages (have-query/have/want/data)
+    spool/sidecar.situ     the "BITS" sidecar (target file, bitmap from leaves)
+    record/record.situ     the signed record (variable, body sized by body_len)
+    tree/tree.situ         a tree node body
+    catalog/catalog.situ   edge, content (a variant) and name
+
+### What situ did well, measured not assumed
+
+The tagged union (persist) is a first-class `variant switch` with `default =
+error`; `target file` gives the on-write discipline an at-rest blob wants;
+count-driven arrays (manifest pairs, spool ranges and proof nodes) and
+arithmetic sizes (the sidecar bitmap, `present[(leaves + 7) / 8]`) all model
+cleanly; `situc advise` found nothing to improve on the fixed ones. And the
+schema caught a real defect: `chain/revocation.h`'s comment table had gone
+stale -- it omitted the `supersedes` field and misplaced the signature, which
+the `#define`s were right about and the prose was not. Corrected here.
+
+### Three situ gaps this surfaced, reported to situ
+
+- No `sum`: the spool `data` message's payload is the sum of a per-chunk length
+  table, and situ's expression language has no `sum` builtin and no user
+  functions, so the payload stays one opaque `remaining` region -- situ cannot
+  enforce that its length equals the table or recover chunk boundaries.
+- `[max]` cannot bound a `remaining` field, so a record-BODY schema (tree,
+  catalog inline content) cannot carry the cap that lives in the enclosing
+  record's `body_len`; those regions read as Unbounded -- honest, but the bound
+  is lost.
+- `inline` is a reserved word (a C++ keyword), so the catalog content enum's
+  member is `inline_value` -- a wire-byte-neutral rename, noted so nobody reads
+  it as a layout change.
+
+These are recorded in situ's `suggestion/fuzznet.md`.
+
+### What is deliberately not here yet
+
+The two NESTED layouts -- the chain (a header and N hops) and the provision
+card (which nests a hop and a prekey) -- are not converted: they need a
+decision on whether one schema may reference a struct declared in another, or
+a module keeps its layouts in one file. And the codec replacement (taking the
+generated accessors and the owned form) waits on situ's own tree settling, as
+sec 304 says.
+
+## 306. The nested layouts, the chain and the card, via import, 2026-09-17
+
+The two layouts sec 305 held back -- the chain (a header and N hops) and the
+provisioning card (which carries a hop and a prekey record) -- are converted
+now, because situ's `import` answers the question they raised. A schema imports
+another by relative path and references its structs, so `chain/chain.situ`
+imports `chain/hop.situ` and `provision/provision_record.situ` imports both the hop and
+the prekey record rather than re-declaring either. There is one encoding of a
+hop and one of a prekey, and a card or a chain cannot drift from it.
+
+`situc map` confirms both: the chain is 2..1434 bytes (`FZN_CHAIN_HEADER_LEN`
+plus up to eight 179-byte hops, `FZN_CHAIN_MAX_LEN`), and the card is 423
+(`FZN_PROVISION_LEN_TOTAL`) with the hop at 34 and the prekey at 213, matching
+the `FZN_PROVISION_OFF_*` constants. `situc advise` finds nothing to improve on
+either.
+
+With these, the authority certificates, the records, the sync messages and the
+on-disk blobs all carry situ schemas. What remains is the harder or weaker
+fits -- the record-store file framing, the blob leaf's sealed-plus-Merkle-proof
+layout, and disclosure -- left for later, and the codec replacement, on situ's
+schedule.
+
+## 307. The three harder fits judged: one converts, two are gaps, 2026-09-17
+
+sec 306 left three layouts "for later": the record-store file framing, the
+blob leaf, and disclosure. Judged case by case now, the way situ owning all
+layouts asks -- convert where it is the right tool, and where it is not, say
+why and report it.
+
+THE RECORD-STORE SLOT CONVERTS, as `record/store_file.situ`, `target file`.
+A slot is `u16 len` big-endian then the record's bytes, addressed by sequence
+at `(N - 1) * FZN_RECORD_STORE_FILE_SLOT`; the schema describes one slot's
+content, not the stride. `situc map` gives size 2..670, which matches: an
+empty slot is two bytes (`len` zero, the sparse-hole sentinel, no record
+following) and a full one is `FZN_RECORD_STORE_FILE_SLOT`. The record is
+`u8 record[len]` -- opaque bytes rather than a nested `fzn_record`, because a
+nested struct would force a 158-byte minimum and could not express the empty
+slot. Its internal structure is `record/record.situ`; here `len` carries the
+one thing the record's own `body_len` cannot, the empty/present distinction.
+
+ONE LIMIT IT SHOWS, adjacent to the `sum` gap already reported: on a present
+slot `len` must equal the record's own encoded size, and situ cannot tie a
+length prefix to a nested object's size, so the two are independent on the
+wire and a mismatch is not caught here. The seam's shape checks catch it at
+`get` time instead, as store_file.h already says.
+
+THE BLOB LEAF DOES NOT CONVERT, and this is a genuine situ gap. A sealed leaf
+is `commitment[32]` then the ciphertext then the AEAD `tag`, and its
+plaintext length is carried by the CONTAINER -- `fzn_blob_leaf_open` takes
+`sealed_len`, there is no length field in the leaf. So the ciphertext would
+have to be `u8 ciphertext[remaining]`, and situc refuses a `tag` after it:
+"`[remaining]` must be the last member of its frame". `wire/frame.situ`
+escapes exactly this by sizing its payload from `head.length`, a field it
+carries on purpose; the leaf carries none, by a design that frames it
+externally. A region sized as "the rest, less the trailing fixed members"
+is the missing form. Reported to situ.
+
+DISCLOSURE IS LIMIT 2 AGAIN, not a new one. A committed field is `salt[16]`
+then `field[remaining]`, `field` bounded at `FZN_DISCLOSE_MAX_FIELD`; the
+bound lives on a `remaining` array and situc refuses `[max]` there, the same
+refusal the tree body and catalog content already hit (sec 305). Expressible
+as a layout, but the cap cannot ride along, so it is not worth a schema that
+states less than the constant does.
+
+A NOTE ON THE GATE. `make schema SITU_DIR=../situ` now finds all fourteen
+wire and map contracts current against situ a164ade, but its generated-C step
+reports `wire/generated/frame.c` stale: situ's C emitter has advanced
+(a164ade, "a located member generates C that compiles"). That is the same
+in-flux codegen sec 304 said the codec replacement waits on, is independent
+of any layout here, and is left until situ's tree settles rather than chased
+into this commit.
+
+## 309. The frame is clear of two situ codegen bugs raidcfgd found, 2026-09-17
+
+raidcfgd, building its own situ payload against fuzznet's frame, hit two situc
+codegen faults and flagged them to check here (both recorded in raidcfgd's
+project.md for the situ session; not duplicated to situ from here). Swept
+against `wire/generated/frame.{c,h}`, the frame is clear of both, and the
+reason is the same: it is nearly fixed-layout with one bounded variable
+member.
+
+The security-relevant one is an integer overflow: situc's generated
+`_required` computes `overhead + length` in `uint32`, so a `length` near
+`0xFFFFFFFF` wraps to a small `need` and a truncated buffer reads as complete.
+The frame does not have it. `situ_fzn_hop_required` and
+`situ_fzn_head_required` set `*need` to a fixed constant -- both structs are
+fixed-layout, so there is no `+ length` term -- and situc emits NO
+`situ_fzn_frame_required` at all, because the payload is variable ("one of its
+members has no length this can compute"). And `head.length` is `u16
+[max = 1024]`, so no length in the frame can approach `UINT32_MAX` regardless.
+THE HAZARD IS LATENT, NOT ABSENT: a future revision that made `head.length` a
+`u32`, or that added a frame-level `_required` over a variable member, would
+walk into it. Recorded at the length field so whoever does that meets this.
+
+The other is performance: situc's `_offset`/`_extent` accessors are
+exponential in a struct's variable-length members (raidcfgd measured one
+decode at 3,000,000 accessor calls, 573 ms, against 0.54 ms with a hand
+cursor). The frame has one variable member, so `situ_fzn_frame_tag_offset` is
+O(1); `tag_ptr` calls it twice, which is a negligible constant here and the
+thing that compounds catastrophically once nesting exists. So the frame is
+safe and any future NESTED variable region in a fuzznet schema is where to
+watch.
+
+And the sizing input, for sec 4.4: raidcfgd's whole status snapshot fits in a
+1 MiB message (its envelope's `length [max = 1048576]`, a bound inside our
+sealed payload that we never read), and its real documents are 1 KB to ~12 KB
+-- about thirteen chunks at our 1024-byte cap. That is well under the frame's
+own reassembly ceiling of `chunks` (u16) times 1024, so a consumer of this
+shape chunks and reassembles with room to spare. No frame change; the number
+is here because sec 4.4's buffer bound is ours to hold and this is the first
+real consumer measuring against it.
+
+## 310. facet's settled in-memory core, implemented, 2026-09-18
+
+`facet/facet.h` was a specification only from 2026-09-10 -- the fuzzypickles
+session wrote it (sec 101), F1-F33, deliberately declaring nothing so it could
+not be linked against before it existed. On 2026-09-18 the copyright holder
+assigned fuzznet the implementation. The fuzzypickles session was messaged
+first and cleared it: no facet work in flight there, no collision, and no
+objection to building the settled core -- while rightly declining to authorise
+any design decision, which is the holder's and recorded in the tree, not a
+peer's to hand over.
+
+WHAT WAS BUILT, in `facet/facet.c`, is the settled, decision-free core:
+
+- the in-memory model -- dimensions, nodes as opaque identifiers (F22), and
+  the three term kinds PREFIX/RANGE/ALT (F5) with a kind tag (F10) -- and the
+  expression as the (P, N) pair (F11), all over borrowed views, no allocation;
+- `fzn_facet_validate`, the F27 refusals that are the safety core (F24-F28):
+  P empty (F14), an alternation spanning dimensions (F8), a term in both P and
+  N, and an unknown term kind (F26, refused not skipped);
+- `fzn_facet_normalize`, the part of F19 that needs neither the encoding nor
+  the index: collapse a single-member alternation to a prefix, dedup terms
+  within P and within N;
+- `fzn_facet_collate`, the F20 key -- zero-pad each decimal-digit run so `9`
+  sorts before `10` and `720p` before `1080p` -- with the run WIDTH a caller
+  parameter, because section 8 leaves it unsettled;
+- `fzn_facet_term_eq`, structural equality with ALT members compared as a set,
+  which the dedup and both-sides checks rest on.
+
+WHAT WAS DELIBERATELY NOT BUILT, because section 8 leaves it unsettled and
+those are the holder's to fix, not mine to invent: the wire encoding, the
+index interface (so no evaluation and no F16 canonical SORT, both of which
+need it), the single-child RANGE collapse of F19 (needs the index), and the
+module name. A function appears in the header ONLY where facet.c defines it,
+so an unsettled operation has no declaration to link against by accident --
+the same discipline facet.h opened with, kept.
+
+VERIFICATION. `facet_test` has 33 checks, each F27 refusal paired with a
+well-formed control that passes (a validator that refuses everything is
+worthless), the F20 examples asserted byte-for-byte, and the F19 collapse
+shown to make a single-member alternation dedup against the equivalent prefix.
+Three sabotage entries (`tool/sabotage.py`) pin the both-sides refusal, the
+alternation-dimension refusal and the collation padding, each seen to fail the
+suite before being recorded. `fzn_facet_err_str` is walked by err_str_test
+(41 renderers now). facet.h moved from SPEC_HDRS to HDRS; catalogue.h stays
+spec-only.
+
+## 311. catalogue's settled merge core, implemented, 2026-09-18
+
+`catalogue/catalogue.h` was the fuzzypickles session's specification (C1-C31,
+2026-09-10), the sibling of facet: facet names SETS of entries, catalogue says
+what an ENTRY is. After facet landed (sec 310) the holder chose
+"settle-then-build" for it; the fuzzypickles session was messaged and cleared
+it (not theirs to implement, no collision), while declining to authorise
+design, as before.
+
+THE CORRECTION THAT MADE IT BUILDABLE. The first reading here was that
+catalogue, unlike facet, had no clean encoding-free core -- it is a behavioural
+spec woven through records, chain, blob and sync. That was half right and the
+wrong half was load-bearing: the MERGE resolution (C5b), which is the heart of
+the model, runs over an in-memory SET of assertions, and the in-memory form is
+the implementer's to choose exactly as facet's term was. Only the WIRE encoding
+of an assertion-as-record is unsettled (section 7), and merge does not need it.
+So there is a settled core after all, and it is `catalogue/catalogue.c`.
+
+WHAT WAS BUILT: the in-memory attribute model -- an assertion is an issuer's
+value for an attribute about an entity, carrying the attribute's four declared
+axes (class C2, scope C5a, merge C5b, capability C5e) as byte enums over
+borrowed views (C30, no allocation) -- and:
+
+- `fzn_catalogue_validate`, the C28 refusal: a resolution set must be ONE
+  attribute (same entity, name, and four axes) or it is refused, and every
+  enum must be known (C28/F26, refused not skipped);
+- `fzn_catalogue_resolve`, the C5b resolution over the LIVE assertions, "never
+  silently pick a winner": UNION returns the distinct live values; DISTINCT
+  retains every live assertion with its issuer and picks no winner; and
+  AUTHORITATIVE puts the designated issuer's value first and marked, then the
+  other distinct values standing where the authority is silent (precedence,
+  not exclusivity) -- and it refuses to guess when no authority is named;
+- `fzn_catalogue_assertion_eq`, structural, comparing everything but the
+  read-time `live` flag.
+
+WHAT WAS NOT BUILT, because section 7 leaves it unsettled or it is behaviour
+over other subsystems: the wire encoding of an assertion, the module name, and
+deletion consensus (C19a), importing/sharding (C23) and sources (C13-C22),
+which need `record/`, sync and `blob/`. Deciding WHICH assertions are live from
+per-(issuer, stream) journal state (C5c) is the caller's; resolve takes the
+live set it is given. The `class` field is spelled `attr_class` because `class`
+is a C++ keyword and the tree's headers stay C++-clean (the `inline_value`
+precedent).
+
+VERIFICATION mirrors facet: `catalogue_test` has 23 checks, the C28 refusals
+each paired with a passing control and each merge rule checked for what it
+retains and attributes; three sabotage entries pin the mixed-set refusal, the
+unknown-enum refusal and the authority mark, each seen to fail first;
+`fzn_catalogue_err_str` is walked by err_str_test (42 renderers now).
+catalogue.h moved from SPEC_HDRS to HDRS, which is now empty -- both spec
+headers have graduated. make test and make style pass.
+
+AN ARCHITECTURAL QUESTION LEFT OPEN, and it is the holder's: the implemented
+`catalog/` (the node/edge/set DAG, sec 142) and this `catalogue/` (the
+entity/attribute model) are related layers. The merge core is self-contained
+and touches neither, so it was safe to build; whether the attribute model
+eventually rides on `catalog/`'s records, supersedes them, or stays separate
+shapes the deferred wire encoding, not this core.
+
+## 312. facet's evaluation, over an index-ops vtable, 2026-09-18
+
+facet's section 8 left two things unsettled that its algebra (sec 310) did
+not need: the wire encoding, and "the index interface an implementation
+evaluates against". Evaluation -- actually selecting the entities an
+expression denotes -- needs the second. Unlike the in-memory term form, which
+was the implementer's to choose, the index interface is a CONSUMER-FACING
+contract, so it is a design decision rather than a representation choice. The
+holder's standing "continue implementing" answered it the way "settle-then-
+build" answered catalogue's.
+
+THE INTERFACE IS A VTABLE, NOT A WIRE FORMAT, and that is why building it is
+safe. `fzn_facet_index_ops_t` is a struct of a context pointer and one
+function -- given a term, fill a buffer with the entities it selects and say
+whether the host could answer it COMPLETELY -- bound by a consumer exactly as
+the crypto ops (`fzn_hash_ops_t` and the rest) are. Changing a vtable costs a
+recompile; section 8's caution is about wire-format churn, which this is not.
+It is grounded in section 8's one fixed property: prefix and range are one
+operation on an ordered index, a prefix p being the range [p, p+0xFF...], so
+the index answers a term and facet does the set algebra.
+
+`fzn_facet_evaluate` computes (intersection of every term in P) minus (union
+of every term in N) over caller-provided result and scratch buffers (C30/F30:
+nothing here allocates). The refusals are the safety core, and the ASYMMETRY
+F24 states is the whole point: a term in N that is incomplete on this host is
+REFUSED (FZN_FACET_ERR_INCOMPLETE), because subtracting a partial set removes
+too little and over-includes, which could drive a deletion; a term in P that
+is incomplete is a partial answer, not a refusal, because it under-includes,
+which is a visible absence. validate (F27) runs first.
+
+VERIFICATION: facet_test gained seven checks -- an intersection, a difference,
+the F24 refusal and its asymmetric non-refusal, and a malformed expression
+refused before the index is touched -- driven by a stub index, the same way
+catalogue's merge was tested over in-memory assertions. Two sabotage entries
+pin the intersection and the F24 refusal, each seen to fail first; the error
+enum is eight codes now and err_str_test walks them.
+
+WHAT IS STILL DEFERRED: the wire encoding (a real index is built from
+catalogue records, whose encoding is catalogue section 7), the F16 canonical
+sort, and the single-child RANGE collapse. So evaluation is proven over a stub
+today; a real index waits on the catalogue wire layer, which is the holder's
+next encoding decision -- the same one catalogue's own records wait on.
+
 ## 318. Retirement migration: status, and the evolve-in-place recommendation
 
 A handoff note, folded before a context clear. sec 317 mapped the retirement
@@ -16023,6 +16486,3301 @@ OPEN, none of them mine to settle:
   library already ships on Android inside fuzzypickles' APK, and a
   cross-compile gate now keeps that true from here. sec 333.
 
+## 321. The sweep planner, and what building it found, 2026-09-20
+
+Step 2. The planner is `catalogue/sweep.{h,c}`, and building it turned up a
+defect in step 1 that no test could have reached.
+
+THE DEFECT FIRST, because it is the part worth carrying.
+`fzn_catalogue_referenced` counted a HOLDER-capability assertion as a
+reference. Measured rather than reasoned: an entity whose only live assertion
+is this host's own "I hold these bytes" reported referenced = 1. Since sec
+317 maps the planner's reachability guard onto that call, the guard would have
+kept every entity this host holds -- REFERENCED BY THE FACT OF HOLDING IT, a
+fixpoint no sweep can escape. The planner would have kept everything and
+planned nothing, for ever, and looked like a working planner over a set with
+nothing to sweep.
+
+C9 HAD SAID SO FROM THE START: "a curated link is a reference; the host
+observation (C7/C8) is derived, not an assertion here." The document was
+right and the loop did not implement it. What kept it hidden is that the
+reachability fixture zeroed `capability` -- 0 is outside the enum entirely,
+so the suite never carried a legal capability and could not reach the case.
+The fixture carries FZN_CATALOGUE_CAP_NONE now, and the new case asserts the
+same assertion is INVISIBLE to `referenced` and DECISIVE for
+`fzn_catalogue_holders`, with a curated control so the skip cannot widen into
+refusing the issuer or the entity. The holder settled it: fix `referenced`,
+one assertion set, no precondition for a caller to get wrong.
+
+It is worth naming why this could not have been caught by testing harder. The
+two queries agree on every set anybody had written, because every such set had
+`capability` at a value the enum does not define. It took a CONSUMER of both
+-- something asking one question and then the other about the same entity --
+to put them in a position to disagree.
+
+THE SHAPE, and it is a judgement between two readings of sec 318's pivot.
+"Evolve in place" was taken as preserving the tested logic rather than
+retyping it, NOT as editing `catalog/sweep.c` where it stands. Three things
+decided it: sec 317's own ordering says steps 1-6 build beside `catalog/` so
+nothing is destroyed until step 7; sec 317's peer-deconfliction warning says
+charging into `catalog/` while it is under hardening is the shared-tree
+hazard; and `fzn_catalog_sweep` has FIFTEEN consumers -- sweep_view,
+sweep_print, their tests, two fuzz harnesses and spool/scrub.h -- so changing
+its signature now pulls the whole of step 7's churn forward into a step that
+does not need it. The guard chain, its ORDER, its counters and its cursor are
+the tested ones; what changed is where they get their answers.
+
+    old                          new
+    fzn_catalog_keeps            fzn_catalogue_keeps        (step 3)
+    a_retained_node_needs        fzn_catalogue_referenced   (step 1)
+    holdings->holds callback     this host among the holders
+    witness->others callback     the holder count, less this host
+
+THE TWO SEAMS DISAPPEARING IS THE POINT. Each was a callback a consumer
+supplied and could supply wrongly, and an absent one answered conservatively
+because there was nothing better to do. Both questions now come from records
+that had to be signed by a host actually holding the bytes (C5e/C8a), so a
+consumer cannot answer them at all, let alone wrongly.
+
+THE ROW IS THE ENTITY ALONE. catalog/'s carried a node id, a blob root and a
+length; C1 collapses the first two, since an entity IS the content hash and no
+two entities can name the same bytes. The length is gone because nothing in
+this model carries it, and a field the planner cannot source would be one it
+invented -- a consumer holding a content hash asks its own filestore how big
+it is.
+
+A NEW COUNTER, `incomplete`, WHICH THE OLD PLANNER HAD NO NEED OF. The holder
+list is read into a bounded scratch; written-plus-dropped is the true TOTAL
+whatever fitted, so the last-copy arithmetic stays sound, but a `self` that
+did not fit is indistinguishable from a `self` that is not a holder -- and
+those lead to opposite outcomes, planning a removal or recording nothing to
+do. So the planner refuses to pick, which is sec 316's asymmetry. It is
+counted APART from `last_copy` because the remedies are opposite: a last copy
+means go and replicate it, an incomplete answer means go and catch up with a
+source before sweeping again. Both are silent in a plan that only reported
+`planned`.
+
+THERE IS NO LOCK, and that is a consequence rather than an omission. The old
+planner refused to capture while another job held `catalog->busy_with`; the
+new model owns no container, so there is nothing to hold a flag and nobody to
+hold it against. What the flag protected still has to hold -- the set and the
+retention table must not change between capture and the last removal, or the
+cursor is a count into something that has moved -- and it is now the caller's,
+stated in the header rather than enforced, because an unstated precondition
+and an absent one look identical from outside.
+
+TESTED, 46 checks, and the property the suite defends is that the plan
+PARTITIONS: every distinct entity lands in exactly one counter and the sum is
+asserted against a population counted independently of the planner, so a
+guard that stopped firing cannot hide behind another counter compensating.
+Every guard is driven with a control that passes it, and the ORDER is asserted
+too -- an entity failing two guards must be counted by the first, or a
+consumer reading `last_copy` goes looking for replicas of something it was
+keeping on purpose. Five sabotage entries, each watched failing through its
+own assertion: retention not opening the chain, a curated link not keeping the
+bytes, guessing at a holder list that did not fit, counting this host among
+the others, and sorting the cursor's rows the wrong way.
+
+AND THE VERIFIER CAUGHT THE FIX BREAKING AN OLD ENTRY.
+`catalogue-referenced-counts-only-live` named text the `referenced` change had
+moved, so `sabotage.py --verify` refused. That is the gate working exactly as
+written -- a stale entry reports a guard as defended without testing it -- and
+it is the second time this session a gate has caught something no build would
+have.
+
+ONE OBSERVATION, NOT RESOLVED, because it is a design question rather than a
+defect. The old `shared` guard asked a LOCAL question: does a node THIS HOST
+RETAINS need these bytes. The new reachability guard asks a global one: does
+any live curated assertion name this entity. They are not the same, and the
+new one is stricter -- an entity that anything in the estate curates is never
+swept here, however many other hosts hold it and whatever this host's own
+retention says. That may be right, since a curated link is an estate-wide
+want. It also makes a local DROP weaker than it was. sec 317 specifies the
+reachability guard, so it is implemented as specified; whether the guard
+should instead ask "does anything THIS HOST curates name it" is the holder's,
+and it changes what a local retention policy can do.
+
+NEXT: step 5 (copy re-homes onto C8 + spool) and step 6 (filing), neither
+blocked. Step 4 still waits on the reclamation policy, and step 7 on the
+peer deconfliction sec 317 names.
+
+## 322. Copy re-homes: step 5, 2026-09-20
+
+`catalogue/copy.{h,c}`. Three questions, unchanged from `catalog/copy.h`:
+what to FETCH, what to ANNOUNCE, and of a peer's wants what to SERVE. It
+decides and does not send -- the transfer is `spool/`'s -- so a caller that
+never touches a transport still gets correct answers out of it.
+
+THE CALLBACK SEAM IS GONE, which is the same gain step 2 recorded. The old
+module asked a holdings op "do I have these bytes"; the answer is now derived,
+because a HOLDER-capability assertion can only be issued by a host that has
+them (C5e/C8a). `self` -- this host's key -- replaces the seam, and a consumer
+can no longer answer wrongly because it is no longer asked. The old seam's
+careful default is gone with it: an absent ops struct answered "this host
+holds nothing", chosen so a partly-filled struct could not make a host
+advertise bytes it cannot serve, and there is now nothing to leave half-filled.
+
+WANT KEEPS ITS RETENTION TERM, and sec 317 flags this as a correction to its
+own first cut. It is retained AND referenced AND not-held. Drop the retention
+term and a host fetches everything the ESTATE curates, filling its disk with
+bytes it had already decided not to keep; drop the referenced term and every
+entity any peer merely HOLDS becomes a fetch. Both are sabotage entries.
+
+HOLDINGS ASKS NOTHING ABOUT POLICY, and the difference from `want` is the
+difference between a fact and an intention. What this host can serve is what
+it has; whether it means to go on keeping it is its own business and not a
+peer's to read. A holdings walk that filtered by retention would announce less
+than it can serve AND leak the policy while doing it. The two share a walk, so
+that collapse is the cheapest defect available here -- the suite drops an
+entity and still requires it announced, which is the one case a test written
+only against `want` cannot reach.
+
+THE SCOPE CHECK IS THE POINT OF AN OFFER. Without it a want list is a request
+for any bytes whose hash a peer can name, so a peer that learned a hash
+anywhere could pull it out of a host that never agreed to serve it. Its
+question is deliberately BROADER than `fzn_catalogue_referenced`: it asks
+whether this host's set mentions the entity at all, because an entity this
+host holds and nothing curates any more is exactly what a peer catching up is
+likely to ask for. Using `referenced` there would refuse to serve precisely
+those. The two notions sit one function apart in the same file, so the
+distinction is commented at both.
+
+THE TWO SUMS ARE PRESERVED, which is what makes the counters checkable:
+
+    examined = not_retained + not_referenced + already_held + missing
+             + unknown + incomplete
+    emitted  = written + duplicates + truncated
+
+`inline_ready` and `no_content` are gone -- the new model has no content kinds,
+an entity IS a content hash -- and `not_referenced` and `incomplete` are new.
+All three entry points are asserted against the same arithmetic, which is what
+makes it worth asserting rather than three sums that each hold in one place.
+
+`duplicates` SURVIVES FOR ONE REASON. A walk dedupes its own set by entity
+before classifying, so it can never rise there; an offer examines the PEER's
+list, which may name one entity twice. A counter that can only move in one of
+three entry points is worth keeping only because that entry point exists.
+
+A TYPE CAME OUT OF -Wpedantic, AND IT IS THE RIGHT ONE ANYWAY.
+`fzn_catalogue_entity_t` is a struct wrapping the 32 bytes. A bare
+`uint8_t[N]` decays to a pointer that does not implicitly acquire `const`, so
+`const uint8_t wants[][N]` cannot take a caller's ordinary array without a
+cast -- which the build said, at -Wpedantic, six times. Wrapping it makes
+const-qualification behave as it does everywhere else, and it is what the old
+`fzn_catalog_blob_t` did. `fzn_catalogue_due` moved to it in the same pass
+rather than being left as a second spelling; `catalogue/sweep.h` keeps
+`fzn_catalogue_removal_t`, because a removal ROW is a different thing from an
+entity and is the shape that grows if a job needs more per row.
+
+TESTED, 48 checks, four sabotage entries, each watched failing through its own
+assertion: want without retention, want without a curated link, holdings
+consulting policy, and an offer without its scope check.
+
+NEXT: step 6 (filing), the largest of the local-layer pieces and the last
+unblocked one. Step 4 still waits on the reclamation policy and step 7 on the
+peer deconfliction sec 317 names.
+
+## 323. Filing re-homes: step 6, 2026-09-20
+
+`catalogue/filing.{h,c}`. The last of steps 1-6, and the one sec 317 sized as
+MEDIUM-LARGE. It turned out smaller in one place and larger in another, and
+both are worth recording.
+
+SMALLER: THE PATH NEEDS NO WALK. The old filing was a mark on a membership
+edge, so a node's path was found by walking filing parents upward -- with
+FZN_CATALOG_FILING_MAX_DEPTH at 64, because filing A under B and B under A
+made a cycle expressible and a walk needed a bound rather than a promise. sec
+315 settled that a curated link is an attribute whose NAME is the dimension
+and whose VALUE is a path in that dimension's tree, so the value IS the path.
+There is nothing to walk, no depth to bound, and no cycle to express. The
+whole of `fzn_catalog_filed_path` and its bound are gone.
+
+WHAT A FILING IS NOW: a choice among the links the entity ALREADY HAS. An
+entity may sit in many places at once -- several assertions merged as UNION --
+and a filing says which ONE of them this host writes to disk. That keeps the
+filing a SUBSET of what the records assert, which is the property the old
+module got from marking an existing edge.
+
+LARGER: THE SUBSET PROPERTY IS NO LONGER STRUCTURAL. The old module could not
+express a filing on an edge that did not exist; here it can be expressed and
+has to be REFUSED, which means a check and a test rather than a type.
+FZN_CATALOGUE_ERR_ABSENT when no live curated assertion names the (entity,
+dimension, path) -- and a HOLDER assertion cannot back one, which is sec 321's
+finding one layer up: it says where the bytes ARE, not where they BELONG, and
+filing on one would let the fact that a host holds something decide where it
+files it.
+
+AND THE RULE THAT HAD TO MOVE, which is the real work of this step. The old
+module cleared a filing when its edge was unlinked, because it owned the edge
+table and could hook the removal: "a node filed under a directory it has left
+is a path to a place the catalogue no longer says it belongs." This model owns
+no assertions -- they are the caller's set -- so there is no unlink to hook.
+The check therefore moves to the READ: `fzn_catalogue_filed_under` re-checks
+the set on every call and answers nothing for a filing no live curated
+assertion backs any more. The rule survives; only its moment changes.
+
+That leaves stale rows occupying slots, so `fzn_catalogue_filing_prune` gives
+them back -- deliberately, at a moment of the caller's choosing, for the same
+reason `fzn_catalogue_due` does not reclaim its own rows: a read must not
+write. The pair is driven from both sides in the suite, because a read that
+refused everything and a prune that dropped everything would each pass alone.
+
+A PRUNE OVER AN EMPTY SET DROPS EVERYTHING, and that is the conservative
+direction rather than a bug: nothing is asserted, so nothing is backed. A
+caller that has not loaded its records yet must not prune.
+
+THE REFILE KEEPS ITS SHAPE and loses its lock. Capture before the change --
+the only order that works, since afterwards the old paths are gone and there
+is nothing to move files from -- then a cursor over (entity, was, is). The old
+module said plainly that the lock was not only a safety property but what made
+resuming from a count sound, and this model has no container to hold one. The
+requirement does not go away with the mechanism: the sort by entity is what is
+left, and the rest becomes the caller's, stated in the header. A caller needing
+it enforced holds its own lock around the job, which it must anyway, since the
+files are its to move. The suite walks a job across a simulated restart, since
+a test that only ran start to finish would never exercise what the lock used
+to protect.
+
+`to` MAY BE NULL AND THAT IS A REAL ANSWER. An entity unfiled, or whose link
+was retracted, between capture and cursor has nowhere to go. What to do with a
+file whose entity has no home is the consumer's decision rather than this
+library's, so it is reported rather than refused.
+
+A NEW ERROR CODE, FZN_CATALOGUE_ERR_ABSENT. "The records do not assert what
+you named" is a legitimate state, not a caller's bug, and folding it into
+MALFORMED would make a caller that has not caught up with a catalogue
+indistinguishable from one with a programming error. The two call for
+different responses. err_str_test walks seven arms now.
+
+ONE THING THE SUITE FOUND IN THE CODE: `refile_capture` checked its capacity
+before zeroing the job, so a refused capture left `captured` holding whatever
+was on the stack -- and `captured` is what every cursor call trusts. The plan
+structs in sweep and copy are zeroed before their arguments are checked for
+exactly this reason; the capture is now too.
+
+TESTED, 60 checks, six sabotage entries, each watched failing through its own
+assertion: a retracted link backing a filing, a holder assertion backing one,
+the subset rule skipped, the read-side re-check skipped, filing adding instead
+of replacing, and the refile's sort reversed.
+
+STEPS 1-6 ARE NOW BUILT. What remains of sec 317: step 4, which is the
+reclamation POLICY and the holder's; and step 7, the test migration and the
+rename, which sec 317 names as peer-hot and wanting deliberate deconfliction
+rather than charging in.
+
+## 324. Step 7, stage one: the coverage the deletion would have taken
+
+Step 7 retires eight suites -- 6775 lines, ~1600 sites -- and renames the
+module. Before deleting any of it, the question that actually gates the step:
+does the new suite set cover what the old one did? Two gaps, both real, and
+both closed here rather than noticed afterwards.
+
+FIRST, THE SCOPE IS SMALLER THAN sec 317 ESTIMATED, ON THE PART THAT MATTERS.
+Outside `catalog/` there are THIRTY-ONE call sites across seven files --
+sweep_view, sweep_print, their two tests, qtty_render_test, err_str_test, and
+a single mention in spool/scrub.h which is a COMMENT and not a dependency. The
+~1600 sites are almost entirely inside the suites being deleted. So the
+migration is mostly deletion, and the risk is not churn but LOST COVERAGE.
+
+GAP ONE: NEAR-MISS COMPARISONS. The old suites guarded the prefix-compare
+defect class in four places -- reach_test's `reads_the_whole_id` and
+`reads_the_whole_issuer`, copy_test's `a_near_miss_root_is_not_a_duplicate`
+and `an_offer_reads_the_whole_root`. The new suites had NONE, measured rather
+than assumed. That class matters here more than it did there: a compare that
+stops short folds two entities into one row, so a host keeps or drops a file
+because of a decision taken about a DIFFERENT file, and on the issuer axis it
+folds two hosts into one holder -- which makes a LAST COPY read as replicated
+and lets the sweep remove it.
+
+Added to five suites, every pair differing in its LAST byte, which is the case
+a truncated compare cannot see at all. Three sabotage entries shorten a
+compare by one byte and each is caught. One of them is worth recording: the
+mutation in `bytes_eq` is caught by fourteen assertions, only three of which
+are the new ones -- so the entry was verified by reading WHICH checks failed
+rather than that something did, and the near-miss cases are among them.
+
+GAP TWO: FOUR FUZZ HARNESSES AGAINST ZERO. catalog_fuzz, reach_fuzz,
+sweep_fuzz and copy_fuzz all retire with their subject, and the new model had
+only attribute_fuzz -- which asks a different question entirely. That harness
+asks whether arbitrary BYTES can make a decoder misbehave; these modules never
+see bytes off the wire. What can go wrong in a planner is an INVARIANT quietly
+ceasing to hold on some shape of input nobody wrote a case for.
+
+`catalogue/test/plan_fuzz.c` drives all three planners together, because the
+invariants worth checking span them. Five properties: the plans PARTITION;
+every planned row passed every guard, RE-DERIVED INDEPENDENTLY rather than by
+asking the module again; the rows are sorted and strictly distinct; want and
+holdings never name the same entity; and a filing is only reported while the
+records back it.
+
+THE SECOND PROPERTY IS THE ONE WORTH HAVING, and it is why this is not the
+counters checking themselves: the plan can partition perfectly while the WRONG
+ROWS are in the job. So the harness re-derives this-host-holds, other-holders
+and curated-here from the assertion set with its own code, and requires every
+planned removal to clear all four guards.
+
+AND THE FLOORS ARE THE CONTROL. A generator producing only empty sets would
+satisfy every invariant and prove nothing, so the run counts the states that
+make each property bite and fails if any stayed at zero. Measured over 20000
+cases: planned 649, retained 14861, referenced 12354, last_copy 801, absent
+6045, wanted 11535, announced 6107, filed 24483, stale 14111.
+
+SHOWN CAPABLE OF FAILING, which a harness that has only ever been green is
+not. Three sabotages, each caught within fifteen cases and each reporting the
+invariant by name: the last-copy count including this host (seed 15, "planned
+a removal of a last copy"), want dropping its retention term (seed 1, "asked
+to fetch an entity this host does not keep"), and filing skipping its
+read-side re-check (seed 1, "a filing answered after every assertion was
+retracted").
+
+NEXT, and deliberately separate commits: re-point sweep_view and sweep_print
+at the new plan counters; delete `catalog/`; rename `catalogue/` to `catalog/`
+with a proof, since a mechanical rewrite of a public symbol across a tree is
+exactly the change that carries one.
+
+## 325. Step 7, stage two: the consumers read the new plan, 2026-09-20
+
+sweep_view and sweep_print now read `fzn_catalogue_sweep_plan_t`. Thirty-one
+sites across seven files, and the work split cleanly into a half that is
+mechanical and a half that no substitution could have got right.
+
+THE MECHANICAL HALF is a symbol list applied uniformly. ITS PROOF IS A
+POST-CONDITION, NOT A PER-ANCHOR COUNT, and the first attempt got that wrong:
+asserting each symbol appears in each file asserts that every file uses every
+symbol, which is a claim about the files rather than about the rename --
+`fzn_catalog_sweep_capture` is simply not in a printer. It refused, correctly,
+having written nothing. What the rename actually promises is that afterwards
+NO OLD SYMBOL SURVIVES and the file changed, so that is what is asserted now.
+
+THE SUBSTANTIVE HALF, which is why this was read rather than sed'd:
+
+- `shared` became `referenced`, AND THE WORDING HAD TO CHANGE WITH IT. "Shared
+  with a retained node" described the OLD guard, which asked a local question:
+  does a node THIS HOST retains need these bytes. The new one asks whether
+  anything in the estate curates it. A pure field rename would have left a
+  sentence that is now false, while every name looked right.
+- `incomplete` gained a line of its own, and it says what to DO -- catch up
+  with a source -- because sec 321 counts it apart from `last_copy` precisely
+  because the remedies are opposite.
+- AND IT JOINED THE HELD-BACK CONDITION, which is the one that mattered.
+  Without it a plan whose entities were ALL undecided reports FZN_SWEEP_EMPTY
+  -- "nothing to remove" -- so a consumer stands down when what actually
+  happened is that it could not determine a single holder. That is a behaviour
+  change hiding inside what looks like a field rename, and it is asserted in
+  both suites now: the printer's state, and the widget's.
+
+THE WIDGET NEEDED ONLY THE MECHANICAL HALF, which is sec 193 working: it takes
+every word from the printer, so one decision and one wording live in one
+place, and a new reason reaches the screen without the widget knowing.
+
+TWO STALE BINARIES READ AS PASSES DURING THIS, both caught by reading the
+build rather than the run. `make` failed on a field that no longer exists and
+the PREVIOUS binary was still on disk, so the suite ran and reported 30 checks
+and zero failures -- for code that had not compiled. The second time the
+binary was 1012912 bytes of yesterday's build. build-and-commit.md's rule is
+exactly this: never conclude a test passes from a binary the build step did
+not rebuild. Removing the binary before rebuilding is what makes the trap
+impossible rather than merely noticed.
+
+Four link rules moved with it -- sweep_print_test, sweep_view_test, the qtty
+render objects, and the printer's own -- because an object list is where a
+re-point is least visible and most likely to be left behind.
+
+## 326. Step 7, stage three: catalog/ is gone, 2026-09-20
+
+Nineteen tracked files, 6775 lines of them tests, plus 99 sabotage entries,
+64 Makefile lines, 8 gitignore lines, 3 error renderers, 8 consumer includes
+and a situ contract. The deletion itself is the smallest part; what made it
+safe was stage one, and what made it careful was naming things.
+
+DELETED BY NAME, FROM THE LIST GIT GAVE. `git ls-files catalog/` produced the
+nineteen paths and `git rm` took exactly those -- not a glob, and not a path
+list computed from `git status`, which is the form CLAUDE.md warns reads like
+naming and behaves like a blanket add. `git status --porcelain -- catalog/`
+was empty first, so there was no untracked work in there to destroy.
+
+AND THE BUILD OUTPUT WAS ACCOUNTED FOR BEFORE THE DIRECTORY WENT. Thirty-two
+files survived the `git rm`, all untracked: twelve .o, twelve .d and eight ELF
+binaries whose sources had just been deleted. Every one identified -- by
+extension and by `file` -- before `rm -rf` on the directory, because the rule
+is that where you cannot vouch for the FILES you must be able to vouch for the
+DIRECTORY, and vouching means having looked. The variable was checked
+non-empty and non-root first, which is the guard `build-and-commit.md` asks
+for and the reason an unset one has eaten a source tree elsewhere.
+
+THE 99 SABOTAGE ENTRIES WENT WITH THEIR SUBJECT, matched as whole tuples
+naming `catalog/*.c` rather than by line. `--verify` is the proof: 483 entries
+over 110 of 111 sources, each naming exactly one site. An entry left behind
+would have been a stale one, which reports a guard as defended without testing
+it -- and the verifier caught two of exactly that kind earlier today, from the
+stage-two re-point.
+
+THREE ERROR RENDERERS RETIRED with the enums they render: `fzn_catalog_err_str`,
+`_content_str` and `_retention_str`. err_str_test walks 40 renderers now, 654
+checks. The new module's own renderers stay.
+
+WHAT IS LEFT OF THE NAME, and both are deliberate. `catalogue/retention.h`
+says retention "was a table inside `fzn_catalog_t`", which is prose about the
+past and stays true. `spool/scrub.h` cites `fzn_catalog_sweep_progress` as the
+precedent for its own progress call -- stale for exactly one stage, because
+stage four renames `fzn_catalogue_sweep_progress` back to that spelling and
+makes the sentence true again.
+
+THE COUNTS, before and after: 111 library sources against 115 before; 93
+public headers against 97; 40 renderers against 43. Each fell by what the
+module owned and nothing else.
+
+## 327. Step 7, stage four: the rename, and its proof, 2026-09-20
+
+`catalogue/` is `catalog/`, and `fzn_catalogue_*` is `fzn_catalog_*`. The
+collision that forced the longer spelling is gone, because the module it
+collided with is gone -- which is why this is the last stage and not the
+first.
+
+WHAT WAS RENAMED, AND WHAT DELIBERATELY WAS NOT. The directory, the file names
+(`catalogue.c`/`.h` and `catalogue_test.c`), the symbol prefixes and the
+include paths. NOT the English word: the comments still say "a catalogue keeps
+nothing until told", because "catalogue" is what the thing IS in prose and the
+old module's own comments said it throughout. The rename is of a module name
+and a symbol prefix, not of a vocabulary.
+
+THE PROOF IS THE SYMBOL SET, READ FROM THE OBJECTS. `nm --defined-only` over
+the built objects before the rename gives 35 exported symbols; the same after
+gives 35; and mapping the BEFORE set through the substitution gives the AFTER
+set exactly, `diff`-identical. That is what must not change, stated before the
+edit and checked mechanically -- and it reads the ARTIFACT rather than the
+source, so a substitution that reached a definition but not its declaration
+shows up here rather than as a link error somewhere later.
+
+WHY THAT PROOF AND NOT A DIFF REVIEW. A rename of a public prefix across 34
+files is exactly the change whose diff is too large to read and too uniform to
+read carefully -- every hunk looks like every other hunk, which is the
+condition under which an eye slides past the one that is wrong. The symbol set
+cannot slide: a lost symbol, a gained one, or one spelled `fzn_catalog` where
+it should be `fzn_catalog_` all show as a line in the diff.
+
+THE STALE BUILD OUTPUT CAME WITH THE DIRECTORY, which `git mv` does not care
+about: `catalogue.o`, `catalogue.d`, `catalogue_test` and six more landed under
+the new name. Removed by name, each one identified as output of a source that
+had just been renamed, leaving 21 files under `catalog/` and all of them
+sources.
+
+AND spool/scrub.h IS TRUE AGAIN. sec 326 left its citation of
+`fzn_catalog_sweep_progress` stale on purpose, predicting that this stage would
+give the spelling back. It did, and the sentence now names a function that
+exists -- which is worth recording because the alternative was editing it
+twice to say the same thing.
+
+STEP 7 IS COMPLETE, and with it steps 1-7 of sec 317 except step 4. The
+retirement program set out to supersede `catalog/` with a model built on the
+ATTRIBUTE record; `catalog/` is now that model.
+
+WHAT REMAINS OF sec 317: step 4, the reclamation POLICY -- whether automatic
+reclamation exists, its grace period and its pin granularity. The mechanism
+has been settled since C19a; the policy is the holder's and gates any
+automatic GC. Nothing else in the program is blocked on anything.
+
+## 328. Two findings from `make schema` after the migration, 2026-09-20
+
+MINE FIRST. The rename pass of sec 327 included `.map` in its file filter, and
+`catalog/attribute.situ.map` is GENERATED -- situ writes it from the schema.
+Rewriting the symbol prefix inside it produced a file that reads correctly and
+is not what the generator produces: the names got two characters shorter and
+the column padding did not follow, so `cmp` against a fresh `situc map`
+refused it. Regenerated rather than re-aligned by hand, which is the only
+correct way to fix a generated file.
+
+It is worth naming why this was invisible: the map is read by `make schema`,
+which is NOT part of `make check`, so every gate in sec 327 passed over it.
+A generated artifact edited by hand looks right to a reader and to every
+compiler; the only thing that can tell is the generator.
+
+THE SECOND IS NOT MINE, AND IS REPORTED RATHER THAN FIXED. `make schema` is
+red for two further reasons, both from situ moving:
+
+- `wire/generated/frame.c` and `frame.h` are stale. Regenerating them adds
+  THREE bounds checks the committed code has none of -- `if (view.limit <
+  SITU_FZN_HOP_SIZE_MIN) { *which = 0xFFFFFFFFu; return SITU_ERR_BOUNDS; }`
+  and two more -- which refuse a struct shorter than its own minimum. That is
+  a hardening fix in the wire-format parser, sitting available and unapplied.
+- `wire/generated/situ.h` and `situ.c`, the VENDORED RUNTIME, have drifted 525
+  and 31 lines from situ's.
+
+AND THEY ARE ONE CHANGE, NOT TWO. Measured rather than assumed: the
+regenerated frame calls `situ_base(view)`, which the vendored runtime does not
+define, so it does not compile against it -- four errors, starting with an
+implicit declaration. Taking the parser hardening means taking the runtime
+bump with it.
+
+WHY IT IS NOT TAKEN HERE. It is 525 lines of vendored third-party runtime
+under the wire-format parser, which is the most safety-critical generated
+artifact this library has; situ moved SIX times today and its session is still
+working; and `build-and-commit.md` says a pin move "is a change to what the
+project builds against, it belongs in a commit somebody reviews". Regenerating
+is one command once that is decided. The generated frame was restored to its
+committed state so the tree builds, after checking that every line of the
+difference was situc's output put there minutes earlier.
+
+WHAT THIS COSTS IN THE MEANTIME: nothing that `make check` can see, which is
+the point. `make schema` is the only gate that reads these, so the drift is
+invisible to everything else -- and the parser hardening stays unapplied until
+somebody decides to take it.
+
+## 329. The situ pin moved, and what it actually bought, 2026-09-20
+
+Taken on the holder's instruction. situ's C runtime is re-vendored at 6b9c1cd,
+`wire/generated/frame.{c,h}` regenerated with it, and `make schema` is green
+for the first time today.
+
+THEY ARE ONE CHANGE AND NOT TWO, measured rather than assumed: the regenerated
+frame calls `situ_base(view)`, which the old vendored runtime does not define,
+so it does not compile against it. Taking either means taking both.
+
+WHAT IT BOUGHT, AND A CORRECTION TO SEC 328. That section called the new lines
+"THREE bounds checks the committed code has none of", which reads as bytes
+going unchecked. They were not. Built the committed frame against the
+committed runtime in a scratch tree and ran the same probe against both:
+
+    view limit   before                          after
+    0..4         SITU_ERR_CONSTRAINT, a member   SITU_ERR_BOUNDS, whole-struct
+    5 (minimum)  SITU_ERR_CONSTRAINT             SITU_ERR_CONSTRAINT
+
+So a short struct was ALWAYS refused. What was wrong was the ATTRIBUTION: it
+returned a member-level constraint error naming a member as the cause, which
+is false when nothing fits -- and it was indistinguishable from a full-length
+struct with a genuinely bad member, same code and same shape of `which`. For a
+wire parser that matters, because a peer sending a truncated frame was blamed
+on an arbitrary field. It is a misattribution fixed in an error path, not a
+hole closed. The row at the minimum is the control: the new guard does not
+over-refuse.
+
+THE BANNER MOVED WITH THE BYTES. It pinned db070cf and now pins 6b9c1cd, and
+its proportion argument -- "situ's C runtime is 76 lines of situ.c" -- is 87
+now. That number is the banner's own load-bearing claim and the kind
+`evidence.md` says rots, so it moves when the pin does.
+
+AND THE ESCAPE CLAUSE IS WORTH THE HOLDER'S EYE. The banner says what would
+change the vendoring answer: "this runtime growing to the point where
+vendoring it is copying a library rather than two files." `situ.h` went from
+1321 body lines to 1765 in this one bump. It is still two files, so the
+exception still holds on its own terms -- but the trend is the thing the
+clause was written to watch.
+
+TWO MEASUREMENT ERRORS OF MINE, BOTH THE SAME SHAPE. `diff <missing file> ...
+2>/dev/null | grep -c` printed "0 changed lines", which I read as IDENTICAL
+when it meant ABSENT -- and I then invented `wire/test/frame_tamper.h` as a
+destination from that reading. The style gate caught the stray file. Then I
+`cmp`'d the tamper header against a leftover in my own scratch directory and
+read a difference that was not real; the schema gate, which regenerates into a
+fresh directory, says the tracked header is current and unaffected by this
+bump. Both are `evidence.md`'s manufactured absence: a probe that cannot tell
+"nothing there" from "nothing wrong", trusted because the number was zero.
+
+## 334. The vendoring clause was measuring the wrong quantity, 2026-09-21
+
+sec 331's pin move grew `situ.h` from 1321 body lines to 1765, and the
+vendoring banner names runtime growth as one of two things that would change
+the answer. Reading the clause to see whether it had tripped found that it
+could not have, because it is a size test guarding a ratio argument.
+
+THE ARGUMENT IS A RATIO. The banner's case for vendoring rather than
+submoduling is that situ's C runtime sits inside a repository that is
+otherwise a Python compiler, so a submodule drags the whole compiler in to
+obtain two files. What decides that is how much comes with the runtime, not
+how big the runtime is.
+
+THE CLAUSE WAS A SIZE TEST: "this runtime growing to the point where vendoring
+it is copying a library rather than two files". That fires at the wrong time in
+both directions. This runtime could double again and a submodule would still
+drag a Python compiler; a much SMALLER runtime in its own repository should
+already be a submodule. The clause's other branch -- situ shipping its C
+runtime as its own repository -- is the real trigger, and it is not a number.
+
+So the clause now names the ratio, and the size half is struck with the reason.
+
+AND THE FIRST MEASUREMENT OF THAT RATIO WAS WRONG, which is the part worth
+carrying. By hand: 330079 lines of Python against 1852 of C, 178:1. Mechanised
+into `make schema`, reading the `git archive HEAD` the gate already extracts:
+167584 and 90:1. The difference is 202 `.py` files under `debian/` that a
+package build had left in situ's working tree and that no clone would ever
+receive.
+
+THE ERROR IS `evidence.md`'s, exactly: a fact about what a submodule would
+deliver, measured against a working directory instead of against the archive a
+submodule actually gives you. The same shape as a sweep reporting, as facts
+about four projects, an artifact of the scratch directory they had been
+unpacked into.
+
+WHICH IS WHY IT IS MECHANISED RATHER THAN DATED. `make schema` prints the live
+ratio on every run, so the banner's figure is compared rather than trusted --
+and it corrected its own author on the first run, which is the strongest
+argument for the technique that was available. It REPORTS rather than refuses:
+no threshold has been agreed, and the real trigger is not a number.
+
+IT ALSO ABSTAINS HONESTLY. Placed after the recipe's cleanup it could not find
+the extracted tree and printed "could not measure the vendoring ratio, so the
+banner's figure stands unchecked this run" rather than a wrong number or a
+silent nothing. Moved before the cleanup, it measures. The abstention branch
+was real and was worth having before it was needed.
+
+THE VERDICT: the exception HOLDS, and more strongly than when it was written.
+1894 vendored lines against monocypher's 3309 -- the comparator the banner
+itself names as belonging in a submodule is the LARGER of the two -- at a
+ratio of 90:1 where monocypher's repository is its C library at 1:1.
+
+## 339. The word `source` said two things; one of them is now `issuer`, 2026-09-21
+
+RECORDED IN sec 338 AND DONE HERE. `fzn_catalog_source_t` meant "an issuer the
+set depends on". C13's SOURCE means "where bytes live, named, carrying a
+policy". One word for two concepts in one header, which code-style.md forbids
+for exactly the reason it bit: C22's pattern produces a relative path INSIDE a
+source, and the word for that thing was taken.
+
+    fzn_catalog_source_t  ->  fzn_catalog_issuer_t
+    fzn_catalog_sources   ->  fzn_catalog_issuers
+    struct fzn_catalog_source -> struct fzn_catalog_issuer
+
+The struct's own fields were ALREADY `issuer` and `issuer_len`, and its doc
+comment already said "the distinct issuers the set depends on". So the type
+name was the only thing still claiming otherwise, which is why this is a
+rename and not a redesign -- and it is a fair warning about how long a wrong
+name survives next to right ones.
+
+THE PROOF, which is the part worth keeping. 23 replacements over 8 files, and
+the tool refused to write unless three things held per file:
+
+  - THE DESTINATION SPELLING WAS ABSENT beforehand. Had `fzn_catalog_issuer`
+    already occurred, the inverse below would be ambiguous and would prove
+    nothing -- the check that makes the proof a proof rather than a ritual.
+  - APPLYING THE INVERSE REPRODUCED THE ORIGINAL BYTE FOR BYTE. Only those
+    tokens moved; anything else the pass touched shows up here as a
+    difference.
+  - NOTHING WAS LEFT HALF-RENAMED: no `fzn_catalog_source` survived.
+
+AND AN INDEPENDENT READING OF THE SAME FACT, because a tool agreeing with
+itself is one witness. The defined-symbol set over every object in the build,
+before and after:
+
+    812 symbols before, 812 after, IDENTICAL once the one renamed function is
+    mapped across; `fzn_catalog_sources` gone from the objects, and
+    `fzn_catalog_issuers` present.
+
+A type rename is invisible to a linker, so that set is expected to move by
+exactly one name -- which is the point: had the pass damaged a definition, or
+renamed something it should not have, the set would have moved by more. The
+object COUNT went 297 to 298, and the extra is `node/fuzznetd.o`, which a
+default `make` builds and the earlier `make check` had not; it introduced no
+symbol the set did not already have, so it cannot be hiding anything in the
+comparison. Recorded because an unexplained difference in a proof's
+denominator is exactly the thing that gets waved past.
+
+THE PROOF DOES NOT COVER THREE PASSAGES I REWROTE BY HAND, per evidence.md's
+rule that a bulk change's guarantee stops where the tool stopped. Two were
+prose using "source" to mean issuer -- "catching up with a source must see its
+retractions" and "written to `out` as for sources" -- which a mechanical pass
+cannot judge, since the same word is correct a few lines further up where C13
+is the subject. The third is section 7's note about the collision itself,
+which the rename would otherwise have turned into the sentence "`issuer`
+means an issuer rather than C13's source": true, and no longer the finding it
+was recording. It now says the word is free and that C13's source type is
+STILL NOT BUILT -- no source type, no managed/referenced distinction, no
+(SOURCE, RELATIVE PATH) reference. That is the next piece of work, and it now
+has a name to use.
+
+Alignment survived untouched by luck rather than by care: `sources` and
+`issuers` are both seven characters, and `..._source_t` and `..._issuer_t`
+both twenty, so every continuation line still lines up under its open paren.
+Worth noticing rather than relying on -- a rename that changed a length would
+have needed the alignment re-done and re-proved, and the proof above would
+not have caught it, because expanding-and-comparing is blind to a column.
+
+## 346. F16's sort exists now, and two comments that claimed more than the code did, 2026-09-21
+
+THE GAP. F16 says an expression's terms are sorted "by BYTE-WISE COMPARISON of
+each term's canonical encoding", and nothing in the library produced that
+order. `fzn_facet_expr_encode` REFUSES an unsorted array rather than sorting
+it, so a consumer had to sort its own terms by encoded bytes -- and the tell
+was in my own work the day before: `codec_test` had to hand-roll an insertion
+sort over encodings to build a valid expression. **If the suite needs it,
+every consumer does.**
+
+`fzn_facet_expr_sort` in `facet/codec.c`, not in facet.c, for the reason that
+kept it unwritten: it orders by the canonical encoding, which is the codec's.
+It is the sibling of `fzn_facet_expr_ordered`, which could already say whether
+an array was in order and could not put it in one.
+
+THREE THINGS IN ONE ORDER, and the order is the design:
+
+  1. F18 sorts and DEDUPLICATES each alternation's members, by a member's own
+     encoding `id_len || id`.
+  2. F19 collapses an alternation the dedup reduced to ONE member into a
+     PREFIX term. Between the two, necessarily: earlier there is nothing to
+     collapse, and later the term has already sorted under an encoding it no
+     longer has.
+  3. F16 sorts P and N by term encoding and removes duplicates, which are
+     adjacent once sorted.
+
+IT REWRITES THE MEMBER ARRAYS, and that is a precondition rather than an
+implementation detail. `fzn_facet_term_t` holds `members` as a pointer to
+const because the model only BORROWS; sorting writes through it. A caller must
+therefore not point `members` at storage that is genuinely const. Stated in
+the header because an unstated precondition and an absent one look the same
+from outside.
+
+===========================================================================
+
+TWO COMMENTS CLAIMED MORE THAN THE CODE DID, and finding them is most of why
+this was worth doing.
+
+`facet.h` said `fzn_facet_normalize` "deduplicates the members of each
+alternation". IT NEVER DID. `normalize_side` collapses a one-member
+alternation and removes duplicate terms, and that is all -- and `facet.c`'s
+own comment said so, listing the F18 member sort/dedup among what is NOT
+done. So the header and the implementation disagreed about a named operation,
+in a module whose whole subject is canonical form, and the disagreement
+survived because nobody had a reason to ask normalize for something the
+encoder did not yet exist to want.
+
+That is `evidence.md`'s shape exactly: a claim nobody re-checked, where the
+falsifier was a function two files away. It is fixed by doing the work rather
+than by weakening the sentence -- F18's dedup exists now, in the sort -- and
+normalize's doc now says what normalize does.
+
+`facet.c`'s top-of-file comment listed evaluation, encode/decode and the F16
+sort as deliberately absent "because section 8 has not fixed the wire format".
+All three are built. The sentence outlived the gap it described by between a
+day and rather longer.
+
+===========================================================================
+
+EVIDENCE. 69 checks, and the fixtures are chosen so the sabotages SEPARATE.
+
+Four entries, each failing through its own assertion:
+
+    facet-sort-orders-the-terms                 codec_test.c:529
+    facet-sort-dedups-the-terms                 codec_test.c:463
+    facet-sort-dedups-the-members               codec_test.c:471
+    facet-sort-collapses-a-dedup-to-a-prefix    codec_test.c:534
+
+THE FIRST TWO DID NOT SEPARATE AT FIRST, which is the part worth recording.
+The main fixture mixes disorder with a duplicate, so breaking EITHER the
+ordering or the dedup failed the same term-count assertion first: two
+different defects, one message. A control that cannot say which check failed
+is half a control -- `evidence.md` says to sabotage the thing and then read
+WHICH check failed, and here the answer was the same either way.
+
+The fix is a second fixture with three distinct terms out of order and
+nothing to deduplicate, so only the ordering can be wrong. With it, the
+ordering sabotage fires an assertion the dedup sabotage does not.
+
+And the sort is checked for IDEMPOTENCE: sorting twice encodes to the same
+bytes as sorting once. A canonical form that moved on a second pass would not
+be one, and asserting the relationship catches that where asserting the
+result would not.
+
+The consumer gate gained the same shape -- refused before the sort, accepted
+after -- because nothing else in the library produces F16's order and a
+consumer meeting the refusal needs to know what answers it.
+
+WHAT IS STILL DEFERRED, unchanged and pinned in two places: F19's single-child
+RANGE collapse needs the taxonomy to know that two bounds name one child, so a
+canonical expression is canonical in every respect but that.
+
+## 347. A diagnosis in one file does not correct another, 2026-09-21
+
+`session/commitment.h` carried two stale claims, and the interesting thing is
+not that they were stale. It is that a SIBLING HEADER HAD ALREADY DIAGNOSED
+ONE OF THEM, in as many words, and the diagnosed file was never touched.
+
+`session/agree.h`, explaining why a key-agreement seam was missing:
+
+    "That gap is why `session/commitment.h` could say 'the transcript is the
+     caller's' without anybody noticing the transcript had nothing to put in
+     it."
+
+That is exactly right, it was written when agree.h was, and commitment.h went
+on saying it. Nothing in the ordinary course of work brings a sentence
+together with the file that explains why it is wrong -- the two are opened by
+different tasks, and the one that would prompt the fix is the one already
+being fixed.
+
+This is `working-practice.md`'s "a claim usually lives in more than one place,
+and the correction has to go where it will next be looked for", arriving from
+an angle that rule does not quite cover: here the correction was WRITTEN, in a
+file a reader would plausibly meet, and still did not reach the copy that
+mattered. The reader who meets commitment.h alone is told to invent a
+transcript. The reader who meets agree.h alone learns that somebody was told
+that wrongly. Only a reader who meets both gets the truth, and nothing
+arranges for that.
+
+===========================================================================
+
+WHAT WAS WRONG, both measured before being changed.
+
+FIRST: "sec 4.5's prekey half is not settled". It was settled -- the holder's
+correction at sec 14, that key exchange belongs in this library as a set of
+exchanges a consumer chooses between rather than a seam each project fills.
+`session/agree.h` is that seam and `session/session.h` is the model built on
+it: two rotating prekeys, the root hashed over both identities, both prekeys
+and the shared secret.
+
+The BOUNDARY the sentence drew is still right and is kept -- the primitive
+hashes what it is handed and does not decide what is worth hashing, and
+session.h says in its own words that "commitment.h's boundary is unchanged".
+What was missing is that a caller should not therefore INVENT a transcript,
+because a builder exists and session.h's whole argument is that "if both
+sides call the same builder, there is no layout for them to disagree about".
+
+SECOND: "the extern codec that situ's `sealed()` region calls is still
+unwritten, because its calling convention is not yet knowable". The extern is
+indeed unbound, so the surface claim held -- and the REASON had been
+superseded by a measurement. It is not unknowable: `session/aead.h` records
+that situ's tier-1 codec ABI passes neither key, nonce nor associated data
+while an AEAD needs all three, that threading a key through a global to fit
+that signature would put mutable state in the one seam where it must not be,
+and that nothing is lost because the generated code never calls the codec --
+situ contributes the layout and the gate, and `wire/seal.c` joins them to the
+vtable. It was reported to situ (sec 6).
+
+A CLAIM WHOSE SURFACE IS STILL TRUE AND WHOSE REASON HAS BEEN SUPERSEDED IS
+THE WORSE KIND, because re-checking the claim confirms it. "Is the extern
+still unbound" answers yes, and the answer is useless: the question that had
+moved was WHY, and nothing about the sentence invited it.
+
+## 348. A step number is a line number into a list, 2026-09-21
+
+`fzn_admit()` -- the orchestrator that would run §4.7's receive sequence in
+order and make it unrepresentable-to-get-wrong -- was recorded as blocked on
+three things. **Two were gone**, and the first was stale in a way the other
+stale claims this week were not.
+
+    §4.7c    "It is not written because step 5 does not exist"
+    §4.7c    "4 and 5 need the wire and are covered by wire/test/seal_test.c"
+
+Two sentences about the same sequence, in one document, one saying step 5 does
+not exist and the other that it is covered by a test. That was the tension,
+and skimming would not settle it, because §4.7's list runs 0 to 8 and three
+other sections number their own lists.
+
+WHAT SETTLED IT WAS ASKING WHEN, not asking what. `git log -S'step 5 does not
+exist'` dates the sentence to `91b0413`, 2026-08-14, and §4.7's step 5 in that
+same commit reads:
+
+    5. **Tag verification and decryption** (the extern codec, **unwritten**).
+
+So the claim was true and precise when written. §4.7b then moved replay below
+the tag and RENUMBERED the list: tag verification is step 4 now, and step 5 is
+Freshness, which has existed since 2026-08-14.
+
+**A SECOND WITNESS, and an independent one**, which matters because git
+history and a document are not two sources if the same hand wrote both.
+`sim/test/network_test.c` records the old order in its own words, in the past
+tense, as the thing it was right about when the document was wrong: "sec 4.7
+put freshness at step 2 and replay at step 3, both BEFORE the tag at step 5".
+That is the pre-4.7b numbering written down by a file with no stake in this
+question, and it agrees with the commit. The sentence did not become
+wrong because a fact changed. It became wrong because **the index it pointed
+through was re-indexed**, and it went on reading as a statement about whatever
+now sits at 5.
+
+AND THE THING IT NAMED WAS BUILT A MONTH AGO, recorded in this document, in a
+sentence that names the claim: §10 step 2 says "the AEAD codec, written the
+same day, is not step 2 either: it is the extern codec §4.7 step 5 wanted".
+2026-08-18. So the correction was written four days after the claim, thirty-
+four days before anybody put the two together, and neither sentence could
+prompt a reader to look at the other.
+
+===========================================================================
+
+THE SPECIES IS WORTH NAMING because the remedies for the others do not reach
+it. A claim about the tree's shape can be re-measured. A claim with its method
+attached can be re-run. **A POSITIONAL REFERENCE -- a step number, an index, a
+line -- cannot be re-checked at all without knowing what the list held on the
+day it was written**, and re-reading it in today's list produces a confident
+wrong answer rather than a doubt. Every other stale claim this week announced
+itself under inspection; this one answered a different question fluently.
+
+**And the sweep for others came back empty, which is a result worth
+recording with its method.** Four `step 5` references survive in code:
+`consumer_check.c` and `catalog/copy.h` number other sections' lists;
+`frame/freshness.h` cites §4.7 step 5 and means Freshness, which is correct
+under the current numbering; and `sim/test/network_test.c` names the old
+numbering in the past tense on purpose. None is rotten. A positional
+reference is not wrong for being positional -- it is wrong when nothing says
+which edition of the list it was written against.
+
+`harmonization.md` already has the small version: "send the quoted phrase, not
+the line number -- a line number in a signal is a fact with a shelf life
+measured in commits". A step number in a numbered list is the same thing one
+level up, and inside a single document rather than across trees. The remedy is
+the same: **name the step, do not number it.** "Tag verification and
+decryption" would still be findable; "step 5" was not.
+
+WHAT IS LEFT of `fzn_admit()` is one blocker, §13's overhead question, which
+is also the unfinished half of §10 step 2 with the `[max = 1024]` placeholder.
+It is the copyright holder's, and it is now the only thing between this
+document and a function that makes the order it specifies impossible to get
+wrong.
+
+## 351. Three suites, one name, and a gate so it stops recurring, 2026-09-22
+
+`provision/test/`, `node/test/` and `sim/test/` each ended with
+`printf("provision_test: ...")`, so `make check` carried one label three times
+with different counts and a reader could not tell which had failed. The
+module's own suite keeps the word; the other two print `node_provision_test`
+and `sim_provision_test`, which are the names the fmake configuration had
+already had to invent for the same collision one layer down -- the basename
+collision it works around is the same fact, seen from the build system.
+
+FOUND BECAUSE `admit/` WALKED INTO IT THE DAY BEFORE. sec 350's suite was
+`admit_test` and so is `local/test/admit_test.c`, and `make check` printed the
+label twice with 37 checks and 9. Two counts under one name was conspicuous
+enough to notice; three counts under one name had not been, for as long as
+those three suites have existed. **The lens came from the last defect, which
+is the only reason this one was looked for.**
+
+THE FILE BASENAMES STILL COLLIDE AND THAT IS DELIBERATE. A rename moves paths
+other tooling names, where the printed label is what corrupts the log. The
+narrower fix is the one that closes the harm.
+
+===========================================================================
+
+AND THE MEASUREMENT WAS WRONG THE FIRST TIME, in a way worth keeping because
+the wrong answer was what said so. The first pass paired each label in the
+check log with the last "running build/..." line above it, and reported that
+`sim/test/disclosure_test` shared a label with EVERY suite in the tree --
+about 160 of them. That suite prints other suites' names in its own output, so
+a log-based instrument credits one binary with all of them.
+
+**The absurdity is the whole signal.** A plausible wrong answer here -- two or
+three collisions, all real-looking -- would have been acted on. Reading the
+sources instead of the log gives a population that is what it claims to be,
+and the true answer was one collision, three-way.
+
+===========================================================================
+
+A GATE, BECAUSE NOTHING CHECKED AND SO IT ACCUMULATED. `make style` now reads
+every `TEST_SRCS` source for the label it prints and refuses a label printed
+by more than one suite. It reads the sources rather than the log, for the
+reason above, and the recipe says so where somebody would otherwise reach for
+the log again.
+
+It was watched failing before being trusted: putting `node/`'s label back
+gives
+
+    style: these labels are printed by more than one suite: provision_test
+    style: two binaries under one name in one check log cannot be
+    style: told apart -- qualify all but the module's own suite.
+
+and the gate exits 2. Restored, it reports 159 test sources with every label
+unique. The check is local to this project's Makefile rather than added to
+the shared `style_gate.py`: a gate that reaches sixteen trees is a deliberate
+cross-project pass and not something to add while fixing three printf lines.
+
+## 355. The seam between admit and the memo had no test, 2026-09-22
+
+sec 354 wired the chain memo into `fzn_admit` at step 7 and tested neither end
+of the join. `memo_test` exercises the memo with no `fzn_admit` anywhere near
+it; `sequence_test` zeroed its environment, so `env.memo` was NULL and the hit
+path -- the branch that skips the store lookup, the chain open and the Ed25519
+-- was **never executed by any test**. Both modules covered, the seam between
+them not, and I wrote the seam an hour before noticing.
+
+THE FIXTURE HAD TO MAKE THE WRONG ANSWER DIFFERENT FROM THE RIGHT ONE, which
+is what the first draft of a test like this never does. Asserting that a second
+frame is admitted passes against a memo that never hits, because the second
+frame would verify normally and be admitted anyway. So the signer is REPLACED
+between the two frames with one that cannot verify: a second frame that is
+still admitted was admitted BY THE MEMO, because nothing else could have said
+yes.
+
+    frame 1, working signer   -> admitted, verdict recorded
+    signer replaced with one that never verifies
+    frame 2, new nonce        -> admitted  => the memo answered
+    same, with env.memo NULL  -> refused at CHAIN  => the signer really is broken
+
+The third line is the control for the control. Without it the case would pass
+against a "broken" signer that happened to verify, which is the same class of
+mistake as the fixture it is guarding.
+
+AND IT NEEDED A REAL REVOCATION STORE, which turned out to be a second test
+rather than an obstacle. The memo records the store's generation, a null
+store's generation is zero, and a memo refuses to record or match on zero --
+so with no store the cache silently does nothing. That is the fail-safe sec 354
+claims, and it is now asserted rather than described: the same two-frame
+sequence with `env.revocations` NULL admits the first and REFUSES the second.
+
+Two sabotage entries were run against it rather than added, since the guards
+they would name are admit's two memo lines: with the consult removed the
+second frame is refused at CHAIN, and with the record removed the first frame
+never caches. Both fail through their own assertion.
+
+45 checks now. The general form is the one this tree keeps meeting: a module
+with a test and a module with a test, joined by three lines that neither suite
+can see.
+
+## 356. What an independent review found in two hours of my own work, 2026-09-22
+
+Seven reviewers, one per module written in the last two days, each reading the
+code and its tests and told that a finding only counts if acting on it would
+change the code. Every finding then handed to a separate skeptic told to
+REFUTE it and to answer "refuted" when uncertain. 22 findings raised, 15
+survived. What follows is what survived AND held when I checked it myself,
+which is not the same set.
+
+THE REVIEW FOUND A SECURITY DEFECT IN THE COMMIT BEFORE IT. sec 354 added a
+generation counter so a chain memo could tell when a revocation landed, and I
+bumped it at three writes. There is a fourth: a re-revocation arriving over a
+WITHDRAWN entry sets `entry->withdrawn = 0` -- NOT REVOKED becoming REVOKED,
+which is the largest answer this store can change, since
+`fzn_revocation_lookup` answers on exactly that field. It did not bump. A memo
+holding an affirmative verdict for that pair would go on authorising a peer
+re-revoked a moment earlier, for as long as the entry lived.
+
+Two of the seven reviewers found it independently, from different starting
+points -- one reading the counter, one reading the cache that depends on it.
+I confirmed it by reading, not by trusting them.
+
+**The bump was added by the person who knew exactly what it was for, and it
+still missed a quarter of the sites.** What found it was not more care; it was
+somebody else reading the same file with the question stated as "is there ANY
+path that changes an answer without bumping".
+
+AND A SECOND WRITE BUMPED WHEN IT SHOULD NOT. An idempotent withdrawal -- the
+same withdrawal arriving twice -- wrote 1 over 1 and bumped, throwing the
+cache away for a record carrying no news, which is exactly the traffic the
+generation exists to let a cache survive. Both directions wrong in one
+counter, and only the first is a correctness bug.
+
+===========================================================================
+
+TWO DEFECTS IN facet's IDENTITY PROPERTY, which is the thing that module
+exists for: equal expressions are byte-equal so they can be hashed.
+
+THE ENCODER NEVER ENFORCED F18. `take_term` refuses an alternation whose
+members are out of order; `term_size` did not. So the encoder wrote bytes its
+own decoder rejects -- and, worse, one alternation had TWO encodings depending
+on the order its members happened to be in. sec 346 taught F16 to the sort and
+to the decoder and left the encoder as it was.
+
+AND `inclusive` WAS COMPARED TWO WAYS. `put_bound` writes INCLUSIVE for any
+nonzero; `bound_eq` compared the field exactly. So `inclusive = 1` and
+`inclusive = 2` were two different bounds to `fzn_facet_term_eq` and one bound
+on the wire: two terms the model calls distinct hash to a single identity, and
+a dedup that trusts the model keeps both. The model now compares truthiness,
+because the encoding is what identity is defined over.
+
+===========================================================================
+
+TWO PARAGRAPHS OF admit.h WERE FALSE, and both were mine.
+
+It claimed "the two steps that mutate are the last two that run" and that no
+path lets replay spend an entry the chain then refuses. The mutating steps are
+6 and 8 with CHAIN at 7 between them, so that path is the ordinary one -- and
+sec 350 says so, and `sequence_test`'s CHAIN case is the single invocation
+passing `above_replay = 0` for exactly this reason. **The correction was
+learned in the test and never carried to the header a consumer reads.**
+
+And "NO CHAIN MEMO ... It is not here" stood two screens above the `env.memo`
+field it denies. sec 354 quoted that sentence as the argument it was
+reversing, and left it in place.
+
+===========================================================================
+
+THREE TESTS COULD NOT FAIL, all mine.
+
+    materialise_test.c   CHECK(small[0] == 0 || 1, "unused")
+    source_test.c        an over-long name refused by a table already FULL
+    sequence_test.c      a case labelled SHAPE that appends nothing
+
+The first is true for every value of every byte, and it guarded the one claim
+in its block nothing else tested -- that a refused call writes nothing. The
+second passed for fullness rather than for length, so the length check was
+never reached. The third was a sound TAG case wearing a SHAPE label, which
+left step 1 of eight with no test while appearing to have one.
+
+===========================================================================
+
+WHAT I DID NOT ACT ON, because a survived finding is not a confirmed one. The
+reviewers also reported that a chained reissue advances `entry->id` without
+bumping the generation. It does -- and `fzn_revocation_lookup` answers on
+`withdrawn`, not on `id`, so no answer changes and no cache is stale. The
+finding is accurate about the code and wrong about the consequence, which is
+the shape `evidence.md` names: the observation was right and the mechanism was
+not. Bumping there would be harmless and is not a fix.
+
+THE HONEST SCORE: 22 raised, 15 survived refutation, and I confirmed 8 by
+reading before touching anything. A survived finding is a finding one skeptic
+failed to kill, which is weaker than true.
+
+And the fix for the F18 encoder needed a second pass. Correcting the fixture
+that exposed it made the new guard unreachable -- the suite went green with
+the guard deleted -- so the case that drives it had to be written separately,
+with an ascending control beside it. A control has to be REACHED, for the
+fourth time this week.
+
+## 357. Two findings I had left on the table, and what the fix for one proved, 2026-09-22
+
+sec 356 acted on 8 of the 15 findings that survived refutation. Two of the
+remainder held up on a second reading.
+
+THE COMPONENT BOUND DID NOT HOLD ON EVERY BRANCH. `fzn_catalog_materialise`
+checks `component > FZN_CATALOG_COMPONENT_MAX` on the literal path and did not
+on either brace-escape path -- `{{` and `}}` both lengthened a component and
+neither looked. Every branch checks now.
+
+AND THE TEST FOR IT FAILED, WHICH IS THE USEFUL PART. A pattern of repeated
+`{{` long enough to exceed the component bound is longer than
+FZN_CATALOG_PATTERN_MAX, so the pattern-length check refuses it first: an
+escape costs TWO pattern bytes per ONE component byte, and half of 256 is
+under 255. **The hole is real in the local reasoning and unreachable in the
+assembled program.**
+
+That is the "observation right, mechanism wrong" shape for the second time in
+two sections, and this time my own test is what said so rather than my
+reading. The fix stays, because the protection was resting on an arithmetic
+relationship between two constants that nothing stated and no gate watched:
+
+    FZN_CATALOG_PATTERN_MAX <= 2 * FZN_CATALOG_COMPONENT_MAX
+
+That is now asserted in materialise_test, and raising the pattern bound to 600
+makes it fail with the reason in the message. A per-branch check is the belt;
+the assertion is the braces, and the assertion is the one that would catch
+somebody widening a constant in a year's time.
+
+`fzn_chain_memo_live` SAID "could still hit" AND COUNTED ENTRIES THAT COULD
+NOT. It takes no `now`, so it cannot see an expired chain, and it counts one
+that `fzn_chain_memo_allows` refuses. The doc claimed the two agreed. It now
+says what it counts -- slots recorded at a generation -- and why it does not
+take `now`: it is a sizing diagnostic, and a count that varied with a clock
+nobody passed for that purpose would be worse than one that is merely narrow.
+
+## 358. A revoked grantee stayed authorised, and two conditions sharing one branch, 2026-09-22
+
+A second review, this time over the OLDER modules -- twelve of them, the
+security-critical core. Nine findings against the new code's twenty-two, and
+six of the twelve reviewers returned nothing. One finding was worth the whole
+exercise.
+
+A HOST THAT MISSED ONE ROUND AUTHORISED A REVOKED GRANTEE, silently and
+permanently. The root revokes a pair, withdraws, revokes again, withdraws
+again, revokes again. A host holding the first revocation and the first
+withdrawal, which never received the middle pair, receives the latest
+revocation and REFUSES it -- `fzn_revocation_covers` answers 0 while the pair
+is revoked in truth.
+
+It fails OPEN, which is what makes it serious rather than untidy. And the
+refusal path called `fzn_manifest_satisfy` before returning, clearing the
+deficit that would have made `fzn_chain_verify` answer INCOMPLETE -- so the
+host reported neither revoked nor incomplete. It authorised.
+
+It could not self-heal. `entry->id` does not advance while an entry is
+withdrawn, so only the record immediately superseding it is accepted; the
+manifest carries one id per pair and the fetch path is keyed on
+{issuer, capability, grantee}, so there is no way to ask for the record you
+are missing. Re-offering the latest never helps.
+
+I reproduced it in `chain/test/revocation_test.c` before touching anything,
+with the intermediate record as a control: feeding it unsticks the host, so
+the refusal really is the chaining rule.
+
+===========================================================================
+
+THE FIRST FIX WAS WRONG AND AN EXISTING TEST SAID SO, which is the part worth
+keeping.
+
+Reading fuzznet's purpose -- a library that reconfigures infrastructure, F24's
+asymmetry, `FZN_CHAIN_ERR_INCOMPLETE` existing precisely to say "it cannot say
+the chain is unrevoked, only that it has not heard otherwise" -- the obvious
+move was to stop draining the deficit. The host still cannot apply the record;
+it now refuses instead of authorising. Done, tested, green.
+
+`manifest_test` leg 2 then failed: "a refused un-chained record left the
+deficit standing, so the refusal and the re-fetch chase each other for ever."
+The drain was deliberate and had a test behind it, and I had reintroduced the
+loop it prevented.
+
+READING THAT TEST GAVE THE RIGHT ANSWER. Its scenario is NOT mine. Leg 2 uses
+`fzn_revocation_issue`, which writes a ZERO `supersedes` -- a peer that never
+heard the withdrawal, revoking the pair afresh. That peer is behind US, so
+draining is correct. Mine has a NON-ZERO `supersedes` this host does not
+recognise, which means the chain moved on WITHOUT us.
+
+**Two opposite conditions had been sharing one branch**, and the drain's own
+comment carried the justification for one of them -- "this host demonstrably
+knows MORE about the pair than the peer that sent it" -- onto both. It is true
+where it was written, on the equal-id path, and it inverts on the mismatch
+path. A justification carried to a neighbouring branch where it reverses, for
+the third time this week.
+
+So the fix is not "never drain" but "drain only when the record NAMES
+nothing". Both properties hold: no loop for the peer that is behind, and
+INCOMPLETE rather than authorised for the host that is behind. One site, two
+sabotage entries, opposite mutations, caught by different suites.
+
+AND A SABOTAGE ENTRY ENCODED THE DEFECT. `rev-drain-unchained` asserted the
+unconditional drain with the reasoning "a record refused for not chaining to a
+held withdrawal is one this host is ahead of" -- the inverted justification,
+written down as a guarantee. It is gone; the two entries that replace it say
+which direction each protects.
+
+===========================================================================
+
+WHAT IS STILL OPEN, and it is the cause rather than the symptom. A host behind
+a gap now says so instead of authorising, and it still cannot fix itself: the
+manifest names one id per pair, and nothing can request a record BY ID. Until
+something can, such a host stays incomplete for that issuer until some peer
+happens to offer the intermediate. That is a design question about the
+manifest's wire form and is not this commit's to answer.
+
+THE REVIEW'S OWN NUMBERS, since they say something about where defects live.
+Twenty-two findings from seven reviewers over code written in the previous two
+days; nine from twelve reviewers over code that has been worked for weeks, six
+of those twelve returning nothing at all. The mature modules were not clean --
+this section exists -- but they were an order of magnitude cleaner per module,
+and the one real defect in them had been sitting behind a test that named the
+property and passed.
+
+## 362. A reply larger than a frame, reported by raidcfgd, 2026-09-22
+
+raidcfgd stopped rather than write a bridge that could not carry their
+smallest payload, and said so. That is the right way round: the cap was
+fuzznet's to answer for, and a consumer that guesses a shape into a bridge
+gets a shape nobody chose.
+
+THEIR MEASUREMENT, relayed as theirs. `status` compact readings from 3,230 to
+21,772 bytes -- hot_drives 3,230, two_controllers 3,819, degraded_raid5
+3,955, full_shelf 21,772, their own machine 3,725 -- against
+FZN_NODE_REPLY_MAX at 512. Of their four verbs, `hello` at 35 bytes and
+`reading` at 24 fit; the two carrying the model did not. The smallest reading
+they can produce was six times the cap.
+
+WHAT I CHECKED HERE, because a claim about this tree is one I can take.
+`FZN_NODE_REPLY_MAX` is 512 at node/serve.h:24 and the loop's buffer is
+`uint8_t reply[FZN_NODE_REPLY_MAX]` at serve.c:66: both as reported. And the
+third claim, the one that decides it -- `chunk/split` and `chunk/reassembly`
+are in this tree and were reachable from nothing in `node/`. A grep for
+`chunk/` across node/*.{c,h} returned nothing at all.
+
+THE MECHANISM WAS ALREADY BUILT AND THE NODE DID NOT USE IT. `wire/frame.situ`
+has carried `msg`, `index` and `chunks` since it was written, and
+`fzn_seal_build` has always taken them -- `tool/consumer_check.c` seals a
+CHUNK frame with index 2 of 5 and peeks it back. `fzn_node_seal_reply`
+hardcoded index 0 of 1 and FZN_KIND_UNIT, so a handler could answer in one
+frame or not at all. Nothing needed inventing; it needed connecting.
+
+So `fzn_node_seal_reply_chunk` seals one piece, `fzn_node_seal_reply` becomes
+its one-piece case rather than a second copy, and the poll loop plans the
+reply with `fzn_split_plan` and sends each piece. `fzn_node_state_t` gains a
+caller-sized `reply`/`reply_cap`; 512 stays as the default because it is a
+stack buffer in the loop and the consumer that wants more is the one that
+knows how much more. The ceiling is FZN_REASM_MAX_CHUNKS pieces of
+FZN_SPLIT_MAX_PAYLOAD -- 256 KiB, which is what a receiver will reassemble,
+so a plan that plans is a reply that can arrive. Their largest case is 22
+pieces.
+
+ONE PLAN FOR BOTH CASES, rather than a short path for a reply that fits. A
+single-frame reply plans as one piece and goes through the same loop, so
+there is no second sealing site to come to disagree with the first -- which
+is where a one-frame reply and a first chunk would drift apart.
+
+THE KIND IS DERIVED FROM THE COUNT, never passed. `chunks == 1` seals UNIT
+and anything more seals CHUNK, so a caller cannot construct a CHUNK frame
+claiming to be alone or a UNIT frame that is one of several. A receiver reads
+`kind` to know what it is holding and those two disagreeing is not a state
+this library should let anybody build.
+
+### The guard the sabotage deleted
+
+I wrote `if (chunks == 0u || index >= chunks) return -1;` into the new
+function and the sabotage run could not make it fail. `fzn_seal_build`
+already refuses `index > chunks - 1`, widened to int64_t so a `chunks` of
+zero gives -1 and refuses every index -- its own comment records that
+widening as load-bearing rather than stylistic. My guard was a second
+statement of one rule, and it was invisible precisely because the real check
+intercepted every case a test could reach.
+
+So it is removed and the header cites seal.c as the owner. The two refusal
+tests stay and now prove seal.c's rule, which is what they were always
+proving. **A control that cannot be reached is not defence in depth; it is a
+second thing to be wrong, with nothing able to tell you when it is.**
+
+### What is tested and what is not, stated rather than implied
+
+`remote_test` drives raidcfgd's measured 3,230 bytes end to end: planned as
+four pieces, each sealed, each opened, fed to `fzn_reasm_accept`, and the
+reassembled bytes compared against what went in. 3,230 rather than a round
+number on purpose -- it is four pieces with a remainder last, which is the
+shape that catches an off-by-one at either end. Two mutations seen to fail:
+sealing every piece as UNIT, and giving every piece index 0. The second is
+worth its entry, because all-zero indices make reassembly treat the pieces as
+duplicates of the first and the message simply never completes -- a reply
+that silently never arrives rather than one that arrives wrong.
+
+**The poll loop's wiring is not driven by a test.** No suite drives
+`fzn_node_run_once` with a UDP peer and an over-512 reply, so the buffer
+selection, the over-cap refusal and the send loop are covered by construction
+-- they call the same planner and sealer the test drives -- and not by
+observation. Closing it needs a two-socket fixture in `serve_test`, and it is
+named here rather than left for a reader to discover the coverage is thinner
+than the section reads.
+
+### Their two smaller questions, answered as far as this tree can
+
+Provisioned peers into `fuzznetd`: there is no file or directory shape for
+it, and I did not find one either. `fuzznetd` binds the remote hop and serves
+nobody until `fzn_node_state_t.peers` is filled, and nothing here fills it
+from disk. A consumer wanting remote today links the node and calls
+`fzn_node_run` with its own state. Whether `fuzznetd` should grow a peer
+store it reads at start is the holder's, and it is the other half of what
+raidcfgd needs.
+
+Inheriting `node/provision.h` and `gui/provision_view` rather than
+reimplementing: that is the direction this tree would take too, and the
+holder's 2026-09-22 directive says so in general terms -- if two consumers
+would duplicate it, it belongs here. Nothing in the way of it that I can see.
+
+## 363. The loop's wiring, driven rather than asserted, 2026-09-22
+
+Section 362 shipped the chunked reply and said plainly that the poll loop's
+own wiring was covered by construction and not by observation: `remote_test`
+proved the planner and the sealer, and nothing drove `fzn_node_run_once`
+against a UDP peer with an over-512 reply. raidcfgd recorded that on my word,
+marked it as mine, and said they would treat a silent non-arrival as this
+tree's rather than their handler's when their pin moves.
+
+That is a reasonable thing to be told and an unreasonable thing to leave
+standing, so it is closed. The fixture existed already: `node/test/provision_test.c`
+drives `fzn_node_run_once` with a real loopback UDP socket, a provisioned
+peer and real Monocypher primitives, which is why sec 301 built it. It needed
+a case, not a harness.
+
+A second request goes out -- fresh, because the first frame's nonce is in the
+replay window and re-sending it would be dropped and prove nothing -- the
+handler answers with 3,230 bytes, and the device reads datagrams until the
+message completes. Four arrive, each opens, and the reassembled bytes are
+compared against what the handler wrote. 3,230 stays the number for the same
+reason as in sec 362: it is raidcfgd's measured smallest `status` reading,
+and it is four pieces with a remainder last.
+
+### What the sabotage found, which is why this is a section and not a commit
+
+Three mutations, and the third is the one worth the entry.
+
+    the consumer's buffer size is used    CAUGHT   2 failures
+    every planned piece is sent           CAUGHT   2 failures
+    an over-claimed reply is refused      MISSED   0 failures
+
+The first two are the wiring sec 362 named. The third was a guard sec 362
+ADDED and nothing reached: `if (reply_len > reply_cap) reply_len = 0;`, with
+no handler in any suite claiming more than it was given.
+
+**And it is not the same finding as sec 362's deleted guard, which is the
+part worth holding.** There the `index >= chunks` check was redundant --
+`fzn_seal_build` already refused it -- so the right answer was to remove it
+and cite the owner. Here nothing else refuses an over-claim: `fzn_split_plan`
+would plan over a length the buffer does not have and the send loop would
+read past it. Same symptom from the harness, opposite remedy, and the only
+thing that separates them is reading what else could refuse the case.
+
+So a handler that returns `reply_cap + 1` now exists, the guard is reached,
+and the mutation is caught. The assertion is that NOTHING arrives, on a
+0.3-second receive timeout rather than the two seconds the other cases use --
+a wait for silence is paid on every run, and a wait for a message is not.
+
+`node_provision_test` is 44 checks now, from 33. All five guards on this path
+-- two in the sealer from sec 362, three in the loop -- are sabotage entries,
+and the harness is at 538.
+
+### What is still covered by construction
+
+Nothing on this path. The local seam's handler and the remote loop are both
+driven end to end now. What remains untested elsewhere is unchanged and not
+this section's to claim.
+
+## 364. The local socket gets a client, 2026-09-22
+
+`local/socket.h` had listen, accept and close, and no connect. So every
+consumer that wants to ask its own daemon a question writes the same forty
+lines: open an AF_UNIX stream, connect, compose `verb SP argument LF`, write
+it all, read to a newline under a timeout, bound what arrives. raidcfgd has
+one (`src/daemon_source.cpp`, which they named as most of their half of hop
+3); fuzzypickles and netcfgd will each write one. The holder settled
+2026-09-22 that network code two consumers would duplicate belongs here, and
+asked for that to be anticipated rather than corrected later. This is the
+clearest instance available.
+
+`local/client.{h,c}`: compose, connect, send, send_verb, recv, close, and an
+err_str.
+
+THE COMPOSING IS THE POINT, MORE THAN THE SOCKET. `fzn_client_compose` writes
+the grammar `fzn_vocabulary_split` parses, so the two halves of one wire
+format are stated once. A consumer writing its own would be writing the
+server's grammar from memory, and the failure is silent -- a line the server
+takes for something else rather than one it refuses.
+
+And the test is the round trip rather than a comparison against expected
+bytes: compose, split, and require the pieces to be what went in. Spelling
+the bytes out in the test would be a THIRD statement of the grammar and the
+one most likely to be wrong. One case does pin the literal `get x\n`,
+deliberately, because a round trip alone is satisfied by both halves changing
+together.
+
+FZN_REQUEST_MAX MOVED OUT OF `node/local.c`, where it was a private
+`FZN_NODE_REQUEST_CAP`. A client that does not know the server's bound sends
+a line the server refuses -- and the server answers an overlong line with a
+DENIAL, so the client's own framing mistake arrives looking like an access
+decision and sends an operator to the policy. The number is the grammar's
+now, and both ends read the same one.
+
+A VERB MAY CARRY NEITHER A SPACE NOR A NEWLINE. `get x` as a verb arrives at
+the server as `get` with an argument -- past any rule written for the whole
+string -- and a verb carrying a newline arrives as two requests. Refused
+rather than escaped, because an escape is a second grammar and then there are
+two to keep in step.
+
+A NULL ARGUMENT AND AN EMPTY ONE ARE DIFFERENT REQUESTS, and the separating
+space is the only thing that says which. `fzn_vocabulary_split` already read
+that difference back; a composer that dropped it would make one of the two
+unsayable while the parser went on expecting it.
+
+### What it deliberately does not do
+
+It interprets nothing that comes back. A reply is bytes with a length, handed
+over as the daemon wrote them. **A reply vocabulary is not settled** -- every
+consumer will invent `ok`/`error` and a status-code space, and that is the
+next obvious thing to move in here. It is not decided in this section because
+a client that invented one would be settling it by being first, and because
+the node's existing status line (`served ... origin N fuzznet V` and `denied`)
+is already a shape anything reading it depends on. That is the holder's, and
+it wants doing before three consumers each pick a spelling.
+
+### The gates caught three registrations I had not made
+
+Worth recording because it is the suite working rather than me:
+
+    style: C sources in the tree and in no list: local/client.c
+    style: test binaries missing from .gitignore: local/test/client_test
+    style: add a row to SUBJECTS[] in wire/test/err_str_test.c
+
+A new module is not one file. Each of those is a place a source can exist and
+be invisible to something -- coverage, `git status`, the renderer sweep --
+and none of them would have failed a build. `err_str_test` is at 43
+renderers now, from 42.
+
+### The client, seen to fail
+
+Five mutations, against a saved copy restored and verified byte-identical: a
+verb hiding a separator, an empty argument losing its space, the request
+bound unread, an over-long reply accepted, and a silent daemon reported as IO
+rather than as a timeout. All five caught, all five sabotage entries. The
+last is worth its place: a timeout says the daemon is there and wedged where
+IO says the socket broke, and collapsing them sends an operator to the wrong
+half -- the same distinction `local/vocabulary.h` makes between "no rule
+names this verb" and "this peer holds none of those groups".
+
+## 366. The peer set survives a restart, 2026-09-22
+
+raidcfgd asked on 2026-09-22 whether there is an intended shape for getting
+provisioned peers INTO `fuzznetd` -- a file it reads, a directory it scans --
+and reported finding none. There was none. `fuzznetd` binds the remote hop
+and serves nobody until `fzn_node_state_t.peers` is filled, and nothing in
+this library filled it from disk.
+
+THE GAP WAS IN THE INVENTORY, WHICH IS WHERE IT COSTS MOST. `persist/persist.h`
+is the table of what must survive a restart, and it opens by naming the
+hazard it exists to close: "absence reading as not-required, where the absent
+thing is a file". `fzn_node_peer_t` was in NEITHER of its lists -- not among
+the four that MUST be kept, not among the five recorded as recoverable and
+deliberately unserved. A reader consulting the authority on what to persist
+would have concluded the node's peers need no persisting, and the failure is
+silent: the daemon starts, binds, and answers nobody.
+
+Losing one is not recoverable. The session keys and the capability chain come
+from an out-of-band pairing card, so nothing re-derives them: every device
+must be paired again.
+
+### Where it had to go, and why not beside the others
+
+`fzn_node_peer_t` is declared in `node/remote.h`, which includes
+`wire/seal.h` -- the one module in this library that depends on generated
+code, isolated there so every other source builds and ships without situ.
+Packing it from `persist.h` would have spent that isolation to save a file.
+
+So the seam and the inventory stay in `persist/`, the head format is made
+public there and shared, and `node/peer_persist.{h,c}` holds the format for
+this one type beside the type. The head was two private statics; it is
+`fzn_persist_head_write` and `fzn_persist_head_check` now, ten call sites
+renamed, so a second module writes the same two bytes rather than deriving
+them again.
+
+AND IT IS NOT FOLDED INTO `FZN_PERSIST_MAX`. A node peer carries up to
+FZN_CHAIN_MAX_HOPS signed hops at FZN_HOP_LEN each, so the blob runs to 1531
+bytes against that constant's 96. Folding it in would make every host that
+persists a trust anchor and a prekey carry a 1.5 KB buffer, and sec 313 asked
+whether this library fits an ESP8266 -- which is what makes 96 against 1.5 KB
+a real difference rather than a tidy one. `FZN_NODE_PEER_BLOB_MAX` is its own
+bound and `persist.h` says why.
+
+### Three sabotages that missed, and three different reasons
+
+This is the entry's value. All three guards are correct and necessary; the
+first fixtures could reach none of them.
+
+**PACK's hop bound, missed because the CAPACITY check intercepted it.** The
+fixture used a buffer of exactly FZN_NODE_PEER_BLOB_MAX, so an over-large
+body was refused for not fitting before the hop count was ever the reason.
+What the guard actually prevents is reading `peer->hop_bytes` one past an
+array of exactly FZN_CHAIN_MAX_HOPS. Driven with an OVERSIZED buffer it is
+caught.
+
+**OPEN's hop bound, missed because the forged blob was inconsistent.** The
+fixture set the count byte to nine on a two-hop record, and the exactness
+check refused it for the length rather than for the count. A file crafted to
+be SELF-CONSISTENT -- nine declared, nine hops' worth of length -- is refused
+by the bound and by nothing else, and without it `out->hop_bytes` is written
+past its end. Driven that way it is caught.
+
+**OPEN's length bound, and this one is still unproven.** The fixture passed a
+long buffer with a short length, so the over-read stayed inside allocated
+memory where nothing could see it. Rewritten to pass a genuinely short
+buffer, the mutation is STILL not observed -- not in the plain build and not
+under AddressSanitizer, checked with the objects deleted and rebuilt from
+clean so a stale `.-san` artifact is not the explanation, and the binary
+confirmed instrumented. The return value cannot distinguish either, because a
+count read from past the end fails the exactness check whichever byte it
+finds.
+
+So the guard stays, because a read past the caller's stated length is wrong
+whether or not a test can watch it happen -- and **no sabotage entry claims
+it**. An entry that never fires is the harness's own warning wearing a
+tick: "a stale entry reports a guard as defended without testing it". It is
+recorded here as unproven instead, which is the honest state and the thing a
+reader needs to know.
+
+The general shape, and it is sharper than "write better fixtures": **a guard
+that sits behind another check is invisible until the fixture is built to
+walk past the first one.** Capacity before count, exactness before bound. In
+both caught cases the fix was not a better assertion but a fixture
+constructed to make the earlier check pass.
+
+### What is still not built
+
+The file backend needs no work -- `fzn_persist_ops_t` is byte-oriented with a
+caller-sized cap, so `FZN_PERSIST_NODE_PEER` is a slot it already serves. What
+does not exist is `fuzznetd` LOADING the set at start: enumerating the
+subjects it has, opening each, and filling `state.peers`. That is the daemon
+half and it is the next piece.
+
+## 367. fuzznetd loads the peers, and the enumerate the ops could not do, 2026-09-22
+
+sec 366 packed a node peer and left the daemon half: `fuzznetd` still bound
+the remote hop and served nobody. The obstacle was one the interface had, not
+the format -- `fzn_persist_ops_t` has `load` and `save`, both of which need a
+SUBJECT the caller already holds, and a daemon starting up holds none. It is
+asking WHICH peers it was told about, and nothing could answer.
+
+So the ops gain `list`, optional and NULL-able, and `persist/persist_file.c`
+implements it by scanning its directory: a file is `<slot>-<64 hex>`, so
+listing is a readdir and a parse of the name back to 32 bytes. Then
+`fzn_node_peer_save` and `fzn_node_peers_load` compose the three, and
+`fuzznetd --store DIR` fills `state.peers` at start.
+
+THE DAEMON STILL DOES NOT MINT A PEER, which is the half that was the
+holder's and stays that way. It does not decide what a peer is granted, which
+prekeys are pinned, or where a root key lives. It reads a set somebody else
+provisioned, and reading what another party decided is not deciding it.
+`--store` is opt-in: without it the daemon behaves exactly as before.
+
+A STORE THAT CANNOT BE READ IS FATAL, and an EMPTY one is not. Starting with
+the sockets bound and an empty peer set is the symptom this exists to end, so
+it would be the worst outcome -- healthy-looking and serving nobody. A store
+that is genuinely empty is a deployment that has provisioned nothing yet, and
+it is reported (`0 peer(s) from ...`) rather than refused. Verified by
+running the daemon under `timeout` against an empty store, a missing one, and
+no `--store` at all.
+
+Three decisions worth the lines they cost:
+
+**Truncation is a failure, not a short answer.** A backend holding more than
+the caller's array returns 0 rather than the first few. A node serving SOME
+of its peers with nothing saying which are missing is worse than one serving
+none, because the second shows.
+
+**A record filed under one identity and carrying another is refused.** The
+file's name and the blob's `sender` must agree, or the node would answer to a
+key its own store does not index -- findable by nothing, removable by
+nothing.
+
+**A slot past nine now refuses rather than folding.** `name_for` built the
+filename with `'0' + (slot % 10u)`, so slot 10 would have taken slot 0's name
+and slot 11 the trust anchor's -- two slots in one file, silently, with the
+anchor losing. Six slots exist and this one made a sixth, so the tenth is
+where it would have bitten. Widening the name orphans every file already
+written, so that is a migration rather than something to do in passing; the
+refusal is the part that belongs here. **No test drives it, because no slot
+past nine exists to drive it with, and no sabotage entry claims it.**
+
+### Four sabotages, and the two that first missed
+
+**The stray-file skip, missed because the fixture never reached it.** The
+test dropped `notours.txt` in the store, which fails on the PREFIX check
+before the length check is consulted -- so removing the length check changed
+nothing observable. The name that reaches it is `<slot>-<64 hex>.tmp`, which
+is not a hypothetical: `file_save` writes `<name>.tmp` and renames, so an
+interrupted save leaves exactly that -- the right prefix and a valid subject
+with four bytes glued on. Without the length check it lists as a peer,
+duplicating one already in the set. Driven that way it is caught.
+
+**And one caught by dying rather than by failing.** Removing the `!ops->list`
+guard dereferences a NULL op, so the suite took SIGSEGV and printed nothing.
+My harness read the last line of output and there was none. A crash is a
+catch -- the guard spoke as loudly as it could -- but a script that assumes a
+tidy failure reports it as an error in itself. Worth remembering when reading
+a sabotage run: **no output is a result, not a missing one.**
+
+That is the third time in two sections that a guard looked undefended and the
+fixture was the thing at fault, each for a different reason: a capacity check
+in front of a count check, an exactness check in front of a bound, and now a
+prefix check in front of a length. The shape holds -- **a guard behind
+another check is invisible until the fixture is built to walk past the first
+one** -- and it is worth applying forward rather than rediscovering: when
+adding a check, ask what already refuses the case, and build the fixture that
+gets past it.
+
+### What is left after the daemon half
+
+`fuzznetd` has no way to WRITE a peer -- `fzn_node_peer_save` exists and
+nothing in the daemon calls it, because minting is where provisioning becomes
+a decision. A consumer provisions with `node/provision.h` and saves through
+the same ops. Whether the daemon should grow a pairing mode that does it
+in-process is the holder's, and it is the last piece between raidcfgd and a
+remote hop that works without their writing any of this themselves.
+
+## 369. The caller's side of the remote hop, 2026-09-23
+
+sec 362 gave the node the ability to answer with a reply larger than one
+frame. Nothing helped the other side. A consumer wanting to ask a node a
+question writes: build an `fzn_send_t`, seal it, send it, receive datagrams,
+open each with the session key, feed them to `fzn_reasm_accept`, and stop
+when the message completes -- and writes it again for every program it ships.
+`node/test/provision_test.c` contained exactly that sequence by hand, because
+there was nowhere else for it.
+
+`node/caller.{h,c}` is that sequence written once. `local/client.h` is the
+same idea for the local socket, and the two stay separate deliberately: a
+local caller is authenticated by the kernel and sends a text line, a remote
+caller is authenticated by a capability and sends a sealed frame. One
+function covering both would be two functions with a flag.
+
+### The test changed the interface, which is the part worth keeping
+
+It began as one blocking `fzn_caller_ask`. That cannot be driven against a
+node whose loop the same process turns by hand -- it waits for a reply from a
+node that has not had its turn -- and the way round it was to fork, which
+this suite deliberately does not do (`serve_test` says "without a fork" in
+its opening line).
+
+So it split into `fzn_caller_send` and `fzn_caller_recv`, with `ask` calling
+them. **And the API a test could drive turned out to be the API a consumer
+needs**: a program with its own poll loop wants to send, return to the loop,
+and read the reply when the socket says there is one. A blocking `ask` would
+have it block inside the library instead. The fork would have hidden that --
+the test would have passed and the interface would have shipped wrong.
+
+That is worth more than the module. **An awkward test is evidence about the
+interface, not only about the test.** The reflex is to reach for a harder
+fixture; the question worth asking first is why the thing is hard to drive.
+
+### What it refuses, and why each refusal is where it is
+
+**A request larger than a frame.** The node opens one frame per datagram on
+this path and reassembles nothing, so an over-large request is dropped at the
+far end and arrives back as a TIMEOUT -- an error about the network for a
+fault in the request. Refused where the caller still knows what it meant.
+~~**The mirror piece is the node's and is not built**: chunked REQUESTS would
+need the remote path to reassemble, which only `fzn_admit` does today.~~
+Built in sec 370, for a node given a reassembly table. `fuzznetd` gives it
+none, deliberately: its handler speaks fuzznet's grammar, whose lines stop
+at `FZN_REQUEST_MAX` (512), and every one of them fits in a single frame.
+
+**A frame that will not open, or carries another `msg`, is skipped rather
+than fatal.** This socket can receive a late reply to an earlier question, a
+retransmission, or a stranger's datagram. Returning an error on the first
+would let anybody able to send a packet to this port turn every request into
+a failure. The timeout bounds the wait instead.
+
+**A reply past the caller's buffer**, refused whole and with its reassembly
+slot released. A prefix of a reply is a different reply; a refused answer
+that kept its slot would hold it until the table expired it.
+
+### Two sabotages that missed, and what each fixture was missing
+
+Five mutations, three caught immediately.
+
+**`a reply for another msg is skipped`** missed because the fixture asked for
+an unsent msg with NOTHING on the socket -- so it timed out whether or not
+the check existed. The fixture has to leave a real answer queued and
+uncollected, then ask for a different msg. A skip check needs something to
+skip.
+
+**`the refused reply releases its slot`** missed because the table had two
+slots: one held still leaves one free, and the next ask succeeds. A ONE-slot
+table makes a leak the next ask's failure. A resource-release check needs the
+resource to be scarce.
+
+Both are the shape sec 366 and sec 367 found twice each, arriving a fourth
+and fifth time: **a guard is invisible until the fixture makes its absence
+the difference.** The three forms so far are a check in front of it, a
+resource too plentiful for its loss to show, and an input too empty for its
+handling to matter.
+
+### And the link lists, again
+
+`node/caller.o` needed `chunk/reassembly.o` and `net/udp.o` beside it, and
+`wire/test/err_str_test` needed both as well -- it links a module for ONE
+renderer row and inherits that module's whole dependency tree. That is the
+second time (`local/client.o` was the first) and it is a real cost of the
+one-test-walks-every-renderer design: the sweep that makes a renderer
+impossible to forget also makes every new module's dependencies that test's
+problem. Worth knowing rather than fixing; the alternative is a renderer
+nobody walks.
+
+## 370. The node takes a chunked request, 2026-09-23
+
+sec 369 built the caller's side of the remote hop and had to refuse a request
+larger than one frame, because the node reassembled nothing: `fzn_admit` runs
+sec 4.7's step 8 and `fzn_node_serve_datagram` stops at step 7. So the node
+could ANSWER in twenty frames since sec 362 and could only be ASKED in one.
+
+`fzn_node_state_t` gains an optional `reassembly` table and the datagram path
+runs step 8. `node/caller.h` plans its request the way `node/serve.c` plans a
+reply, and the ceiling moves from one frame to what a receiver will
+reassemble.
+
+REASSEMBLY IS LAST, WHICH IS WHAT STEP 8 BEING STEP 8 MEANS. Every piece
+passes the seal, the freshness window, the replay window and the capability
+chain before it is allowed to occupy a slot, so a stranger cannot fill the
+table. Denied chunks are not reassembled at all -- a caller the node has
+refused must not buy slots by sending pieces -- and the handler is told once,
+on the first piece, rather than per chunk.
+
+AND A ONE-FRAME REQUEST SKIPS THE TABLE, which is the opposite of the reply
+side, where sec 362 deliberately sends a one-piece answer through the same
+plan as a twenty-piece one. The asymmetry is not an oversight: the reply side
+had two SEALING sites to keep in step, and here there is one receive path
+either way. Routing every single-frame request through a table would make a
+node that takes no chunked requests need a table anyway.
+
+### The suite caught a guard I deleted while refactoring
+
+Extracting `serve_reply` -- so a chunked request and a single-frame one are
+answered by one function rather than two -- replaced
+
+    if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote) { ... }
+
+with a call that kept only the second half of that condition. A frame that
+never authenticated reached the handler. The REPLAY case caught it: it sends
+a duplicate datagram and asserts the handler did NOT run. Nothing else in the
+suite would have noticed a handler being called too often, and that is worth
+holding: **a test that asserts something did not happen is the only kind that
+can see an extra call.**
+
+### Two more sabotages that missed, and the second is a new shape
+
+Six mutations, four caught.
+
+**The no-table guard** could not be reached by the granted path, because
+`fzn_reasm_accept` refuses a NULL table itself and the path returns either
+way. It is observable only on the DENIED branch, which the fixture did not
+drive. That is sec 366's redundancy question again -- and the answer differs
+from sec 366's, because here the guard is NOT redundant: it changes what a
+denied chunked request gets.
+
+**The denied-chunks guard missed for a reason none of the others had.** The
+fixture asserted the handler was called exactly once. Reassembled denied
+chunks ALSO call it exactly once -- on the last piece, with the whole message
+-- so the count passes either way. What separates them is WHAT the handler
+was handed: the first piece alone, or the request a refused caller was
+allowed to build. **The count was right and measured the wrong thing.**
+
+Adding to the list this workspace keeps collecting: a guard behind another
+check, a resource too plentiful for its loss to show, an input too empty for
+its handling to matter, and now **an assertion that holds under both
+behaviours because it counts events rather than inspecting them.**
+
+### And a fixture that was quietly out of room
+
+The denied case first failed for a reason that was neither guard: the test's
+replay window is sixteen entries, ample while every case was one datagram and
+not while a chunked request spends one slot per piece. A full window makes
+`fzn_replay_admit` refuse, which arrives as DROPPED -- so a case expecting
+DENIED saw its handler never called and blamed the wrong thing. Widened to
+256, and recorded because the symptom pointed at the code under test rather
+than at the fixture.
+
+## 371. A test that crashed half the time, and had for weeks, 2026-09-23
+
+`make test` reported a segmentation fault in `persist/test/persist_file_test`
+once, then passed on a re-run. The comfortable reading was a flake in a
+shared tree, which `running-code.md` names as the explanation that ends an
+investigation and is therefore more expensive than none.
+
+Measured instead: **44 crashes in 60 runs.** Three runs by hand had all
+landed in the lucky sixteen.
+
+THE CAUSE, and the pointer value is the proof. `test_the_filesystem_refusing`
+builds a store BY HAND -- deliberately, because `fzn_persist_file_init`
+refuses the over-long directory it wants to test -- and assigns four fields:
+
+    fzn_persist_file_t hollow;
+
+    hollow.dir = deep;
+    hollow.ops.load = ops->load;
+    hollow.ops.save = ops->save;
+    hollow.ops.ctx = &hollow;
+
+`log` is not among them. `file_load` takes the path-too-long branch, logs
+through `store->log`, and follows whatever the stack held. gdb reported the
+bad pointer as `0x6464646464646464` -- "dddddddd" -- which is `deep`, filled
+with 'd' a dozen lines earlier. Zeroing the struct takes it to 0 in 60.
+
+### Why nobody saw it
+
+`make test` passed. It passed in sec 367, and twice more while this was being
+chased. A read of stack garbage crashes or not depending on what is there, so
+the suite's verdict under `make` was stable and wrong -- the same stack
+layout every time, and a benign one.
+
+**A crash rate near a half is the worst one to have**, because the two ways
+anybody looks at a suite -- run it once, or run it once more -- both come
+back clean about as often as not. It took running it sixty times to see, and
+nothing prompts that except refusing to accept the first explanation.
+
+### It is not new, which had to be established rather than assumed
+
+`persist_file.c` gained `file_list` and a slot-name refusal in sec 367, one
+section before the crash was noticed, and code you have just changed is the
+first suspect. Building the pre-sec-367 file and running it: **21 crashes in
+40.** The bug predates the change, and the change is cleared by measurement
+rather than by reading the diff.
+
+### The shape an uninitialised field takes
+
+A struct assigned field by field rather than zeroed is a struct whose
+remaining fields are live garbage. And the field that bites is the one the
+callee reads only on an ERROR path -- no passing test touches it, so it can
+sit uninitialised for as long as the error path is rare. Here the test's
+whole purpose was to drive that error path, which is what made the omission
+fatal rather than dormant.
+
+## 372. Four tests wrote their scratch into the source tree, 2026-09-23
+
+Reproducing sec 371's crash left 73 `persist-test-<pid>/` directories in the
+repository root, because each crashed run died before its cleanup. Removing
+them was the obvious half. The half worth doing was asking why they were
+there at all.
+
+Four tests build their scratch from a RELATIVE path, so the working
+directory -- which for `make test` is the repository:
+
+    claim/test/claim_file_test.c    fzn-claim-test-<pid>
+    persist/test/persist_file_test.c  persist-test-<pid>
+    record/test/store_file_test.c   fzn-store-test-<pid>
+    spool/test/spool_file_test.c    spool-test-<pid>.spool
+
+A run that finishes removes its own; one that crashes or is interrupted does
+not. `CLAUDE.md` is explicit about what that costs: untracked files in a
+shared tree are presumed to be somebody's work in progress, and a blanket
+`git add` sweeps them in. Seventy-three of them appeared in one afternoon
+from a single investigation.
+
+None carried a comment saying why the path was relative, and it is not the
+tree's convention -- `local/test/socket_test.c` was already writing to /tmp.
+So this was incidental rather than decided, and all four now use /tmp.
+
+### The check that a clean tree is not evidence on its own
+
+`git status` clean after a run would also be what it looks like if the tests
+had stopped creating their scratch entirely, which is the vacuous pass this
+workspace keeps meeting. What separates them is that each of these four
+fails LOUDLY when its scratch cannot be made -- `persist_file_test` prints a
+FAIL line and returns 1 from `main` -- so a suite that passes is a suite
+whose scratch was created, and created at the new path. The passing run is
+the evidence, not the empty status.
+
+Measured after a full `make test`: nothing untracked in the repository, and
+nothing left under /tmp either, since a passing run still cleans up. What
+changed is only where an INTERRUPTED one leaves its mess, and /tmp is where
+`running-code.md` already tells a session to go looking.
+
+### What this does not fix
+
+An interrupted run still leaks, in /tmp instead of the tree. That is the
+right place for it and it is not nothing: `running-code.md` records 6.2 GB
+of pytest roots accumulating in one evening elsewhere. The sweep it asks for
+after a killed run now has one place to look for this tree's tests rather
+than two.
+
+## 373. CI was red for nine days, and four warnings nobody acted on, 2026-09-26
+
+`gh run list` shows every push since `4cfbc2d` on 2026-09-17 failing, and
+`gh run view` shows the steps running rather than a billing block (sec 34).
+The logs themselves need admin rights this machine's token lacks, so both
+jobs were reproduced from a fresh clone instead: one without submodules for
+`core`, one with them for `full`.
+
+**`core` could not build.** `node/test/remote_test` and
+`node/test/provision_test` link the Monocypher binding and were in the
+unconditional test lists from `8f116fe` and `f37f8ca`; `fuzznetd`, in `all`,
+links it since sec 368. So a build with `MONOCYPHER_DIR=` -- the embedded
+arrangement, and the one thing `core` exists to ask about -- stopped at
+`chain/sign_monocypher.o`. The two tests now sit in `MONO_TSRC` beside the
+other binding suites, and `fuzznetd` is built only when the binding is. A
+daemon that serves the remote hop has no meaning without the crypto ops it
+hands that hop.
+
+**`installcheck` refused, in both jobs, and was right to.** `local/client.h`,
+`node/caller.h` and `node/peer_persist.h` joined `HDRS` without an include in
+`tool/consumer_check.c`, and the gate refuses an installed header nothing
+compiles. Included now.
+
+**`clean` did not know the daemon.** `fuzznetd`, `node/fuzznetd.o` and its
+`.d` were in no list, so `clean`'s own survivor check would have refused on
+the first run that reached it -- CI never did, stopping earlier. And `DEPS`
+did not read `fuzznetd.d`, so a header change did not rebuild the daemon,
+which is `build-and-commit.md`'s first dependency rule. `PROG_OBJS` and
+`PROG_CLEAN` carry both.
+
+### Four warnings, each a change that was not carried through
+
+The ordinary build printed:
+
+- `-Wswitch` in `cli/persist_print.c` and `gui/persist_view.cpp`:
+  `FZN_PERSIST_NODE_PEER`, added in `e26f042`, unhandled. Both comments
+  claimed a new slot "fails to compile here". It does not -- the build has no
+  `-Werror` -- so the promise was a warning nobody read for four days. The
+  comments now say what actually happens, and `persist_print_test` walks six
+  slots, so the new one is required to have a sentence of its own.
+- `-Wmissing-field-initializers` in `chain_fuzz.c` and `chain_guided.c`:
+  the revocation store gained `generation` (sec 359) and the positional
+  initialisers did not. `chain_test.c` had the same shape without the
+  warning and is given the field too.
+- `-Wshadow` three times in `tool/consumer_check.c`, which `installcheck`
+  prints on every run: inner `srows`, `plan` and `sp` are `source_rows`,
+  `shard_plan` and `terms`. Renamed within their own blocks by a tool that
+  counted the outer uses before and after.
+
+### Measured
+
+`core`: `make test`, `make style`, `make installcheck`, all
+`MONOCYPHER_DIR=`, exit 0. `full`: the workflow's seven steps in order, exit
+0 each, `remote_test` 39 checks and the node's `provision_test` running
+where `core` builds neither. No `warning:` line in any of the ten logs.
+
+## 374. The card's own signature is bound, and situ unions sibling tags, 2026-09-26
+
+sec 308 bound five signed objects and held the provisioning card because
+situc crashed on a covered region containing structs that cover themselves.
+situ fixed that in 74739d7, and `make schema` extracts `0fedeb3`, which
+contains it. Re-probed before binding rather than trusting the 2026-09-19
+report.
+
+`provision/provision_record.situ` wraps version through `expires_at` in
+`authenticated body` and declares `checksum u8 signature[64]
+covers(body)`. That is exactly the range the C signs:
+`fzn_provision_sign` and `fzn_provision_verify` both pass bytes
+`0 .. FZN_PROVISION_BODY_LEN`, which is `FZN_PROVISION_OFF_SIGNATURE`.
+VALUE-ONLY, and the map shows it: every offset and size in the `.situ.map`
+is unchanged, the new `body` region is 359 bytes at 0, the signature sits at
+`0x167` = 359, and the card-level fields gain `signature` in their `auth`.
+`situc wire --check` calls it two breaking changes. One is the coverage
+itself. The other is the signature losing `big`, which a `u8` array never
+had any use for. The five in sec 308 took the same two and the bytes are
+the same.
+
+So all six signed objects state their signature's coverage in the schema.
+
+### What situ still says wrong about the card
+
+The committed card contract has, since the card was first converted, listed
+two `signature covers:` lines under the card when the card bound nothing.
+Those were the nested hop's and prekey's tags, unqualified, EACH listing
+BOTH structs' fields. The map agrees: `hop.grantor` was
+`Covered(hop.signature, prekey.signature)`. The prekey's signature covers
+the prekey's 74 bytes and nothing of the hop.
+
+Reduced outside this tree to three structs: `outer { u8 plain; a first;
+b second; }`, where `a` and `b` each cover their own one-byte body. situ
+reports `first.x` as `Covered(first.sig, second.sig)` and prints two
+`sig covers: body x body y` lines. With `a` alone it is correct, and `plain`
+stays uncovered in both. So the fault is specific to SIBLING self-covering
+members: their tags are unioned. That over-claims authentication, the unsafe
+direction. Reported in situ's `suggestion/fuzznet.md` with the reproduction
+and its control, and the situ session was told.
+
+**FIXED IN situ 95a3380, and the card contract regenerated, 2026-09-26.**
+The cause was situ's: `regions` recorded region NAMES, and the hop and the
+prekey both call theirs `body`, so the two tags were collected under one key
+and merged. situ reduced it to five cases, two of which were always correct
+-- and those two are what caught situ's own first repair, which removed
+coverage from everything.
+
+Checked against the card, not only against situ's fixtures:
+
+- **The hop's and prekey's `covers:` lines list only their own members.**
+  Those were the two wrong lines.
+- **The card's own tag line is unchanged** and still lists every hop and
+  prekey member, both inner signatures included.
+- **`card.body` is `Covered(signature)` alone, and each inner field names
+  its own struct's tag plus the card's.** `hop.grantor` no longer names
+  `prekey.signature`.
+
+The two views were never in tension, which is the point that closed situ's
+open question: `auth=Covered(X)` on a REGION claims X authenticates all of
+its bytes, so it narrows to tags covering the whole region; the `covers:`
+line is what a tag covers, and stays full.
+
+`make schema` refused the old contract against the fixed situ ("changed
+compatibly") before it was regenerated, so the gate was live for this.
+
+**Two things still stand.** A whole-struct line names every tag the struct
+CONTAINS, not the tags covering all of it: `card.hop` is
+`Covered(signature, hop.signature)` over 179 bytes of which `hop.signature`
+covers 115, and the standalone `struct fzn_chain_hop` has always read
+`Covered(signature)` including its own signature's bytes. That is a
+convention at the struct level, older than this fix, and it has been
+reported to situ as a question. The unqualified tag names are FIXED
+in situ 42b8a68: tag and members are named by path, so the card's three
+lines read `hop.signature covers: hop.body ...`, `prekey.signature covers:
+...` and `signature covers: ...`. situ found it also closed a hole in its own
+checker, which keyed the comparison on the text before the colon, so three
+`signature covers:` lines were one claim to it and a later line overwrote an
+earlier one.
+
+**Taking it: a rename the gate reports as a loss.** `make schema` refused the
+old contracts with "it no longer authenticates capability, chunks, ...", and
+nothing in the format READ tells a renamed line from a narrowed one (situ
+found a0d40d8 that `wire.FORMAT_VERSION` exists for exactly this and nothing
+reads it). Two separate observations show only the naming changed, and they
+are not equally strong:
+
+- Stripping every path prefix and comparing each tag's member multiset, old
+  against new, came out identical in all four changed contracts -- frame,
+  manifest, chain and provision. **That alone cannot see a SWAP**: a tag that
+  stopped covering `hop.body` and started covering `prekey.body` strips to
+  the same multiset. situ pointed this out about the same idea offered as a
+  checker rule, and it applies to this check as evidence.
+- **Every `.map` was byte-identical**, and the map names each field's
+  covering tags fully qualified -- `hop.grantor auth=Covered(hop.signature,
+  signature)` -- so a swap would have changed it. That is the evidence that
+  rules one out; the multiset comparison only says the counts agree.
+
+Neither is the gate's pass after regenerating, which is agreement with the
+generator.
+
+## 377. The device's half of a pairing, and a card any device would accept, 2026-09-26
+
+sec 376 left the device with nowhere to keep what it accepts. That is the
+third time the inventory missed a pairing half: node peers in sec 366, the
+node's own identity in sec 375, and now the caller's view of a node.
+
+### A card any device would accept
+
+Building the device side meant reading `fzn_node_accept_card` for what it
+guarantees, and it guaranteed less than it looked. It verified the card's
+envelope under the root the card names -- which every card proves about
+itself -- and never asked whom the grant inside was for. A device handed
+ANOTHER device's card accepted it, pinned the node, and derived a session
+the node has no peer for. It failed on its first request, and a request
+that goes unanswered looks exactly like the network. It now verifies the
+hop under the card's root, for the capability the hop carries, and refuses
+a grantee that is not this device, as `FZN_NODE_PROVISION_NOT_MINE`. The
+check comes before anything is pinned or derived.
+
+### The pairing, as the device keeps it
+
+`fzn_node_pairing_t` in `node/pair.h` holds the node's root, the capability
+granted, the send key and commitment key, and the device's own hop. It is
+slot 8 (`FZN_PERSIST_PAIRED_NODE`, keyed by the node's root) and blob tag 7,
+309 bytes fixed, packed in `node/pair.c` beside the type as `node/
+peer_persist.c` does for tag 5. `persist.situ` gains the arm, and situ's
+own layout puts the fields where `pair.c`'s offsets do.
+
+**No address in it.** Where a node is on the network changes without the
+pairing changing, and finding it is what the link and location subsystems
+are for. A stored address beside a credential would be the first thing to
+go stale while looking authoritative.
+
+`fzn_node_pairing_open` requires the capability stored beside the hop to
+equal the one inside it -- two copies of one fact are two encodings unless
+they must agree. `fzn_node_pairing_load` refuses a blob naming a root other
+than the one it is filed under, the check `fzn_node_peers_load` makes for
+the node's side. `fzn_node_pairing_caller` fills a caller's credential half
+from a pairing; the socket and address stay the caller's.
+
+`fuzznetd --store DIR --accept CARD` is the device's half of `--pair`: it
+accepts, saves, and prints the node's root.
+
+### Measured for sec 377
+
+`pair_test` now closes the loop. The device accepts the node's card into its
+own store, and a third node offered the same card is refused with nothing
+saved. The blob is checked at the offsets `persist.situ` states. A blob
+whose capability disagrees with its hop is refused, and so is one filed
+under the wrong root. Then **paired stores talk**: the device loads only its
+stored pairing, the node loads only its stored peer, the device asks over
+loopback UDP through `node/caller.h`, the node serves it through
+`fzn_node_run_once`, the handler sees a granted caller, and the device
+reads the answer. Every key on both sides came out of a store. Three
+sabotage entries hold the grantee check, the capability agreement and the
+filed-under check.
+
+Across real `fuzznetd` stores: B printed its prekey, A paired it, B
+accepted A's card and stored `8-<A's root>`; C, offered the same card, was
+refused and stored nothing.
+
+### What sec 377 leaves
+
+- ~~**Asking from the command line.**~~ `fuzznetd --ask`, sec 381.
+- ~~**Pairing into a live daemon**~~ `add peer` pairs into the running
+  node, sec 378.
+
+## 379. A device can be un-paired, and a node can say who it serves, 2026-09-26
+
+sec 1 says "a stolen device is something you revoke". Until now a node could
+not cut a paired device off at all: nothing in this library could forget
+anything it had stored, so a device once paired was served until somebody
+deleted a file by hand and restarted the node.
+
+### What revocation is and is not here
+
+The node's remote path passes NULL for revocations -- `node/remote.c` calls
+`fzn_node_decide(..., NULL, NULL)` -- so nothing it serves consults any.
+For a device paired to ONE node, removing its peer record cuts it off
+completely: with no session the node cannot even open its frames. Revocation
+proper matters when a grant is honoured by nodes other than the one that
+minted it, where there is no peer record to remove. That is the next piece
+and a larger one, and it has a persistence question of its own. `persist.h`
+calls the revocation store "refilled from manifests", which does not cover a
+node's revocations of its own grants: forgetting them on restart would
+re-admit the device.
+
+### The seam gains `remove`
+
+`fzn_persist_ops_t` gains an optional `remove`, following `list`'s precedent
+(sec 367): NULL is an honest "this backend cannot forget", and a caller that
+needs it says so. It returns 1 when the slot is gone afterwards, INCLUDING
+when it was never there -- the caller's question is "is it gone", and a
+second removal answering failure makes a retry after a lost reply look like
+a fault. The file backend unlinks, takes ENOENT as success, and is as
+durable as its own save, which syncs the file and not the directory.
+`fzn_node_peer_remove` wraps it for the node's peers.
+
+### Two verbs
+
+`remove peer KEY` needs the node's own user, as every mutating verb does
+(sec 378). It refuses a key the running node does not hold. It has the
+store forget the peer FIRST and then reloads the running set from the
+store, so the device's next frame finds no session. A reload that fails is
+reported as the device still being served until a restart, the one
+direction where carrying on quietly would keep serving somebody the
+operator has just cut off.
+
+`list peer [FROM]` changes nothing, so a service-group member may ask it.
+It answers `ok TOTAL FROM KEY KEY ...` with as many keys as fit one reply
+line. **Paged, not truncated**: sixty-four keys do not fit 1024 bytes, and
+a list that stopped silently at the fifteenth would be the short answer
+`persist.h` refuses for `list` -- a node that appears to hold fewer devices
+than it does. The total is on every page.
+
+### Measured for sec 379
+
+`admin_test` checks, through the real local path:
+
+- A group member may list and may not remove.
+- The owner's removal takes the device out of the running set AND the
+  store, and a second removal is an error, not a success.
+- A store with no `remove` refuses and leaves the running set as it was.
+- Seventeen devices are listed over at least two pages, every key once and
+  none twice, with the total on every page.
+- An offset past the last peer is `malformed`, not an empty page. It is
+  tested at 20, which is inside the index parser's own bound, because 99
+  would have been refused by the parser first and the check under test
+  never reached -- the sabotage run is what that case exists for.
+
+`persist_file_test` checks that `remove` leaves the slot absent, that
+removing again succeeds, and that a directory at mode 0500 is refused.
+
+Three sabotage entries hold the live reload on removal, the past-the-end
+refusal and the absent-is-gone rule. A fourth was drafted and dropped:
+removing the list's fit check would have been "caught" by writing past the
+reply buffer, which is a crash rather than a check, and a sabotage caught
+that way says nothing about the test.
+
+## 380. A node revokes what it granted, and remembers it, 2026-09-26
+
+sec 1's purpose is a stolen device "you revoke rather than a password you
+change", and `chain/revocation.h` has carried signed revocation records, a
+verify-on-admission store, withdrawals and re-revocation chaining since
+sec 13. The node consulted none of it: `node/remote.c` passed NULL
+revocations to every decision. sec 379 could cut off a device paired to ONE
+node by forgetting its peer record. A grant honoured anywhere else has no
+record to forget, and that is what revocation is for.
+
+### Three pieces
+
+- **The node decides with its revocations.** `fzn_node_config_t` gains
+  `revocations` beside `root` -- the two are one question, which grants
+  this node's trust still honours -- and the remote path passes it. No
+  caller's signature changed.
+- **`node/revoke.{h,c}`.** `fzn_node_revoke` mints the revocation of one
+  grantee's grant, or a re-revocation naming a predecessor after a
+  withdrawal, as `revocation.h` requires. It admits it into the running
+  store FIRST and saves it second: in force and unsaved is a smaller
+  failure than saved and not in force, which would tell the operator a
+  device is cut off while the node serves it. Revoking twice is
+  `FZN_NODE_REVOKE_ALREADY`, not a second record the store would refuse as
+  a stale copy.
+- **`revoke peer KEY`** in `node/admin.c`: owner only, any key rather than
+  only a current peer, since a grant outlives the peer record it came with.
+  It answers `ok KEY`, or `ok KEY already`.
+
+### Persisting what cannot be persisted
+
+The store keeps "a hash and a flag, never a record" -- deliberately, so the
+hot path compares rather than verifies -- so there is nothing in it to save.
+The node saves each record it ISSUED instead, as slot 9
+(`FZN_PERSIST_ISSUED_REVOCATION`, keyed by grantee) and blob tag 8. At start
+`fzn_node_revocations_load` admits every one again, through the same
+verification a revocation from anywhere gets. `fuzznetd` does this BEFORE it
+serves any peer, and a record that will not admit is fatal: a node that
+served first and remembered second would answer a revoked device in the
+gap.
+
+`persist.h`'s inventory said the revocation store is "refilled from
+manifests". That is true of revocations a node LEARNS and false of those it
+ISSUES, which exist only on the node until something carries them. It is
+the fourth inventory hole of this kind: node peers (sec 366), the node's own
+identity (sec 375), the device's pairing (sec 377), and now this.
+
+**Slot 9 is the last slot one decimal digit names.** The file backend
+refuses a tenth rather than folding it, and widening the name is a
+migration that orphans every stored file. The next slot is that migration,
+and it should be done deliberately rather than by the next session needing
+a slot.
+
+### Measured for sec 380
+
+`pair_test` extends the loopback exchange from sec 377:
+
+- The node revokes the device, and the device's next request -- same
+  stored pairing, same session -- reaches the handler as DENIED.
+- A fresh store filled only by `fzn_node_revocations_load` from what the
+  node saved denies it again: the restart case.
+- The control: the same node with no revocation store grants the same
+  request, so the two denials were the revocation's.
+
+A second revocation is `ALREADY`, and a node whose root is not its own key
+is refused. `admin_test` covers the verb over the local socket: a group
+member is denied, the owner is answered `ok KEY`, and a repeat is
+`ok KEY already`. Three sabotage entries hold the remote path consulting
+the store, the record being saved, and `ALREADY`.
+
+### What sec 380 leaves
+
+- ~~**Carrying revocations to other nodes.**~~ A member pulls its root's
+  revocations, sec 384. Manifests are still not published by the node.
+- ~~**Withdrawing.**~~ `remove revocation KEY`, sec 386.
+
+## 382. Slot ten, without a migration, 2026-09-27
+
+sec 380 took slot 9 and recorded it as the last the file backend could name,
+because `name_for` wrote one decimal digit and refused a tenth rather than
+folding it. The multi-node estate work will need slots, so this came first.
+
+The record said widening the name "orphans every file already written, so it
+is a deliberate migration". That is true of a FIXED width -- `01-h` for what
+is stored as `1-h` -- and false of variable-width decimal, which is what the
+name is now: slots 0 to 9 keep the names they always had, byte for byte,
+slot 10 is `10-h`, and nothing on disk moves. The cap is
+`FZN_PERSIST_FILE_SLOT_MAX` (99), and past it every call still refuses
+rather than folds.
+
+`file_list` now matches the whole `<slot>-` prefix and the length that goes
+with it. Those are two guards, and they catch different things: the length
+separates `3-` from `30-`, and only the whole-prefix compare separates `30-`
+from `31-`, which have the same length. The test has a case for each. The
+sabotage entry for the compare (checking only the first character) is held
+by the 30/31 case, not the 3/30 one, which the length check catches first.
+
+`persist_file_test` checks:
+
+- slot 10 is written as `10-h`;
+- slot 1's existing file is still `1-h` and still reads back;
+- slot 3's listing does not take slot 30's file, and slot 30's does not
+  take slot 31's;
+- slot 99 saves and slot 100 is refused by save and list alike.
+
+One existing sabotage entry anchored on the old length check and was
+re-pointed at the new one. The harness refused to run until it was, which
+is what it is for.
+
+## 385. A member revokes what it delegated, through its chain, 2026-09-27
+
+After sec 384, a device that a member node had paired could be cut off only
+by the estate's root. `fzn_node_revoke` refused anybody else as NOT_ROOT,
+so an operator at the member had no way to revoke a device it had just
+paired.
+
+`chain/revocation.h` has admitted non-root revocations since 2026-08-28.
+The rule is that a key may revoke exactly what it could grant. The issuer
+presents a chain from the pinned root for the capability being withdrawn,
+naming the issuer as the last grantee, with that last hop delegable. A
+member's `fzn_node_authority_t` is exactly that chain, and it is the one
+the member already pairs through. So this change is wiring only:
+
+- `fzn_node_revoke` takes the authority, as `fzn_node_pair` does. With it,
+  the member signs the record with its own key, as issuer, and it is
+  admitted with `fzn_revocation_offer_chain`. Standing is checked before
+  anything is minted, so a member with none gets NOT_ROOT, not a
+  misleading "store refused".
+- `fzn_node_revocations_load` takes the authority too. A slot-9 record
+  issued by the member for the capability its chain carries is re-admitted
+  through the chain.
+- `revoke peer KEY` on a member's local socket uses the member's
+  authority, and fuzznetd passes it to the load.
+
+**A record the node issued as its own root before joining is now admitted
+too.** sec 384 skipped these. Once the node has a chain, they are still its
+signed word that the grantee is cut off, and honouring them errs toward
+denial, the one direction a revocation may err in. A device such a record
+names, paired again through the estate, stays refused until un-revoked.
+The skip remains for a node holding no chain, which has nothing to verify
+those records against.
+
+**Not carried anywhere, deliberately.** A member's revocation is enforced
+by that member. `get revocation` serves them from slot 9 like any other
+record, but no pull takes them: a device a member paired presents a card
+naming that member and is served there alone. If joining through a delegate
+is ever built, that stops being true, and carriage would need a chained
+pull.
+
+### Measured for sec 385
+
+`pair_test`, continuing the estate:
+
+- N pairs a new device E through R's grant and grants it;
+- N revoking without its chain gets NOT_ROOT, and so does a device trying
+  to revoke through a grant it cannot pass on;
+- N revokes E through its chain; E is denied; a second revocation reports
+  ALREADY;
+- reloading with the chain gives three records: R's learned one, N's own
+  of E, and N's pre-join one. E is still denied.
+
+Live: R, N joined, D paired by N. D was served. `revoke peer D` on N's
+local socket answered `ok`, and D was refused. After N restarted, it
+reported one revocation from its store and D was still refused.
+
+The load skips a member's record for a capability its chain does not
+carry. `fzn_node_revoke` cannot produce such a record, so the test writes
+one into the store by hand, and the reload still counts three.
+
+Four new sabotage entries cover:
+
+- offering the chain rather than the root;
+- the delegable check on standing;
+- re-admitting a member's own records at load;
+- the capability comparison.
+
+The pre-join entry was re-anchored onto the skip's new arm. It still fails
+the member-without-chain reload.
+
+## 386. Undoing a revocation, 2026-09-27
+
+A revocation could be issued and never lifted, so an operator who revoked
+the wrong device could only re-pair it under a new key. The library has
+minted withdrawals since sec 13b. It stores one that arrives alone as a
+tombstone (since 2026-09-03), and a revocation issued after a withdrawal
+must supersede the one withdrawn, which `fzn_node_revoke` already did. The
+node was missing the verb.
+
+- `fzn_node_unrevoke` takes the same standing as revoking (root, or a
+  member through its chain, sec 385). It mints the withdrawal naming the
+  record held in slot 9 by the hash of that whole record, admits it, and
+  saves it in the record's place. It refuses with NOT_REVOKED when nothing
+  is held, or when what is held is already a withdrawal. It shares one
+  internal path with revoking, so standing, admission and the save cannot
+  drift apart.
+- `remove revocation KEY` on the local socket. REMOVE is a mutating verb,
+  so only the node's own user may send it.
+- **Carriage is free.** `get revocation` serves slot 9, which now holds
+  the withdrawal, so a member's next pull lands it on the revocation it
+  holds and saves it to slot 10 in that revocation's place. On restart, a
+  withdrawal alone in either slot admits as a tombstone.
+- `chain/revocation.h` said a withdrawal delivered to a host that never
+  held the revocation is refused with UNKNOWN_TARGET. That stopped being
+  true on 2026-09-03, when the tombstone branch was added; the sentence now
+  says so and names the node's pull as one delivery path.
+
+### Measured for sec 386
+
+`pair_test`, on the estate:
+
+- a member undoing without its chain gets NOT_ROOT;
+- N undoes its own revocation of E, and E is granted again; a second undo
+  gets NOT_REVOKED;
+- a reload keeps E granted, since the withdrawal admits alone;
+- revoking E again denies it, and still does after a reload;
+- R undoes its revocation of D, and N, holding it, learns that by pulling,
+  after which D is granted.
+
+`admin_test`: a group member is denied `remove revocation`; the owner is
+answered `ok KEY`; a second undo is an error; revoking afterwards is `ok`,
+not `already`.
+
+Live, with R, N (`--root-at`) and D:
+
+- R revoked D, and N pulled it, so D was refused;
+- R's `remove revocation D` answered `ok`;
+- after N pulled again, D was served.
+
+N's log reports the pulled withdrawal as "1 revocation(s) from the root",
+which is the count of records, not of revocations. It is left as it is,
+and is recorded here so the next reader of that log knows.
+
+Three sabotage entries cover the target hash over the whole record, the
+refusal to undo a withdrawal, and the verb's dispatch.
+
+## 387. The node peer blob, described, 2026-09-28
+
+`persist/persist_wire.situ` described every persist blob but one: tag 5, the
+peer as the node keeps it. sec 375 recorded this, and it was the one layout
+in `persist.h`'s inventory existing only as offsets in
+`node/peer_persist.c`. Everything in secs 380-386 stores its authority in
+that blob, so it was also the one carrying the estate's chains.
+
+Its body is sender, receive key and commitment key (32 each), a hop count
+refused past `FZN_CHAIN_MAX_HOPS`, and that many signed hops, 97 to 1529
+bytes. The hops stay opaque, as the pairing body's hop does, inside a
+one-field `fzn_persist_hop` so the array has something to count.
+
+situc reports adding the arm as two breaking changes: a new enum value,
+and the union widening from 307 to 1529. That is true of the contract, and
+no byte anybody holds moves. The C code has written tag 5 since sec 366;
+what changed is that the schema now says so.
+
+`peer_persist_test` holds the two descriptions to each other. It reads a
+packed two-hop blob at the offsets the schema states, written as literals
+rather than through `peer_persist.c`'s `OFF_` macros:
+
+- the head, version 1 and tag 5;
+- sender at 2, the keys at 34 and 66;
+- the count at 98, the hops from 99 at 179 each;
+- the total, 457;
+- `FZN_NODE_PEER_BLOB_MAX` equal to the schema's longest, 2 + 1529.
+
+The first version of the length check expected 459, an arithmetic
+slip in the test. It failed, and splitting the one combined check into four
+showed that the bytes were right and only the expectation was wrong.
+`make schema` passes against situ ccbe1e7.
+
+Also struck here: four "what sec N leaves" items that later sections closed
+(asking from the command line, pairing live, carrying revocations,
+withdrawing). Each had gone on reading as open after its closing commit.
+
+## 390. Signatures are RFC 8032 Ed25519, 2026-09-28
+
+Sec 389, decision 7a. `chain/sign_monocypher.c` bound Monocypher's
+`crypto_eddsa_*`, EdDSA over edwards25519 with BLAKE2b, and everything here
+called it Ed25519. Its signatures did not verify under any standard Ed25519
+library, and a seed named a different public key than it does everywhere
+else (sec 375 recorded the mismatch).
+
+It binds `crypto_ed25519_*` from Monocypher's optional
+`monocypher-ed25519.c` now. That file was already vendored, and is built as
+`monocypher-ed25519.o` under the same vendored terms as `monocypher.o`. The
+Makefile links it wherever the binding is linked, ten sites, and
+`installcheck` compiles it for the consumer check. Seven tests that derive
+keys with Monocypher directly now call the Ed25519 functions.
+
+**Checked against the RFC, not against itself.** `sign_monocypher_test`
+carries section 7.1's TEST 1 and TEST 2, taken from
+https://www.rfc-editor.org/rfc/rfc8032.txt on 2026-09-28 (sha256 of the
+text `ed63657f...fc93c4c3`). Both directions run through the binding:
+
+- the seed seats to the RFC's public key;
+- signing gives the RFC's signature;
+- the RFC's signature verifies here;
+- the same signature with one byte changed does not.
+
+A sabotage entry puts `crypto_eddsa_sign` back in the binding, and the
+round-trip tests catch it, since verification is still standard. A full
+revert of all three calls was probed by hand. The round trips fail as well,
+because the tests now derive keys with `crypto_ed25519_*` themselves, and
+the four RFC checks fail for both vectors. Those round-trip tests call the
+same library the binding does, so the RFC vector is the one witness
+independent of Monocypher, which is why it is there.
+
+**Every key and signature made before this changes.** The same seed
+derives a different public key under SHA-512, so every stored identity,
+hop, revocation, record and prekey signature from before this commit is
+foreign to it. fuzzypickles reports the holder's answer for its side, in
+its words: existing identities need not survive, and the holder's devices
+(desktop, Fold, Note 9) will be re-created by running identity-generate
+again, re-joining devices and re-pairing contacts, with no migration path
+wanted. fuzzypickles will switch its own direct calls to Monocypher's EdDSA
+when it moves its pin, in its tree. It first counted 31 call sites in its
+core; a later count of every `crypto_eddsa_` reference outside its vendored
+trees, tests included, gave 194. It called the 31 narrower and will recount
+before relying on either. Its vendored Monocypher already carries the
+optional file, and its pin was 477 commits behind this tree's master when
+counted (2026-09-28).
+
+## 393. The manifest names what the bindings need from Monocypher, 2026-09-28
+
+fuzzypickles found the gap while moving its pin to 46b3032, in its own
+words: its core Makefile builds fuzznet's sources from `make manifest` and
+compiled `binding` lines against `-I<monocypher>/src` alone, and after the
+move `chain/sign_monocypher.c:6` failed with "fatal error:
+monocypher-ed25519.h: No such file or directory". Sec 390 made the signer
+need Monocypher's optional Ed25519 unit, and only this Makefile knew it.
+
+**Nothing could have caught it here, and that was the second fault.**
+`installcheck`'s manifest arm compiles a consumer from the manifest's
+`source` lines and deliberately leaves the bindings out, so nothing had
+ever built a `binding` line from what the manifest says.
+
+- The manifest now states what the bindings take from the consumer's
+  Monocypher, relative to that checkout's root:
+  `monocypher-source src/monocypher.c` and
+  `src/optional/monocypher-ed25519.c`, and `monocypher-include src` and
+  `src/optional`. They come from `MONO_NEEDS_SRC` and `MONO_NEEDS_INC`,
+  the variables the new arm reads.
+- `installcheck` gains a binding arm, run when Monocypher is here to build
+  against. It compiles the consumer with its bindings from the manifest
+  and a Monocypher checkout alone, and refuses a manifest naming no
+  Monocypher sources.
+
+Shown able to fail: the same run with the Ed25519 unit and its directory
+withheld from the manifest stopped with the header error fuzzypickles
+reported. With them, "the bindings build from the manifest alone".
+fuzzypickles also reports that its own core test now checks RFC 8032
+section 7.1 against fuzznet's verifier from its side, so a sabotaged
+vector fails in both trees.
+
+## 401. A node pulls votes from every peer it names, 2026-09-29
+
+The gap sec 399 left. `fuzznetd` takes `--pull-from NODE_HEX HOST PORT`,
+repeatable, alongside `--root-at HOST PORT`, up to eight peers in all.
+
+- **`--pull-from` names any node this one holds a pairing to**, loaded
+  with `fzn_node_pairing_load`. Slot 8 files a pairing under the node
+  that sealed its card, so a member can hold one to its sponsor and
+  another to a sibling that paired it.
+- **`--root-at` is the same pull through the pairing the node joined
+  with**, and still refuses a node that joined through a member, now
+  naming `--pull-from` as the way to reach that member.
+- **Every peer is asked each round, one after another.** A peer that
+  does not answer is reported and the next is asked, since what one
+  cannot say another may.
+- **Each peer has its own socket and reassembly table**, so a late
+  answer from one is never read as another's.
+- **Eight** because an estate's nodes are a household's and each costs a
+  pull a minute.
+
+### Measured for sec 401, live
+
+Five `fuzznetd` processes over loopback UDP, with service 7 and product
+1, from a scratch script:
+
+1. R pairs N and M delegably, and both join.
+2. N pairs M non-delegably, so M holds pairings under both R and N.
+3. R and N serve, and each is asked `revoke peer X` over its local
+   socket; each answers `ok X`.
+4. M serves at `--quorum 2` with `--root-at` R and `--pull-from` N.
+
+M logged `1 vote(s) from 127.0.0.1, 0 refused` twice, once per peer.
+M's store then held two slot-11 votes, and M's restart logged
+`2 revocation(s)`. M still named R as its estate root: the pairing to N
+is not delegable, so `fzn_node_pairing_estate` does not take it for the
+joined one.
+
+Afterwards no `fuzznetd` was left running and the socket directory was
+gone.
+
+AF_UNIX addresses are bounded at 108 bytes, and `fzn_socket_listen`
+wants an absolute path, so the sockets lived in a `mktemp -d` under
+`/tmp/claude-1000`, removed by name at exit.
+
+Not in `make test`: no target in this tree runs the daemon, and adding
+one is its own decision.
+
+## 407. A node keeps its estate's roots, 2026-09-29
+
+The first node piece of sec 403. `node/roots.h` keeps a node's root log
+and root set, persisted, and attaches them to its revocation store.
+`fuzznetd` does this at start.
+
+### What a node keeps
+
+- **Two core slots.** Slot 12 holds root log entries, keyed by entry id.
+  Slot 13 holds root changes, keyed by record id.
+- **Three blob tags**: 10 for a log entry, 11 for a root-add and 12 for
+  a root-remove. An add and a removal differ in length, and the blob
+  head checks an exact length per tag, so they take a tag each.
+- **Core, not store**, by persist.h's rule. A lost entry leaves a
+  removal's cut impossible to follow; a lost removal lets a removed root
+  count again.
+- `persist/persist_wire.situ` states the three bodies, and situ `2744f65`
+  gives 171, 130 and 162 bytes.
+
+### What it does
+
+- **`fzn_node_roots_learn`** takes any root record, told apart by its
+  object byte. It admits the record, settles the view again (so an
+  attached store answers under it at once) and saves it. A record that
+  will not admit is refused and not saved.
+- **`fzn_node_roots_load`** re-admits everything at start. A record that
+  will not read or admit fails the load, as a revocation does (sec 380).
+  So does one filed in the other slot, which is a store written by
+  something else.
+- **`fuzznetd` builds the roots from the pinned root, loads them and
+  attaches them before re-admitting revocations**, so a revocation by a
+  member root re-admits. With nothing stored, the set is the pinned root
+  alone, and every answer is the single-root answer.
+
+### Not yet
+
+- **A node cannot yet sign as a root other than its identity key, or log
+  its own root acts.** The genesis root's pairings and revocations are
+  signed by the root node's identity key, as before.
+- **~~Root records do not travel between nodes yet.~~ They do since
+  sec 408.**
+- **There are no verbs yet** for adding or removing a root.
+
+### Measured for sec 407
+
+`pair_test`, 148 checks, with the new `test_several_roots_at_a_node`,
+over real Ed25519 keys:
+
+- **The setup.** R adds B, and B, which is no ancestor of D's chain
+  R -> N -> D, revokes D.
+- **Before N learns of B**, B's revocation is refused as the wrong root.
+  This is the control.
+- **Once N has learned** the add and both log entries, B's revocation
+  revokes D alone at k = 2.
+- **A restart from N's store alone** loads three records and says the
+  same.
+- **The store's guards:** an entry filed as a change fails the load, and
+  so does a stored entry whose signature fails.
+- **A forgery:** an add naming R and signed by another key is refused.
+- **R removes B with no cut**, and B's revocation stops revoking.
+
+`fuzznetd` builds and starts on an empty store.
+
+Sabotage: four new entries, each caught by its own case. They cover
+learning refusing what will not admit, learning settling the view, the
+slot and the tag agreeing, and the load admitting or failing.
+
+## 408. Root records travel, before votes, 2026-09-29
+
+A node learned roots only when something handed them to it. Now they
+travel as votes do (sec 399).
+
+- **`get root [FROM]`** serves every root record a node holds, from the
+  local socket and over the remote hop. Each item is `e` and a log
+  entry, `a` and a root-add, or `x` and a root-remove, whole. Paging is
+  by item index, as `get vote` pages.
+- **Every item stands alone**, unlike a vote and its chain, so nothing
+  is held across pages.
+- **The puller learns each item** through `fzn_node_roots_learn`, which
+  admits, settles and saves it.
+  - An item that will not admit is counted and skipped, because a peer
+    may hold what this node never will.
+  - An item whose letter names another kind than its record is a
+    stream that does not parse, and so is a page answering an offset
+    nobody asked for.
+- **`fuzznetd` pulls roots from each peer before votes**, so a vote cast
+  by a root this node has not yet heard of admits in the same round.
+
+**~~Not yet:~~ Built in sec 409:** a node signing as a root other than
+its identity, logging its own root acts, and the verbs to add or remove
+a root. Until the
+verbs exist a live estate has no root records to carry, so this was
+measured in the suites rather than between daemons.
+
+### Measured for sec 408
+
+`pair_test`, 157 checks:
+
+- **Page by page.** A node M pulls N's five root records, one per page,
+  and judges B's revocation as N does.
+- **Two malformed pages.** A page answering the wrong offset, and an
+  item whose letter names another kind, are each a SHAPE failure.
+- **A refused item.** One from a peer holding a forged entry is counted,
+  and the pull goes on.
+- **Over the remote hop.** M pulls R's root-add through `get root`.
+
+`admin_test`, 36 checks: `get root` on a node holding nothing is an
+empty stream, not an error.
+
+Sabotage: five new entries, each caught by its own case. They cover an
+item's letter matching its record, a refusal not stopping the pull,
+the page's offset, and `get root` served remotely and locally.
+
+## 411. A node pairs through its root key, 2026-09-30
+
+Sec 410 let a card prove the root its chain starts at. This is the other
+half: a node whose root key K stands can make such a card. Before this,
+K could change the root set and revoke, but a node paired only through
+its identity, as the genesis root or through the chain it joined with.
+
+### The grant and the proof
+
+**`fzn_node_roots_self_grant`** fills an authority for `fzn_node_pair`
+to extend:
+
+- **K's grant of the capability to the node's identity**, delegable and
+  never expiring;
+- **the root-adds from the genesis to K**, read from the store, since
+  the set keeps an add's fields but not its signature.
+
+**The same hop every time.** The grant is minted at `issued_at` 0, and
+Ed25519 is deterministic, so one capability is one act. It is logged
+once, however many devices are paired under it, because the log never
+evicts. Revoking the identity under K covers the grant for good, which
+is what revoking a node's own identity means; a withdrawal restores it.
+
+**The proof follows accepted adds only.** The search runs depth-first
+from the genesis to K, at most three adds, and takes an add only where
+the settled view accepted it. A removed root's add of K is therefore
+never the proof, even though a device that does not yet know of the
+removal would take it. With no path of three or fewer, `NO_PROOF`.
+
+### The authority carries the proof
+
+`fzn_node_authority_t` gains `proof` and `proof_count`. An authority was
+already "a chain from a root". The proof says that root is the estate's,
+so the change is in the one place pairing reads. `fzn_node_pair` walks
+the proof with the new `fzn_provision_proof_end` (the walk
+`fzn_provision_verify` now shares), and verifies the authority under the
+root it ends at. No card is made that the device would refuse.
+
+An authority is zeroed before it is filled. The four in `pair_test` that
+were filled field by field now start from `{ 0 }`, so an unset proof is
+no proof rather than stack garbage.
+
+### Where it is used
+
+**`fuzznetd --pair` pairs through K** when the node is not its estate's
+root by identity and holds a key that stands. It loads the roots and
+the key for the purpose. Otherwise it uses the chain it joined with, as
+before.
+
+**`add peer` cannot carry such a card.** Two hops and a proof are 734
+bytes, 1180 characters of text, past the 1024 of one reply line. A node
+with no joined chain whose key stands is told to use `fuzznetd --pair`,
+before anything is paired. A node that joined and also holds a key
+still pairs through its chain at the verb, since that card fits.
+
+### Not yet after sec 411
+
+- ~~An identity that is a root but not the genesis~~: closed in sec 419.
+- **Roster writers against the root set**, admins by a grant plus
+  confirmations, and k as an estate setting that travels, from the sec
+  403 list.
+
+### Measured for sec 411
+
+`pair_test`, 196 checks, with `test_a_node_pairs_through_its_root_key`.
+R is the genesis:
+
+- Before K stands there is no grant and nothing is logged.
+- R adds Y, a dead end, and Q, then removes Q with nothing kept, and Q
+  adds K. K does not stand.
+- R adds X, and X adds K. The grant carries the proof R-X, X-K: past Y,
+  and not through Q.
+- The grant is logged once, and a second grant is the same bytes with
+  the log unchanged.
+- M pairs D through the grant. The card is `FZN_PROVISION_LEN(2, 2)`,
+  and D, pinning R, accepts it.
+- M's peer chain verifies against a revocation store with M's roots
+  attached, and the genesis pin alone refuses it (the control).
+- A key four adds from R gets `NO_PROOF`.
+
+`admin_test`, 45 checks:
+
+- `add peer` on a node holding a standing key and no joined chain is
+  refused, naming `fuzznetd --pair`, and nothing is saved.
+- The same request with no key held is refused as "not its own root",
+  and does not name `--pair` (the control).
+
+The first version of that control read the reply with `strstr`. The
+reply buffer is not terminated after a shorter reply, so the search found
+the previous reply's words, and the control failed on a correct program.
+It now searches the detail's length only.
+
+**Live, three stores over loopback:**
+
+1. M joins R and makes K, and R's daemon adds K.
+2. M's daemon pulls R's two root records and is stopped.
+3. `fuzznetd --pair` with D's prekey prints a 1180-character `FZN3:`
+   card. That is two hops and one proof; M's joined chain would have
+   made 972 characters.
+4. D's `--accept` pairs it to M. A second `--pair` gives the same
+   length.
+
+No daemon was left running, and the socket directory was removed.
+
+## 444. Pinned and archived notes in the view, 2026-10-02
+
+Sec 439 left pinned and archived out of the view, though the node keeps both
+flags and has had the verbs since sec 431.
+
+- **A pinned note is marked `* ` and listed first**, the pinned in the order
+  the node gave them and the rest after in theirs. Pin and Unpin act on the
+  open note, the button saying which it will do.
+- **Archived notes are a view of their own**, as the trash is: Show archived
+  lists them and nothing else, and the notebook leaves them out. Archive and
+  Unarchive move the open note between the two and close it, since it has
+  left the view it was opened in. An empty archive says "Nothing is archived
+  here".
+- **A trashed note is in the trash**, archived or not, and in neither of the
+  other views.
+
+### Measured for sec 444
+
+**`notebook_view_test`, 119 checks:** a note pinned listed first and marked,
+the others in their order; unpinned, back in its place; an archived note
+leaving the notebook and being the archive's; brought back, the archive
+saying it is empty and the note in the notebook again; a trashed note not in
+the archive.
+
+**Sabotage: two entries**, and `notebook-view-trash-is-its-own-view` re-aimed
+at the trash half of the condition that now holds both.
+
+## 455. A peer's refusal is logged in its own words, 2026-10-02
+
+**When a peer answers a binary request with a reply line, fuzznetd logs
+the line.** Every message the daemon asks a peer -- notes sync, members,
+pushes, texts -- opens with a small version byte; a refusal comes back as
+the peer's ordinary reply line, `denied ...` or `error ...`, which the
+caller can only report as an answer that does not parse. `peer_ask` now
+says, beside that, "HOST refused: " and the line, cut at 200 bytes. A
+reply opening with a letter that is an `ok` is not logged.
+
+### Measured for sec 455
+
+**Live:** sec 454's run, B pulling A's share after A removed B as a
+contact, logged "127.0.0.1 refused: denied no longer a contact" above the
+parse error, where it had logged the parse error alone. sec 450's three
+nodes and sec 452's shelf run, all healthy, logged no refusal.
+
+**No unit test or sabotage entry:** the change is in fuzznetd, which has
+none; the before and after of one live run are the evidence.
+
+## 467. The shortened view of a log, 2026-10-02
+
+Sec 428's viewer: "a viewer shortens for display only: it hides fields
+equal to the previous line's ... along the tree estate / machine / user /
+program[instance] / subsystem, and the file keeps all of it." Nothing here
+writes a format anybody parses; the classic line stays the format, and this
+is how a person reads a run of them.
+
+- **`log/view`**, `fzn_entry_view`, against the entry before:
+  - the date as a line of its own, `-- 2026-10-02 --`, when it changes,
+    and the time of day on each entry;
+  - the tree -- host, user, program, instance (`pid@start`), subsystem --
+    shown from the first field that differs, down, so a new instance shows
+    its subsystem though it is the same;
+  - the position and the level always, `#1834 W`;
+  - causes only when there are any, as the cause's instance field, and the
+    origin's when it is another entry;
+  - the text always, escaped as the line escapes it.
+- **The estate is not in the tree**: a machine names it (sec 456), and the
+  host is the machine as a line shows it.
+- **`fuzznetd --gather ... --short`** reads each gathered line back and
+  prints it shortened; a line that does not read prints as it came.
+
+### Measured for sec 467
+
+**`view_test`, 11 checks:** the first entry in full under its date; the
+same instance hiding all but its new subsystem; the same subsystem hidden
+too; a new instance shown from the instance down; another host shown
+whole; a new day dated and the tree begun again; the text escaped; a cause
+as its instance field, an origin the same as it hidden and another shown;
+a view that does not fit refused; a previous entry with no host refused.
+
+**Live, sec 466's three nodes with `--short`:** R's and M's eight lines
+under one date line, each instance shown once and its later lines as
+`#POS LEVEL` and what changed.
+
+**Sabotage: three entries.**
+
+## 468. A host's log on a widget, 2026-10-02
+
+Sec 428's viewer, on a widget: `gui/entries_view`, class
+`fzn_entries_view` -- `fzn_entry_view` being the C function it shows lines
+through. Built with the GUI and `FZN_LOG_FILE`, which gathering needs.
+
+- **Where the lines come from is the gather family's `ask`**, as the notes
+  widget's is a callback: `fzn_entries_view_dir_ask` answers from a log
+  directory on this machine through `fzn_gather_answer`, with no network,
+  and a host application hands in a remote one to read another host's.
+- **What it shows**: a program's lines over a span back from now --
+  everything, an hour, a day, a week -- those holding a substring when one
+  is given, in full or shortened as `log/view.h` does. Shortening is display
+  only; the lines are kept whole.
+- **A host that does not answer says so**: "No lines." and "The host did
+  not answer." are different words, the lesson the notes widget carried
+  from fuzzypickles.
+- **No Q_OBJECT and no moc**, as every widget here.
+
+### Measured for sec 468
+
+**`entries_view_test`, 10 checks, against a log directory of its own that
+it leaves empty:** seven lines read from it, shown whole as the file holds
+them; shortened under a date, a repeat showing position and level, a new
+instance shown from the instance down, the lines kept whole; a match on an
+instance field giving that entry; the last ten seconds holding none and
+saying so; a program with no log having no lines; an empty program
+refused; a host that does not answer saying so.
+
+**`make qtty`, 124 checks:** the widget rendered on a character grid with
+a silent host, its "The host did not answer" whole at 24 columns.
+
+**Sabotage: two entries.**
+
+## 470. Two more schedules a clock set back wedged, 2026-10-02
+
+Sec 469 swept fuzznetd for fuzzypickles' shape: a wall-clock stamp stored,
+then waited for. The next lens, from that bug, is the library: every
+elapsed time computed from a stored stamp (`now - last < interval`) and
+every deadline compared with `now`. Deadlines -- an expiry, a retention's
+`until` -- are not this shape: a clock set back lengthens what they allow,
+which is wall-clock expiry's nature. Two elapsed-time stamps were:
+
+- **`log/pack`'s settle**, mine from sec 459: a segment closed while the
+  clock read later was never packed until the clock reached its closing
+  time. A closing time more than a settle period ahead of the clock was
+  stamped by a clock since set back, and is now settled; one within the
+  period -- skew -- still waits.
+- **A partner's last pull, in emptying the trash** (sec 434's thirty
+  days): a partner seen while the clock read years ahead, and silent
+  since, was pinned by every purge until the clock passed its stamp and a
+  month more -- fuzzypickles' symptom exactly, a trash that never empties.
+  `fzn_notes_partner_seen_clamped` re-stamps a time later than the clock to
+  the clock, as fuzzypickles' fix does, so a gone partner ages from today.
+
+### Measured for sec 470
+
+**`pack_test`, 30 checks:** a segment stamped years ahead packed and
+continuing the chain, one three seconds ahead waiting.
+
+**`notes_test`, 251 checks:** a partner that pulled while the clock read
+ten years ahead, the clock set back: pinned at first, and a month later
+pinning nothing new.
+
+**Sabotage: two entries.**
+
+## 473. Packing never worked with a real hash, 2026-10-03
+
+**Every segment fuzznetd closed since sec 461 stayed unpacked.** `log/pack.c`
+took the hash seam's zero as success; the seam returns nonzero on success
+(`session/commitment.h`), so Monocypher's hash refused the first chunk of
+every segment and each round warned "closed log segments would not all
+pack". `pack_test`'s toy hash returned zero and agreed with the bug, as did
+`gather_test`'s, which reads packed segments through it. That is the same
+inversion sec 471 found in `contact/group.c`. A sweep of every call through
+the seam found no third: the rest read nonzero as success.
+
+Sec 461 said `pack_test` covered packing and left it unmeasured live. The
+test covered the mechanism against a hash that does not behave like the
+real one.
+
+### Measured for sec 473
+
+**`pack_test`, 32 checks:** the toy now returns nonzero, and a hash that
+refuses packs nothing and verifies nothing.
+
+**Live**, a closed segment of 200 lines an hour old put in fuzznetd's log
+directory:
+
+- the binary built before the fix warned and left it unpacked;
+- the fixed one logged `1 log segment(s) packed`, and `zstdcat` gives the
+  202 lines -- header, entries, trailer -- with the first trailer's
+  zero `prev`.
+
+## 484. A full queue of deletions is said as one, 2026-10-05
+
+**From fuzzypickles' sec 168**: their empty-trash reported a full queue of
+deletions with an outbox error about undelivered messages. Here it was the
+same shape with another wrong word. `remove note trash` past
+`FZN_NOTES_PURGE_MAX` waiting purges answered with the notes store's text
+for FULL, "no room for another note", to somebody deleting notes.
+
+It now says "this node is already waiting on as many deletions as it will
+-- let one finish", fuzzypickles' wording, so the two trees say the same
+thing.
+
+### Measured for sec 484
+
+**`notes_test`, 275 checks:** a node with a paired node, so every purge
+waits, and one note past the queue's bound trashed. Emptying the trash
+says "deletions" and not "note".
+
+**Sabotage: one entry.**
+
+## 485. The retention rules on a widget, 2026-10-05
+
+Secs 475 to 483 gave retention rules as socket verbs. `gui/retention_view`
+puts them in front of a person, beside the notebook (sec 439) and the log
+viewer (sec 468).
+
+- **Two sets side by side**, since they are two decisions with two owners:
+  this node's rules (`list retention`) and the estate's (`list
+  estate-retention`). A note said before the click, full width: an estate
+  rule applies on every host it reaches, and setting one needs a root or an
+  admin.
+- **A rule is typed as its line** and listed in the node's canonical
+  spelling. Removing works from the line typed or from the row selected,
+  which names the rule as the node holds it.
+- **The node's refusals in its words** -- a rule that is not one, one held
+  already, a node that is neither root nor admin. A node that does not
+  answer is said as one, not shown as having no rules.
+- **The way to ask is the notebook's callback**, so a host hands in
+  `fzn_notebook_view_socket_ask`. No `moc`.
+
+**Found by `make qtty` before it shipped:** the render fixture answers
+listings `ok 0 0`, and the widget took every word after the count as a rule
+and showed a rule called `0`. It now takes exactly as many as the count
+says, and a count that does not fit says the listing did not read. The note
+also sat in the estate's half-width column and was clipped at 80 columns;
+it is full width now, needing 49.
+
+### Measured for sec 485
+
+**`retention_view_test`, 10 checks**, new, against a node of the test's
+own whose rules are kept by `log/rules` and parsed by `log/retain`:
+
+- an empty node showing no rules on either side;
+- a rule added here, listed once in canonical spelling;
+- the same rule again refused, and a line that is no rule refused, each in
+  the node's words;
+- an estate rule listed on the estate's side only;
+- the row selected removed by its listed spelling;
+- a node neither root nor admin told so;
+- a silent node said, and then answering again;
+- removing with nothing typed or selected asking for a rule.
+
+**`qtty_render_test`:** the widget at 80x24 says "every host it reaches".
+
+**Sabotage: three entries.**
+
+## 504. Stage 3c begins: a journal without a disk, and votes logged at mint, 2026-10-07
+
+Stage 3c deletes the old carriage: the `get vote` and `get root` item
+streams, `get revocation`, and the daemon's pulls of them. It cannot do so
+yet, because pair_test proves ten scenarios through those streams'
+helpers. Those scenarios have to move onto journals first, so 3c runs in
+four parts:
+
+1. **This section:** two things the move needs.
+2. pair_test's infrastructure: a journal per test node, and carrying
+   between them.
+3. Each scenario moved onto it, one at a time.
+4. The old carriage deleted.
+
+### A journal on any record store
+
+- **`fzn_node_journal_init_store`** builds a journal over any
+  `fzn_record_store_ops_t`, which a suite can hold in memory.
+  `fzn_node_journal_init(dir)` is now the file store's use of it.
+- **`node/journal` and `node/apply` are part of the library** whatever is
+  built. Only the file-backed init and the daemon's use of it stay under
+  `RECORD_STORE_FILE_ON`.
+
+### A vote is logged where it is made
+
+- **`fzn_node_revoke`, `fzn_node_revoke_at` and `fzn_node_unrevoke` take
+  the roots first,** as `fzn_node_admin_grant` already does. After the vote
+  is admitted and saved, each logs it as the node's act under its issuer, so
+  it reaches the journal; NULL logs nothing.
+- **The admin verbs' own logging step is gone.** It covered the socket and
+  nothing else, so a vote cast through the library directly was never
+  logged and would never travel.
+- **The sabotage entry for it is re-aimed** at the new site.
+
+### Measured for sec 504
+
+- `node_journal_test` (13 checks) and `apply_test` (12) pass over the
+  reworked init.
+- `pair_test` (296) and `admin_test` (201) pass with the revoke functions'
+  new first argument. The 25 test call sites were rewritten by a script
+  that refused to write unless removing each inserted `NULL` reproduced the
+  file.
+- admin_test's log counts after `revoke peer` and `remove revocation` hold
+  with the logging moved into the library.
+
+## 507. A purge whose last erase failed is finished by the next round, 2026-10-07
+
+Reported by fuzzypickles, who fixed the same defect in their purge (their
+sec 191) and asked us to check ours. Ours had it.
+
+The last host's answer is recorded first, then the note is erased and the
+queue entry dropped (`fzn_notes_purge_finish`). If that erase failed, the
+entry stayed with every pinned host marked answered, and nothing finished
+it:
+
+- **`fzn_notes_sync_purges`** asks a host only while the purge pins it
+  unanswered, so no round asked about it again.
+- **`fzn_notes_purge_release`** went on only for a purge whose answers it
+  had just changed, and there was nobody left to change.
+- **The server side's `answer_ack`** drops the finish's error, so a failure
+  there leaves the same state.
+
+The note was never erased, it held a purge-queue slot for good, and its
+records stayed refused by `fzn_notes_purge_pending`.
+
+**The fix, the one fuzzypickles chose:** every round first finishes any
+queued purge whose pinned hosts have all answered. `fzn_notes_sync_purges`
+does so before asking, whichever host the round is with, and counts it in
+`finished`; a finish that fails again is STORE. `fzn_notes_purge_release`
+finishes an all-answered purge whether or not this release answered
+anything.
+
+### Measured for sec 507
+
+- `notes_sync_test`, 117 checks. A's store refuses to remove a note while
+  B erases w and A records the answer, so the round is STORE and the purge
+  stays queued. With removal working again, the next round asks nobody and
+  finishes it.
+- `notes_store_test`, 172 checks. A purge both hosts answered, with no
+  finish after, is finished by the next release.
+- Both checks were run against the code before the fix and failed. Both
+  are sabotage entries now.
+
+## 508. Stage 4b-i: the node keeps no root log; acts are logged into the journal, 2026-10-07
+
+Since sec 506 the journal judged every cut, and the root log's entries were
+kept only to be kept. This section stops keeping them in the node.
+`chain/root_log`'s log type and its act object are still in the library,
+and 4b-ii takes them out.
+
+### What changed in `node/roots`
+
+- **No log, no entries.** `fzn_node_roots_t` loses `log`, its 4096
+  entries (about 0.6 MB a copy) and `FZN_NODE_ROOT_LOG_MAX`.
+- **Logging an act is the journal's append.** `fzn_node_roots_log_act`
+  checks the signer's stream for a fork, hashes the act and tells
+  `logged`. No entry is minted, learned or saved in slot 12.
+- **The head and the fork come from the journal.** Roots with no journal
+  have no head.
+- **`fzn_node_roots_self_grant`'s "logged once"** asks whether the key's
+  stream already holds the grant.
+- **Roots with no journal judge no cut.** Their act-log ops are unset, so a
+  store attached to them asks nothing, and nothing a removed root or a
+  revoked key did can be shown to stand. That errs toward removal.
+  `fzn_node_roots_set_journal` now also re-points a store attached before
+  it.
+- **The load reads slot 13 alone,** its list bounded by what slot 13 can
+  hold (the set's changes, the settings of k, the retention records). A
+  row there that names no root record fails the load, as the old
+  slot-and-tag check did.
+
+### `fuzznetd --pair` logs into the journal
+
+`--pair` runs without the daemon, and its roots had no journal hook. The
+grant it made went only into the root log, so no peer ever rebuilt the
+paired node's chain from the journal: `live55`'s M indexed "0 grant(s)".
+With the root log gone it would have gone nowhere.
+
+`journal_for` now opens the journal once, for the daemon and for both
+`--pair` paths (the identity's grant, and the root key's self-grant), and
+hooks the roots to it. If the journal will not open, `--pair` still pairs
+and says the grant reaches no peer.
+
+The daemon's per-round journal line also now reports a round that only
+indexed grants.
+
+### The tests
+
+- **pair_test** counts acts as records in a node's journal (`kinds_of`,
+  `journal_total`, `received_of`) instead of root-log entries.
+- **The several-roots scenario** logs no hand-made entries. Its two
+  "store changed underneath" cases are now a slot-13 row naming no root
+  record and a root-add whose signature fails.
+- **The forked-log case** is now a second record at the head of R's
+  stream, after which R's next root change is FORKED.
+- **admin_test's node has a journal,** over an in-memory record store, and
+  counts acts there.
+
+### Measured for sec 508
+
+- `make test`, `make style` (1160 sabotage entries; eight re-aimed or
+  dropped with the code they guarded, one added for `set_journal`
+  re-pointing an attached store), `make installcheck`, `make schema`.
+- `live55`: M's restart applies R's 2 objects and indexes 2 grants. The
+  grants are R's offline pairings of M and D, which never reached the
+  journal before this section.
+
+## 509. Stage 4b-ii: the root log leaves the library, 2026-10-07
+
+Sec 508 stopped the node keeping root-log entries. Nothing in the library
+used them after that, so this section removes them. Stage 4 is complete:
+the act log is the journal, and a cut is a record id.
+
+### What went
+
+| Gone | Where |
+|---|---|
+| the 171-byte root-log entry (`fzn_root_act_*`, `FZN_ROOT_ACT_LEN` and its offsets) | `chain/root_log.h` |
+| the log that kept them (`fzn_root_log_t`, `_init`, `_admit`, `_stands`, `_forked`, `_acts`) | `chain/root_log.c` |
+| the entry's schema and its kinds enum | `chain/root_act_record.situ` |
+| object tag 139, `FZN_OBJECT_ROOT_ACT`, kept as an enumerator marked retired, as CARD_V2's 138 is | `wire/bytes.h` |
+| persist slots 10 (learned revocations, sec 384) and 12 (root-log entries), and blob tag 10, left as numbers never to reuse | `persist/persist.h`, `persist.situ` |
+| their printers | `cli/persist_print.c`, `gui/persist_view.cpp` |
+| 8 sabotage entries guarding the log | `tool/sabotage.py` |
+
+What stays in `chain/root_log`: the root set, its view and its cuts (asked
+of `fzn_act_log_ops_t`), the estate's k, the retention rules, and the act
+kinds the roots' `logged` hook is told. `FZN_ROOT_ACT_ID_LEN` stays as the
+length of an act id and of a cut. The schema file keeps its name, so the
+root records it still describes keep their place in situ's coverage.
+
+### The suites ask a stub
+
+A cut is still a question the revocation store, the root set and the
+roster ask, and their suites need something to answer it.
+`chain/test/acts_stub.h` answers it as the journal does. An entry names its
+key, the act and the entry before it. An act stands under a cut when it is
+the cut or is reached from it by following `prev` within one key, so an
+act on a fork stands under neither branch's cut but its own. Nothing is
+signed, because what is under test is the store asking. It is header-only
+and static, so none of it reaches the library.
+
+- **revocation_test** (sec 496's cut, sec 406's several roots) and
+  **roster_test** (a removed root's writes, a revoked writer's records, a
+  grant before the cut) moved onto it unchanged in what they assert.
+- **root_log_test** keeps the set, k and retention tests, and loses the
+  log's own: layout, admission, the cut, a broken chain.
+  `node_journal_test` covers the journal's equivalents: the cut, both fork
+  shapes, and a store edited underneath.
+
+- **persist_print_test** sized its list of slots at 27 by hand. With two
+  slots retired, the zeroes left behind read as slots that did not report
+  their loss. The list is now sized by itself.
+- **The style gate's header walk** skips headers under a `test/`
+  directory. `acts_stub.h` is the first such header. It is compiled into
+  three suites, and installing it would ship a stub as API.
+
+### Measured for sec 509
+
+- `make test`, `make style` (1152 sabotage entries verified),
+  `make installcheck`, `make schema` (root_act, persist and provision
+  regenerated), and `make qtty` for the GUI view.
+
 ## 510. The sweep over stage 4, and two questions from fuzzypickles, 2026-10-07
 
 ### What the stage 4 sweep left
@@ -16056,6 +19814,402 @@ until `remove received`. Two things remain:
   host retries for good. It needs a "cannot deliver" answer that host can
   act on. Answered in sec 607 by a not-delivered mark that travels, for a
   contact removed; the wire itself is still fuzzypickles'.
+
+## 521. fuzzypickles: a message that could not be delivered stays, 2026-10-08
+
+fuzzypickles reported a holder decision of 2026-10-08, their sec 204:
+message storage is this tree's. The requirement, as they stated it: a
+message the user typed that could not be delivered must stay in that
+conversation as the user's own line, marked not delivered, so the text is
+not lost.
+
+The case that prompted it is a message handed to another of the user's
+devices where no linked device owns the contact any more, or the contact
+was removed. Until it is built here, their clients show only a notice: a
+count, and the last contact's name.
+
+The storage half is built in sec 526: the device that hands a message off
+keeps it as its own line, and marks it not delivered when no device could
+send it. fuzzypickles' sweep writes it once they take the module (sec 526,
+phase 3). Sec 510's sibling-wire "cannot deliver" requirement is
+answered in sec 607.
+
+## 529. The notes view asks before erasing, and asks a folder's name, inline, 2026-10-08
+
+fuzzypickles reported a requirement against `gui/notebook_view.cpp` at
+`0651254`, in their sec 216 (`42fc7d4`).
+- **Empty trash erased on one click**, with no confirmation, and an erase
+  cannot be undone.
+- **New folder made a folder called "New folder"** and never asked its
+  name.
+- **The holder's rule, as they relayed it:** no blocking modal unless it is
+  exactly the right fit. Their own notes widget was made inline meanwhile.
+
+### What the view does now
+
+- **Empty trash opens a notice bar under the trash row.** It says the
+  trash's notes are erased on every node that holds them and that this
+  cannot be undone, with its own Empty trash and Cancel. Only the bar's
+  Empty trash erases.
+- **New folder opens a row with a name field, Create and Cancel.** Create
+  waits for a name, Enter takes it, and the row goes once the folder is
+  made.
+- **A tree that stops being editable takes either row with it.**
+- **`empty_trash` and `new_folder` are unchanged** as the actions: what
+  changed is what the buttons call, `ask_empty_trash` and
+  `ask_new_folder`.
+
+### Measured for sec 529
+
+- `gui/test/notebook_view_test`, 157 checks. The new case clicks through
+  both rows by name: the trash is not erased by Empty trash alone, nor
+  after Cancel, only by the bar's own button. New folder makes nothing
+  until a name is given and Create is pressed.
+- `make qtty` renders the views, this one among them, at 126 checks.
+- The first draft set the rows' margins to zero. `make style` refuses that,
+  since a character cell cannot honour pixel geometry, so the margins are
+  the defaults.
+
+### Sabotage of sec 529
+
+Three entries, each probed and caught:
+- the button erasing on one click;
+- New folder not asking a name;
+- Create offered before a name is typed.
+
+## 532. Warnings an incremental build hides, 2026-10-08
+
+Two guards in this tree rely on the compiler warning when something new
+is added -- `gui/persist_view.cpp`'s slot switch has no `default:` so
+`-Wswitch` names a new slot, and the chain suites build the revocation
+store with a positional initialiser so `-Wmissing-field-initializers`
+names a new field. Both warn only when their file is compiled: once,
+in the build after the header changed, among everything else that build
+printed, and never again, since the object is then current. They went
+unseen: nine slots (28 to
+36) were drawn in the persist view as "unknown slot", and three chain
+suites left five store fields (the confirmations and the act log)
+unnamed. A full build into an empty `BUILD_DIR` showed both, and
+nothing else.
+
+Both are fixed, and the slot labels are now held by a test rather than
+by a warning: `persist_view_test` walks every number below
+`FZN_PERSIST_SLOT_END` and splits it two ways -- a slot the printer
+knows (it says LOADED of a clean read) must carry its own label, and the
+numbers it does not know must be exactly the retired 10, 12 and 18,
+drawn as unknown. The first draft of that test took "the printer
+accepts it" as the population, and failed on the retired numbers, which
+the printer accepts and answers "cannot say".
+
+### Measured for sec 532
+
+A full `make test` into an empty scratch `BUILD_DIR`: no warnings.
+`make -j4 test`, `make style`, `make qtty`, `make installcheck`, all 0.
+Sabotage `persist-view-every-slot-labelled` (one label removed) probed
+caught.
+
+## 533. The daemon's trim, run end to end, 2026-10-08
+
+Sec 531 left fuzznetd's call to the trim verified by building only: no
+verb writes a line dated in an earlier month, since a line's month is
+the writing clock's (`fzn_messages_write`), not its `at` time. `faketime`
+supplies the earlier clock, and the run below drives the real daemon
+through its admin socket.
+
+### The run, and how to repeat it
+
+One node, `--fuzznet-dir` in a scratch directory, `--fuzznet-service=1
+--fuzznet-product=1` (the admin verbs need the capability), each daemon
+under `timeout 60` and stopped with a signal after each phase. The admin
+client is one line out and one line back over the AF_UNIX socket. The
+socket path must be absolute and short (`fzn_socket_path_ok` refuses a
+relative one, and a session scratch path is past `sun_path`), so it went
+in a `mktemp -d /tmp/fzs.XXXXXX`, removed afterwards.
+
+    a  faketime -f "@2026-09-10 12:00:00" (FAKETIME_DONT_FAKE_MONOTONIC=1)
+       add message KEY out 0100..00 september line   -> readable 1
+    b  real clock, no rule                           -> readable 1
+    c  --log-rule="prune messages host=OTHER age 1d" -> readable 1
+    d  --log-rule="prune messages age 1d"            -> readable 0, and
+       "1 month(s) of 1 conversation(s) trimmed by the rules"
+    e  real clock, no rule again                     -> readable 0
+
+So b and c are the controls: the same daemon, the same line and the same
+wait leave the line readable with no rule and with a rule scoped to
+another host, and only the rule that reaches this node trims it. e shows
+the trim survives a restart. The line stays listed as a shell, its
+stime and written time intact.
+
+No make target runs this. None in the tree drives a daemon, and adding
+the first -- with `faketime` as a dependency it would have to skip
+without -- is the holder's call, not this section's.
+
+### Two things the run found
+
+- **A false warning on every start of a node that is its own root**,
+  from sec 527: "not every node's conversations are followed". The keys
+  handed to `fzn_node_messages_devices` list the node's key twice, as
+  itself and as its root; the devices are counted distinct and the keys
+  were not, so 1 fell short of 2. Measured against the distinct keys
+  now, and the restart after the fix is silent.
+- **A contact key that is all decimal digits was read as FROM by `list
+  message`**, which takes an all-digit word as a page offset. Fixed after
+  this section: a word of a whole key's 64 hex digits is WHO, digits or
+  not, and a FROM is at most four digits, so the two cannot collide.
+  `node/test/messages_test.c` lists by the fixture's own key, which is
+  all digits, with a FROM after it; sabotage
+  `node-messages-list-digit-key` removes the fix and is caught.
+
+## 534. `make livecheck`: the daemon's message trim, repeatable, 2026-10-08
+
+Sec 533's run, made a target on the holder's instruction: the first in
+this tree that starts fuzznetd. `tool/live_trim.py` drives it, and
+`check` now includes it.
+
+### What it runs
+
+Phase a writes one line under `faketime` about sixty days back -- far
+enough that the line's month ended more than a day ago whatever today is,
+so the test does not depend on the date it runs on. Then the same node
+restarts on the real clock: b with no rule, c with a message rule scoped
+to another host and a log rule, d with `prune messages age 1d`, e with no
+rule. b, c and e must leave the line as d's pass left it, readable or not.
+
+**A control is evidence only if the trim ran**, so fuzznetd now logs one
+debug line per trim pass that completed -- "trim pass: N of M rule(s) over
+conversations here, K month(s) trimmed" -- and each phase waits for it in
+the daemon's log (30 s at most) and checks N, M and K before reading the
+line: b 0/0/0, c 0/2/0 (the other host's rule and the log rule both
+gathered and neither applied), d 1/1/1, e 0/0/0. A failed pass logs its
+warning and not this line.
+
+**faketime is checked as a capability, not a name**: if the line comes
+back written within the last 31 days, the clock was not faked, and the
+run fails saying so rather than testing a current-month line that can
+never be trimmed.
+
+Bounded from inside: one 240 s deadline, every daemon in its own process
+group stopped with TERM then KILL, scratch in two TemporaryDirectory trees
+(the socket's under /tmp, short and absolute as `fzn_socket_path_ok`
+requires), and a final check that no daemon outlived its phase. The
+target adds `timeout 300` and depends on fuzznetd, so it never runs a
+stale binary.
+
+It says SKIPPED with no faketime on PATH, and in a build lacking fuzznetd,
+the record store or log files.
+
+### livecheck seen to fail
+
+Three sabotages, each run against the script, each failing as named:
+
+    messages_trim never called       b: no trim pass was logged within 30 s
+    a faketime that fakes nothing    a: written at <now> ms ... faketime
+                                        did not take
+    no faketime on PATH              SKIPPED, exit 0
+
+The first is not a `tool/sabotage.py` entry: that harness rebuilds
+through `make test`, which does not run this target, so an entry there
+would survive by construction.
+
+### Measured for sec 534
+
+`make livecheck` passes in about 25 s; `make style`, `make -j4 test`, 0.
+After every run: no fuzznetd left in the process table and no `fzs.` or
+`fzn-live.` directory left in /tmp.
+
+## 554. Stage 5, step 5: a member away past the window rejoins, live, 2026-10-09
+
+Sec 550's last step. `tool/live_rejoin.py`, now part of `make livecheck`,
+runs two daemons over loopback. A makes a root and pairs B with a grant
+B can pass on, and B joins (sec 553). Setup and phase a run under a clock
+62 days back:
+
+- **a.** A sets `x/old`. B, serving with `--root-at`, takes it by the
+  journal and is stopped. A then sets `x/away`, which B never pulls.
+- **b.** On the real clock, A's first cut pass cuts what is older than
+  the 60-day window: three records, `x/old`'s and `x/away`'s among them.
+  A sets `x/now`. B starts: its pull finds A's stream cut below what it
+  lacks and moves it up to A's base (sec 552). Its reconcile pass applies
+  two objects, `x/away` among them, which is in no journal any more
+  (sec 551). All three settings read at B at root rank.
+- **c.** B restarts. Its journal follows from the new base, the pull
+  misses nothing, and the three settings read.
+
+The waits are on the daemons' own log lines, each checked before the
+settings are. Run against a daemon that does not move streams up, phase b
+fails waiting for the move. Run against one whose reconcile pass logs and
+fetches nothing, phase b fails at "applied 0 ... x/away is in no
+journal" rather than at a missing log line. The first version of that
+control removed the whole pass and failed in phase a, on the line, which
+proved nothing about the setting.
+
+Stage 5 is built: holdings (550), reconciliation every round (551),
+streams moved up to a peer's base (552), and this. Still open: note
+claims (slot 17) are not reconciled (since done, sec 555); the subjects
+in a spine bridge are the peer's word (since checked against a second
+peer, sec 557); and a pull peer of another estate is reconciled with
+every round to no effect (since settled, sec 556).
+
+## 558. A rejoining member's bridge witnessed by a third node, live, 2026-10-09
+
+Sec 557's open item. `tool/live_witness.py`, now part of `make
+livecheck`, runs three daemons over loopback. A makes a root, and B and W
+join its estate with grants they can pass on. W also pairs B, so B pulls
+from both A (`--root-at`) and W (`--pull-from`).
+
+- **Under a clock 62 days back.** A sets `x/old`, and B takes it and is
+  stopped. A sets `x/away`, and W, started after it, takes all of A's
+  stream.
+- **On the real clock.** A and W each cut what is older than the window:
+  five records each, W keeping its spine. B starts. Its pull finds A's
+  estate stream cut below what it lacks, the bridge A serves is asked of
+  W, and the daemon logs "confirmed by 1 other peer(s) of 1 asked" before
+  B moves up to A's base and reconciles `x/away`.
+
+Run against a daemon that passes no witnesses, the check fails at
+"confirmed by 0 of 0". Not staged live: a witness that disagrees. Every
+node runs one binary, so a sabotage there makes A and W tell the same
+lie, and the disagreement stays the unit test's (sec 557).
+
+## 559. A witness that disagrees, live, 2026-10-09
+
+Sec 558's open case. A witness that tells the stream otherwise is staged
+without a test hook in the daemon. Between runs, W's stored spine is
+changed on disk -- one subject byte of every kept entry of its slot-40
+rows, found by their file names -- so W, running unchanged code, serves a
+bridge that disagrees with A's, as a witness with a damaged or tampered
+store would.
+
+`tool/live_witness.py` gains a member C, joined and paired to W like B,
+which takes `x/old` in phase a and leaves. In phase c, after B's
+witnessed rejoin, W's spine is changed and W restarts. C starts and logs
+that its stream "would not move: a second peer tells the stream
+otherwise". No estate stream moves up at C, and `x/away` still reads at
+C, because reconciliation carries the state as signed objects and needs
+no bridge.
+
+Run against a daemon that does not compare what the witness gives, phase
+c fails: no conflict is logged and C moves.
+
+## 562. Three paths the earlier records left untested, 2026-10-09
+
+Secs 541, 543 and 550 each named a path no test reached. Two of them were
+authorization, and a sabotage of either would have gone unseen until now.
+
+- **A reconciled revocation is judged under its issuer** (sec 550).
+  `fzn_node_apply_object` reads a revocation's signer from byte 66, not
+  byte 2 as for every other object. reconcile_test: the root grants M and
+  revokes it; the revocation handed alone is judged under its issuer, and
+  B, holding nothing, reconciles and holds the vote with every digest
+  A's.
+- **A remote caller of host rank is refused** (sec 543). The gate needs
+  admin rank. Host rank is what a member holds for its own host cells,
+  and the only key that can hold it toward this node is the node's own.
+  admin_test makes another node the root, under a revocation store with
+  no root set -- the node's own store pins this node as genesis and
+  would judge every chain against that -- and grants this node
+  membership. The node sets its own `remote/admin` on at host rank, and
+  its own key over the remote hop is still refused a verb. That needed
+  the root's earlier `off` withdrawn first: a clear takes only its own
+  rank's layer, and the root's `off` would otherwise have refused the
+  verb for a reason other than rank.
+- **"A higher rank keeps the rule"** (sec 541). In the same fixture this
+  node adds a retention rule at host rank, the root sets the same cell,
+  and the node's removal -- by another spelling -- clears its own layer
+  and answers that the rule stays, which it does.
+
+Measured: reconcile_test 30 checks, admin_test 217. Three sabotage
+entries, each probed caught: the revocation signer read from byte 2, the
+remote gate taking any rank, and the removal answering ok.
+
+## 563. The file store's cut seen without the hole punch, 2026-10-09
+
+Sec 548 said no test could see the file store's zeroing alone. A cut zeroes
+each slot's length prefix and then punches the range's blocks out. On a
+filesystem that punches, the hole reads as zero too, so a store that
+skipped the zeroing still passed. That path is the whole cut on a
+system without `FALLOC_FL_PUNCH_HOLE`, or on a filesystem that refuses it.
+
+`FZN_RECORD_STORE_FILE_NO_PUNCH` compiles the punch out. The Makefile
+builds the store and its suite again with it, as
+`store_file_nopunch_test`, and that run asserts the cut records read
+absent and that no block came back. The second assertion is what shows
+the punch really was off, so the absence is the zeroing's.
+
+Measured: both builds 154 checks. With the zeroing removed, the punching
+build passes and the other fails at the cut. With the define kept from
+the store object, the block count fails, 56 before and 8 after. One
+sabotage entry.
+
+## 573. Stage 4, step 5: the copies' own pull and push retired, 2026-10-09
+
+Sec 568's last step. The bucket exchange carries logs both ways (secs
+569-572), so the transport of secs 483 and 488 goes.
+
+- **Removed**: the four pull messages and four push messages (gather's
+  types 5 to 12, left reserved in `log/gather_wire.situ`), the puller, the
+  pusher, the receiver and the host's answer in `log/copy.c`, fuzznetd's
+  `copy_logs`, `push_logs` and their branches of the log hook, and
+  `log/test/copy_test.c`, which tested only those. `log/copy` keeps where
+  a copy lives and what a segment's name says, which the logs kind uses.
+- **`--log-copy` and `--log-push` refuse**, saying what replaced them,
+  rather than reading as unknown. What they chose is the rules' now: with
+  none, a host holding retention collects every source it is served
+  (sec 568's "keep is keep"); `--log-rule=policy log drop` with keep rules
+  naming `copy` (and `source=`) narrows it.
+- **The copy rules reach every program a copy directory holds.** They
+  were applied only to the programs `--log-copy` named; copies now come
+  for every program a host packs.
+
+**A gate missed, found here.** `make installcheck` requires every
+installed header to be included by `tool/consumer_check.c`, and
+`node/buckets.h` (sec 565) and `node/log_buckets.h` (sec 571) were not:
+the gate was red from sec 565 on, through five commits, because this
+session ran test, style, schema and livecheck at each step and not
+installcheck. Both are included now, the logs kind's refusal of a missing
+store exercised, and installcheck passes every arrangement.
+
+Measured: `make test` 223 binaries (copy_test gone), log_buckets_test 37
+checks -- a packed segment's name read for its time, and seven names that
+are none refused; `make installcheck`, style and livecheck pass, and
+`make schema` stops only at sec 565's runtime drift. Seven sabotage
+entries over the retired code removed; two added for the name's checks,
+each probed caught -- the suffix's only once a name with eight other
+suffix bytes was tried, every other bad name being refused first by the
+pid's place eight bytes from the end.
+
+## 574. situ's C runtime re-vendored at 9f3274a, 2026-10-09
+
+`make schema` had stopped at "wire/generated/situ.h has drifted from
+situ's runtime" since at least sec 565: situ had moved past the vendored
+pin, 6b9c1cd of 2026-09-21. Its runtime changed in situ.h alone -- two
+fixes to `required` (5739535, saturating rather than wrapping to a smaller
+answer; 74b57ea, walking a counted run rather than asking for its span)
+and a stated precondition (8b64e66). situ.c is unchanged.
+
+Both vendored files are copied from situ's committed HEAD, 9f3274a, under
+their banners, whose pin line names it; the dated measurement in the
+banner stays dated -- `make schema` prints the live ratio, 100:1 against
+the banner's 90:1, which is that arrangement working. Measured: `make
+schema` passes, and so do `make test` (223 binaries), `make style`, `make
+installcheck` and `make livecheck` -- all five gates together for the
+first time since sec 565.
+
+## 598. situ's C runtime re-vendored at b53e565, 2026-10-11
+
+`make schema` refused once situ committed b53e565 ("write a reserved region
+as the schema states it"): `wire/generated/situ.h` had drifted from situ's
+runtime. The change is one refactor in situ.h -- the padding distance
+split out as `situ_pad_to_u32`, unsaturated for a writer, which
+`situ_align_u32` now calls -- and a comment amended for its decision
+0043: a pad aligns from the base of the struct that declares it. situ.c
+did not move. Both files are copied from situ's committed HEAD under
+their banners, which name the pin, as sec 574 did.
+
+### Measured for sec 598
+
+- `make schema SITU_DIR=../situ` passes again; `make test` and
+  `make livecheck` pass against the new runtime.
 
 ## 878. Where this stands, folded 2026-11-04
 
