@@ -63,6 +63,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 
 int main(int argc, char **argv)
 {
+	/* OFFSCREEN, as every other view's test: run from `make test` on a
+	 * desk it opened its window on the desktop, and under the sanitizers
+	 * Qt's X11 platform left allocations LeakSanitizer reported. */
+	qputenv("QT_QPA_PLATFORM", "offscreen");
 	QApplication app(argc, argv);
 	fzn_search_view view(node, nullptr);
 	QString opened_store;
