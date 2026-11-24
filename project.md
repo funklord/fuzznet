@@ -96425,9 +96425,10 @@ user would notice and costs a public type:
 schema says something), or a measured replay flood where the AEAD open
 shows. Either pairs with the holder's later sub-second design (sec 1417).
 
-**Sent to situ**: `ahead = 18446744073709551615` (2^64-1) is refused as
-"`ahead = 0` is refused", where 2^63 and above say "a number from 1 to
-9223372036854775807" -- the wrap reaches the wrong message.
+**Sent to situ**: `ahead = 18446744073709551615` (2^64-1) was refused
+with a note that "`ahead = 0` is refused". situ found nothing wrapped:
+the range message was right, and the note rode on every refusal of
+`ahead`; it is given only below one since situ fe425101.
 
 ## 1431. Seventeen finished sections moved to the journal, 2026-11-24
 
