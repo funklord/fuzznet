@@ -4,6 +4,7 @@
 #include "rpc_media.h"
 
 #include "client.h"
+#include "rpc_binary.h"
 #include "rpc_err.h"
 #include "../hex/hex.h"
 #include "../node/live.h"
@@ -118,8 +119,16 @@ int fzn_rpc_media_open(fzn_rpc_t *c, const char *call_hex, fzn_rpc_media_t *m)
 		return media_fail(c, FZN_RPC_ERR_MALFORMED, "not a call's id");
 	if (!c->node_socket[0])
 		return media_fail(c, FZN_RPC_ERR_NO_PEER_TRANSPORT, "no node is set for this client");
-	if (fzn_client_connect(c->node_socket, &fd) != FZN_CLIENT_OK)
-		return media_fail(c, FZN_RPC_ERR_SEND_FAILED, "the node is not running -- nothing answers there");
+	{
+		const fzn_client_err_t err = fzn_client_connect(c->node_socket, &fd);
+
+		if (err != FZN_CLIENT_OK) {
+			char text[sizeof(c->error)];
+
+			fzn_rpc_connect_words(c, err, text, sizeof(text));
+			return media_fail(c, FZN_RPC_ERR_SEND_FAILED, text);
+		}
+	}
 	rc = fzn_rpc_media_attach(c, m, fd, call);
 	if (rc != FZN_RPC_OK)
 		(void)close(fd);

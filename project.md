@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1425
+The newest work is at the end of this file. **Read secs 1287 to 1426
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97783,3 +97783,22 @@ and an `act` that moves the current row itself, toggled once through the
 row's accessible interface, acts once; with the guard removed it acted
 again and again (measured). Sabotage: `a11y-rechoose-loops`.
 
+## 1426. The binary leg names the socket it asked, as the line leg does, 2026-11-24
+
+**From fuzzypickles** (inbox 20261124T0140Z), a regression since sec
+1411, found by its scenario `desktop-node-by-default.sh`: with no node
+running, `fzp status` failed through the binary leg with "the node is not
+running -- nothing answers there", where the line leg says "the node at
+SOCKET is not running". The socket is the half a person needs when the
+client asked the wrong place -- an unset or stale socket variable, a
+desktop node at fuzznet's default socket when the daemon serves
+elsewhere -- and why sec 364 keeps the wordings apart.
+
+**Fixed**: `fzn_rpc_connect_words` (local/rpc_binary.h) words a failed
+connect as the line leg does, naming `c->node_socket` -- "is not running
+-- nothing answers there", "is not at a usable socket path", or the
+client's own words for any other -- and the binary leg and a call's media
+channel (`local/rpc_media.c`) both use it.
+
+**Tests:** rpc_test: a binary call to no node says "the node at
+/nonexistent/fzn-test/fuzznetd.sock is not running".

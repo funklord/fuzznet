@@ -2737,6 +2737,19 @@ static void test_procedure_in_binary(void)
 		      "a bad name, a part or a cut call gave a name to judge a permit by");
 	}
 
+	/* NO NODE THERE, said with the socket asked, as the line path says it
+	 * (sec 1426): the half a person needs when the client asked the wrong
+	 * place. */
+	{
+		fzn_rpc_t none;
+
+		memset(&none, 0, sizeof none);
+		snprintf(none.node_socket, sizeof none.node_socket, "/nonexistent/fzn-test/fuzznetd.sock");
+		CHECK(fzn_rpc_procedure(&none, "status", NULL, 0, got, sizeof got, &n) == FZN_RPC_ERR_SEND_FAILED
+		              && strstr(none.error, "the node at /nonexistent/fzn-test/fuzznetd.sock is not running"),
+		      "a binary call to no node did not name the socket it asked");
+	}
+
 	/* AND A NAME PAST a-z AND 0-9 REFUSED THERE TOO, nothing run. */
 	{
 		static const uint8_t call[] = { FZN_CMD_RRPC, 128u, 6u, 'S', 't', 'a', 't', 'u', 's' };

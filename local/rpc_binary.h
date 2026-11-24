@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "rpc.h"
+#include "client.h"
 
 /* Each answer message, whole, in the order the node wrote them. */
 typedef void (*fzn_rpc_binary_each_t)(void *ctx, const uint8_t *msg, size_t len);
@@ -25,5 +26,10 @@ typedef void (*fzn_rpc_binary_each_t)(void *ctx, const uint8_t *msg, size_t len)
  * c->error. */
 int fzn_rpc_binary(fzn_rpc_t *c, const uint8_t *msg, size_t len, fzn_rpc_binary_each_t each,
                    void *ctx, int *text);
+
+/* THE WORDS FOR A CONNECT THAT FAILED, naming the socket asked, as the line
+ * path words them (sec 1426): "the node at SOCKET is not running -- nothing
+ * answers there", or why else not. */
+void fzn_rpc_connect_words(const fzn_rpc_t *c, fzn_client_err_t err, char *out, size_t cap);
 
 #endif /* FZN_LOCAL_RPC_BINARY_H */

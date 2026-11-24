@@ -17,6 +17,17 @@
 /* HOW LONG A NODE MAY TAKE to answer each message, as the text leg waits. */
 #define BINARY_WAIT_MS 5000
 
+void fzn_rpc_connect_words(const fzn_rpc_t *c, fzn_client_err_t err, char *out, size_t cap)
+{
+	/* NAMING THE SOCKET ASKED, as the line path does (sec 364, 1426): the
+	 * half a person needs when the client asked the wrong place. */
+	const char *what = err == FZN_CLIENT_ERR_CONNECT ? "is not running -- nothing answers there"
+	                   : err == FZN_CLIENT_ERR_PATH  ? "is not at a usable socket path"
+	                                                 : fzn_client_err_str(err);
+
+	(void)snprintf(out, cap, "the node at %s %s", c ? c->node_socket : "", what);
+}
+
 static int binary_fail(fzn_rpc_t *c, int code, const char *text)
 {
 	c->error_code = code;
@@ -90,8 +101,16 @@ int fzn_rpc_binary(fzn_rpc_t *c, const uint8_t *msg, size_t len, fzn_rpc_binary_
 	}
 	if (!c->node_socket[0])
 		return binary_fail(c, FZN_RPC_ERR_NO_PEER_TRANSPORT, "no node is set for this client");
-	if (fzn_client_connect(c->node_socket, &fd) != FZN_CLIENT_OK)
-		return binary_fail(c, FZN_RPC_ERR_SEND_FAILED, "the node is not running -- nothing answers there");
+	{
+		const fzn_client_err_t err = fzn_client_connect(c->node_socket, &fd);
+
+		if (err != FZN_CLIENT_OK) {
+			char words[sizeof(c->error)];
+
+			fzn_rpc_connect_words(c, err, words, sizeof(words));
+			return binary_fail(c, FZN_RPC_ERR_SEND_FAILED, words);
+		}
+	}
 	head[0] = (uint8_t)(len >> 8);
 	head[1] = (uint8_t)len;
 	io[0].iov_base = head;
