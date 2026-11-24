@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1429
+The newest work is at the end of this file. **Read secs 1287 to 1430
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -66,8 +66,8 @@ listener port spans (`150e3106`).
 - **The clock's unit**: **microseconds since 1970 on the frame** (sec
   1417, the holder's choice of sec 1407's (c), 2026-11-23); the
   library's calls still speak seconds, converted at the frame. Next: the
-  calls in microseconds where a sub-second lifetime is wanted, and the
-  nonce set onto situ's replay form, which can now state the unit.
+  calls in microseconds where a sub-second lifetime is wanted. The nonce
+  set stays fuzznet's own, weighed in sec 1430.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -97855,8 +97855,11 @@ price of "situ owns all layouts" in the shape situ generates checks --
 the holder's direction (sec 1312), not a fault. It is passed to situ as a
 measurement of its generated code's size (situ's inbox), since -Os and
 the embedded profile (sec 922) make size a property situ's C backend can
-weigh. Not measured here yet: fuzznet's own embedded profile across the
-same span.
+weigh. **fuzznet's own embedded profile** (`make embedded`, sec 922)
+across the same span, c20c1a66 against aac57be5, measured the same day:
+text 1,003,531 -> 1,041,027 bytes (+37,496, 3.7%), data 8,208 -> 8,952,
+bss 13,516,920 -> 12,922,936 (-593,984). So the smallest host pays a
+fraction of netcfgd's figure in code, and less memory than before.
 
 ## 1429. One product for a host, whatever consumers it carries, 2026-11-24
 
@@ -97891,4 +97894,45 @@ the same user shares its pairing.
 
 **Tests:** cli_test: `--fuzznet-product=host` is product 6, a second
 product refused as a duplicate, `hosts` refused.
+
+## 1430. The nonce set stays fuzznet's own; what situ's replay form would buy, 2026-11-24
+
+Sec 1413 left the nonce set (`frame/freshness.c`) off situ's replay form
+for two reasons, the unit and a horizon ceiling. **Both are gone**: the
+unit is chosen (sec 1417), and situ's window now takes a horizon per
+window under the schema's ceiling and a 24-byte nonce (its decision
+26.1120, amended 2026-11-23). Measured in scratch against situ e485b900:
+a schema of the nonce and its expiry builds, and the generated `check`
+and `record` take the same steps in the same order as
+`fzn_replay_admit` -- no expiry refused or let pass unrecorded by the
+caller's rule, `expires <= now` expired, `expires - now` past the horizon
+refused, a live nonce a replay, full refused and never evicted.
+
+**Not moved, by this tree's judgement**, because the move buys nothing a
+user would notice and costs a public type:
+
+- **What it would buy.** situ's form is built to be asked BEFORE the tag
+  on the frame's own bytes. The head carrying the nonce and expiry is
+  authenticated in the clear (`wire/frame.situ`), so admission could
+  refuse a replay without the AEAD open it spends today -- one open per
+  replayed frame. Admission puts freshness and replay after the tag on
+  purpose (sec 4.7b: a verdict authentic enough to name a peer), and the
+  window already costs nanoseconds where the chain's Ed25519 costs
+  milliseconds; the open is not where a replay flood's cost lies.
+- **What it would cost.** The caller holds the window's entries
+  (`fzn_replay_entry_t`, sized by the daemon at 32768); the generated
+  code scans its own slot type, so the public entry type would become a
+  generated one, `frame/freshness.h` would include a generated header,
+  and the printer (`cli/replay_print.c`), the fuzzers and their oracle
+  would move with it. The ceiling the schema must state would be 2^63-1 s
+  to keep `fzn_replay_init` taking any horizon, so the schema would state
+  no promise either.
+
+**What would change it**: a horizon fuzznet promises its peers (then the
+schema says something), or a measured replay flood where the AEAD open
+shows. Either pairs with the holder's later sub-second design (sec 1417).
+
+**Sent to situ**: `ahead = 18446744073709551615` (2^64-1) is refused as
+"`ahead = 0` is refused", where 2^63 and above say "a number from 1 to
+9223372036854775807" -- the wrap reaches the wrong message.
 
