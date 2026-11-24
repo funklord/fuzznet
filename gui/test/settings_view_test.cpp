@@ -7,6 +7,7 @@
  */
 
 #include "../settings_view.h"
+#include "../choose_accessible.h"
 
 #include <QAccessible>
 #include <QApplication>
@@ -138,6 +139,38 @@ int main(int argc, char **argv)
 			chose = v.notes().contains("5 s to 600 s");
 		}
 		CHECK(table && chose, "a setting's row toggled as a screen reader toggles it was not chosen");
+	}
+
+	/* AN `act` THAT MOVES THE CURRENT ROW ITSELF, on a tree whose cells
+	 * widen to rows, acts once, sec 1425 -- it narrowed the row, the
+	 * widening reselected it, and the helper took that for another tap
+	 * without end (fuzzypickles' settings tree). */
+	{
+		QTreeWidget tree;
+		int acted = 0, r;
+
+		tree.setColumnCount(2);
+		for (r = 0; r < 3; r++) {
+			QTreeWidgetItem *group = new QTreeWidgetItem(&tree, QStringList({ "group", "" }));
+
+			new QTreeWidgetItem(group, QStringList({ "leaf", "value" }));
+		}
+		tree.expandAll();
+		fzn_select_rows_through_cells(&tree);
+		fzn_choose_on_accessible_select(&tree, [&tree, &acted](const QModelIndex &at) {
+			acted++;
+			tree.setCurrentIndex(at);
+		});
+		QAccessibleInterface *view = QAccessible::queryAccessibleInterface(&tree);
+		QAccessibleTableInterface *table = view ? view->tableInterface() : nullptr;
+		QAccessibleInterface *cell = table ? table->cellAt(1, 0) : nullptr;
+		QAccessibleActionInterface *act = cell ? cell->actionInterface() : nullptr;
+
+		if (act)
+			act->doAction(QAccessibleActionInterface::toggleAction());
+		for (r = 0; r < 20; r++)
+			QCoreApplication::processEvents();
+		CHECK(act && acted == 1, "an act moving the current row was run again and again");
 	}
 
 	/* WHERE A SHARED SETTING HAS REACHED; a host's own is said to be so. */

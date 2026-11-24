@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1424
+The newest work is at the end of this file. **Read secs 1287 to 1425
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97757,4 +97757,29 @@ typed client's connect is unchanged, the choice the caller's.
 readable by others; B, following, names A; A stopped, its copy is gone,
 and B, now the face, names itself. client_test: the copy read back, none
 where there is none, and a copy naming no absolute path refused.
+
+## 1425. The accessible choice does not take its own re-widening for a second tap, 2026-11-24
+
+**From fuzzypickles** (inbox 20261124T0020Z), which took sec 1423's
+helper in place of its own copy, its nine callers now calling fuzznet's:
+four of them called `setCurrentIndex(at)` in `act`, as the old copy
+needed. On a tree with `fzn_select_rows_through_cells` that looped
+without end -- `setCurrentIndex` selects ClearAndSelect, narrowing the
+row to one cell; the widening reselects the rest, a selection change
+with something selected; the current row is the chosen one, unmoved, so
+the helper took it for another double tap and queued `act` again. In
+fuzzypickles' settings tree it reloaded the editor over the value being
+chosen. None of fuzznet's sixteen callers does it; the next one could.
+
+**Fixed in the helper, not left to a caller**: it remembers the row it
+last chose, and a selection that would choose that row again with the
+current row unmoved is no second tap -- skipped. The memory is dropped
+when the selection empties (a real second tap on the same row can only
+follow a deselection, a single selection's selected row not toggling)
+or the current row moves by anything else.
+
+**Tests:** settings_view_test: a nested tree with cells widened to rows
+and an `act` that moves the current row itself, toggled once through the
+row's accessible interface, acts once; with the guard removed it acted
+again and again (measured). Sabotage: `a11y-rechoose-loops`.
 

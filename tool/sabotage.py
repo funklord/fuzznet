@@ -17840,6 +17840,13 @@ SABOTAGES = [
 		"a search with a group asks none of its members' hosts -- sec 1400",
 	),
 	(
+		"a11y-rechoose-loops",
+		"gui/choose_accessible.h",
+		"			        if (last->isValid() && picked.first().row() == last->row()\n			            && picked.first().parent() == last->parent())\n				        return;\n",
+		"",
+		"an act moving the current row on a widened tree is run again without end -- sec 1425",
+	),
+	(
 		"a11y-settings-not-chosen",
 		"gui/settings_view.cpp",
 		"	fzn_choose_on_accessible_select(m_list, nullptr);\n",

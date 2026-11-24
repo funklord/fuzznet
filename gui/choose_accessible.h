@@ -45,16 +45,31 @@ inline void fzn_choose_on_accessible_select(QAbstractItemView *view, std::functi
 		return;
 	auto current = std::make_shared<QPersistentModelIndex>(view->currentIndex());
 	auto pending = std::make_shared<bool>(false);
+	/* THE ROW LAST CHOSEN THIS WAY, sec 1425: a selection that re-chooses it
+	 * with the current row unmoved is no second tap but a re-widening --
+	 * an `act` that moved the current row itself, on a tree whose cells
+	 * widen to rows, narrowed the row, the widening reselected it, and the
+	 * helper queued `act` again without end (fuzzypickles, inbox
+	 * 20261124T0020Z). Forgotten when the selection empties or the current
+	 * row moves by anything else. */
+	auto last = std::make_shared<QPersistentModelIndex>();
 	QObject::connect(model, &QItemSelectionModel::currentChanged, view,
-	                 [current](const QModelIndex &now) { *current = now; });
+	                 [current, last](const QModelIndex &now) {
+		                 *current = now;
+		                 if (!last->isValid() || now.row() != last->row() || now.parent() != last->parent())
+			                 *last = QPersistentModelIndex();
+	                 });
 	QObject::connect(model, &QItemSelectionModel::selectionChanged, view,
-	                 [view, current, pending, act](const QItemSelection &on, const QItemSelection &) {
+	                 [view, current, pending, last, act](const QItemSelection &on, const QItemSelection &) {
 		/* ONLY WHAT SELECTS: a toggle always does, while a pure
 		 * deselection is somebody clearing -- a list emptied keeps its
 		 * current row, and taken for a choice a refresh re-chose its
 		 * restored row (fuzzypickles' window suite, 2026-11-23). */
-		if (on.isEmpty())
+		if (on.isEmpty()) {
+			if (!view->selectionModel() || !view->selectionModel()->hasSelection())
+				*last = QPersistentModelIndex();
 			return;
+		}
 		if (QGuiApplication::mouseButtons() != Qt::NoButton)
 			return;
 		if (view->currentIndex() != QModelIndex(*current))
@@ -67,13 +82,17 @@ inline void fzn_choose_on_accessible_select(QAbstractItemView *view, std::functi
 		 * list is not made inside its own selection signal. */
 		QMetaObject::invokeMethod(
 		        view,
-		        [view, pending, act] {
+		        [view, pending, last, act] {
 			        *pending = false;
 			        QItemSelectionModel *now = view->selectionModel();
 			        const QModelIndexList picked = now ? now->selectedIndexes() : QModelIndexList();
 
 			        if (picked.isEmpty())
 				        return;
+			        if (last->isValid() && picked.first().row() == last->row()
+			            && picked.first().parent() == last->parent())
+				        return;
+			        *last = QPersistentModelIndex(picked.first().siblingAtColumn(0));
 			        /* THE ROW CURRENT, as a click makes it: the view's own
 			         * current-row choice runs, and its buttons read this row. */
 			        now->setCurrentIndex(picked.first(), QItemSelectionModel::NoUpdate);
