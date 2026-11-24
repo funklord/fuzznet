@@ -179,7 +179,6 @@ fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
 	situ_msg_t m;
 	situ_view_t v;
 	uint32_t need = 0;
-	size_t count;
 
 	if (!bytes || !out)
 		return FZN_MANIFEST_ERR_MALFORMED;
@@ -204,19 +203,13 @@ fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
 	if (fzn_manifest_record_fzn_manifest_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
 	    || fzn_manifest_record_fzn_manifest_validate(v) != SITU_OK)
 		return FZN_MANIFEST_ERR_SHAPE;
-	count = fzn_manifest_record_fzn_manifest_count_get(v);
 
-	/* STRICTLY ASCENDING, the codec's still: this object's canonicality
-	 * check, carrying three properties at once -- manifest.h states them. A
-	 * non-positive comparison covers both halves: equal is a duplicate, and
-	 * negative is out of order. ON THE KEY AND NOT THE ENTRY, so a duplicate
-	 * is a pair named twice whatever the issuer said about it either time. */
-	for (size_t i = 1; i < count; i++) {
-		const uint8_t *prev = bytes + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * (i - 1u);
-
-		if (pair_cmp(prev, prev + FZN_MANIFEST_PAIR_LEN) >= 0)
-			return FZN_MANIFEST_ERR_SHAPE;
-	}
+	/* STRICTLY ASCENDING, now the schema's (sec 1438): `pairs [ascending =
+	 * (capability, grantee)]` in chain/manifest_record.situ, checked by the
+	 * validate above -- this object's canonicality check, carrying three
+	 * properties at once, as manifest.h states them: equal is a duplicate,
+	 * lower is out of order, and ON THE KEY AND NOT THE ENTRY, so a pair is
+	 * named twice whatever the issuer said about it either time. */
 
 	out->base = bytes;
 	out->len = len;

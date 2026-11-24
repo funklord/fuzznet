@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1437
+The newest work is at the end of this file. **Read secs 1287 to 1438
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -77142,8 +77142,9 @@ under each row's size bounds -- 29 taken by both, none differing.
   refuses "04+2" -- a spelling the check and the reader both take today,
   so a stored value would become unusable -- and the sum's bound (at
   most 32) would still be a `when`. Kept by hand.
-- **The group list**: names `fzn_scope_group_id` takes, none twice --
-  a uniqueness rule over a run, which no situ construct states.
+- **The group list**: names `fzn_scope_group_id` takes, none twice.
+  situ's `unique` states the "none twice" (sec 1438); a name's length
+  (1 to 32) cannot yet be, so it stays by hand.
 - **The permits** (`local/permit/`, `remote/permit`, `local/events`):
   their grammar is `node/permit.c`'s, with its own suite, parsed both to
   check and to match. A probe at abf7ef5d builds a list of words
@@ -77965,4 +77966,39 @@ and still refuses 0 and the wildcard.
 the device was paired while R ran as 1: the device asks again and is
 answered. Against the daemon before this change it gets no answer
 ("device: no answer"), measured.
+
+## 1438. The manifest's order is the schema's; situ's list rules tried on the permit and the group list, 2026-11-24
+
+situ built rules over a run's elements at fuzznet's asking (situ
+429241a0, its 26.1170, and 3e4a81b0): `ascending = (...)` on a counted
+run, and `any`, `all`, `count` and `unique` inside a `when`.
+
+**Built: the manifest's pairs are strictly ascending by the schema**.
+`chain/manifest_record.situ` declares `pairs[count] [ascending =
+(capability, grantee)]`: by the 64-byte key, equal refused, the id and
+the state not in it -- exactly `pair_cmp`. The generated check runs
+inside the validate `fzn_manifest_open` already called, so the hand loop
+that repeated it is gone; `pair_cmp` stays for the encoder and merge.
+`situc wire --check` calls it compatible, rightly: fuzznet refused an
+unordered manifest before. Regenerated at situ 7306bc8e (two files: the
+manifest's, and `permit.h` from situ's own change). **Proved**: with the
+generated comparison let take equal keys, manifest_test fails 2 checks;
+with it skipped, 4; restored, all 543 pass, and manifest_fuzz's model
+agrees over 20,000 cases.
+
+**Tried, not moved: the remote permit and the group list**. In scratch,
+against the hand checks over a million fuzzed values:
+- **"none stands alone"** as `when any(r in remote_permit.rules: r.kind
+  == 'n') && count(remote_permit.rules) > 1` agreed on every value.
+- **A field's exact length cannot be stated**: a word read `until " " |
+  end` measures its terminating space when there is one and nothing at
+  the value's end, so "64 hex digits, then a space" and "65 digits at
+  the end" both measure 65. The remote permit's `host:` key (64) and the
+  group list's names (1 to 32) both need it.
+- **`unique`** compared the group names correctly -- a name ended by a
+  space and the same at the end are one -- with the run bounded at 16.
+
+Sent to situ (inbox 20261124T1616Z) with the schema and the driver. Both
+stay hand-written until a content length, or a fixed field followed by
+" " or the end, can be stated.
 

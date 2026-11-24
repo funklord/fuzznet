@@ -119,6 +119,28 @@ situ_err_t fzn_manifest_record_fzn_manifest_check(situ_view_t view, uint32_t *wh
 		}
 		(void)n;
 	}
+	/* fzn_manifest.pairs: each key above the one before (26.985). */
+	{
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 34u)));
+		const uint32_t first = 36u;
+		uint32_t       i;
+
+		for (i = 1u; i < total; i++) {
+			const uint8_t *prev = situ_base(view) + first + (i - 1u) * 97u + 0u;
+			const uint8_t *next = prev + 97u;
+
+			int      order = 0;
+			uint32_t k;
+
+			for (k = 0u; k < 64u && order == 0; k++) {
+				order = (int)next[k] - (int)prev[k];
+			}
+			if (order <= 0) {
+				*which = FZN_MANIFEST_RECORD_FZN_MANIFEST_PAIRS_CHECK;
+				return SITU_ERR_CONSTRAINT;
+			}
+		}
+	}
 	/* fzn_manifest.signature: its offset is a sum of lengths the message
 	 * chose, so the frame is not known to contain it. The accessor
 	 * answers safely; this is where the message is called malformed. */

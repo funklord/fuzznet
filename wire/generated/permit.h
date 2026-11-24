@@ -2600,7 +2600,7 @@ static inline situ_err_t fzn_permit_permit_required(const uint8_t *data, uint32_
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-			if (situ_view_sub(view, pos, part, &element) != SITU_OK) {
+			if (part == 0u || situ_view_sub(view, pos, part, &element) != SITU_OK) {
 				break;
 			}
 			at  = situ_need_u32(at, part);

@@ -31,7 +31,10 @@ struct fzn_manifest {
 		u8  object  [must_eq = 131];     // FZN_MANIFEST_OFF_OBJECT  1 (FZN_OBJECT_MANIFEST)
 		u8  issuer[32];                  // FZN_MANIFEST_OFF_ISSUER  2
 		u16 count [max = 2701];  // FZN_MANIFEST_MAX_PAIRS               // FZN_MANIFEST_OFF_COUNT   34
-		fzn_manifest_pair pairs[count];  // FZN_MANIFEST_OFF_PAIRS   36 = HEADER_LEN
+		// STRICTLY ASCENDING BY THE KEY, sec 1438: capability then grantee,
+		// equal refused -- canonical order, no pair twice. The id and the
+		// state are not in it: one issuer, one opinion a pair.
+		fzn_manifest_pair pairs[count] [ascending = (capability, grantee)];  // FZN_MANIFEST_OFF_PAIRS   36 = HEADER_LEN
 	}
 	// covers(body): the whole header and every pair. Ed25519 is extern,
 	// so no codec -- the caller signs and verifies.
