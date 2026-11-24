@@ -24714,16 +24714,28 @@ static void face_copy(const char *own_sock, const char *face_sock)
 	char tmp[1120];
 	FILE *f;
 	mode_t was;
+	int fd;
 
 	if (!own_sock || !face_sock || !face_sock[0] || strcmp(face_copy_said, face_sock) == 0)
 		return;
 	(void)snprintf(face_copy_path, sizeof(face_copy_path), "%s.face", own_sock);
 	(void)snprintf(tmp, sizeof(tmp), "%s.new", face_copy_path);
+	/* MADE NEW, NEVER OPENED THROUGH (sec 1434). The socket's directory is
+	 * the operator's choice and may be one other users write to, and this
+	 * daemon is often root: `fopen(tmp, "w")` followed a link planted there
+	 * and truncated whatever it named. A stale one of this daemon's own is
+	 * removed first; one somebody else owns stays, and the copy is not
+	 * written -- a refusal, never a write through it. */
+	(void)unlink(tmp);
 	was = umask(022);
-	f = fopen(tmp, "w");
+	fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
 	(void)umask(was);
-	if (!f)
+	f = fd >= 0 ? fdopen(fd, "w") : NULL;
+	if (!f) {
+		if (fd >= 0)
+			(void)close(fd);
 		return;
+	}
 	(void)fprintf(f, "%s\n", face_sock);
 	if (fclose(f) != 0 || rename(tmp, face_copy_path) != 0) {
 		(void)unlink(tmp);

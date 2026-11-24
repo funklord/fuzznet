@@ -1,14 +1,18 @@
 /* See client.h. */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "client.h"
 
 #include "line.h"
 #include "socket.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -142,15 +146,31 @@ fzn_client_err_t fzn_client_connect_default(int *out_fd)
 int fzn_client_face_of(const char *path, char *out, size_t cap)
 {
 	char at[sizeof(((struct sockaddr_un *)0)->sun_path) + 8u];
+	struct stat sock_st, st;
 	FILE *f;
 	size_t n;
-	int k;
+	int k, fd;
 
 	if (!path || !out || cap < 2u)
 		return 0;
 	k = snprintf(at, sizeof(at), "%s.face", path);
-	if (k <= 0 || (size_t)k >= sizeof(at) || !(f = fopen(at, "r")))
+	if (k <= 0 || (size_t)k >= sizeof(at))
 		return 0;
+	/* WRITTEN BY THE SOCKET'S OWN USER, OR NOT TAKEN (sec 1434). The copy
+	 * sends this client to another socket, and the directory it sits in
+	 * may be one other users write to: a copy somebody else made would
+	 * hand them this client's requests. So it is a regular file, not a
+	 * link, owned by whoever owns the socket, and nobody else may write it. */
+	if (stat(path, &sock_st) != 0)
+		return 0;
+	fd = open(at, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return 0;
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != sock_st.st_uid
+	    || (st.st_mode & (S_IWGRP | S_IWOTH)) || !(f = fdopen(fd, "r"))) {
+		(void)close(fd);
+		return 0;
+	}
 	n = fread(out, 1u, cap - 1u, f);
 	(void)fclose(f);
 	while (n && (out[n - 1u] == '\n' || out[n - 1u] == '\r'))

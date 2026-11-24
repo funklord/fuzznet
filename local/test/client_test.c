@@ -283,7 +283,7 @@ int main(void)
 	 * daemon wrote, its newline gone; nothing where there is no copy, or
 	 * where the copy names no absolute path. */
 	{
-		char dir[] = "/tmp/fzn-face-XXXXXX", sock[64], copy[80], got[64];
+		char dir[] = "/tmp/fzn-face-XXXXXX", sock[64], copy[80], link_to[80], got[64];
 		FILE *f;
 
 		if (mkdtemp(dir)) {
@@ -294,14 +294,30 @@ int main(void)
 				fprintf(f, "/run/netcfgd/fuzznet.sock\n");
 				fclose(f);
 			}
+			chmod(copy, 0644);
+			/* NO SOCKET, NO OWNER TO MATCH, sec 1434: not taken. */
+			ok(!fzn_client_face_of(sock, got, sizeof(got)), "a copy beside no socket was taken");
+			if ((f = fopen(sock, "w")) != NULL)
+				fclose(f);
 			ok(fzn_client_face_of(sock, got, sizeof(got)) && !strcmp(got, "/run/netcfgd/fuzznet.sock"),
 			   "the face written beside a socket was not read back");
+			/* ANOTHER MAY WRITE IT, OR IT IS A LINK: not taken. */
+			chmod(copy, 0666);
+			ok(!fzn_client_face_of(sock, got, sizeof(got)), "a copy others may write was taken");
+			chmod(copy, 0644);
+			snprintf(link_to, sizeof(link_to), "%s/real", dir);
+			if (rename(copy, link_to) == 0 && symlink(link_to, copy) == 0)
+				ok(!fzn_client_face_of(sock, got, sizeof(got)), "a copy reached through a link was taken");
+			unlink(copy);
+			if (rename(link_to, copy) != 0)
+				ok(0, "the copy was not put back");
 			if ((f = fopen(copy, "w")) != NULL) {
 				fprintf(f, "relative.sock\n");
 				fclose(f);
 			}
 			ok(!fzn_client_face_of(sock, got, sizeof(got)), "a copy naming no absolute path was taken");
 			unlink(copy);
+			unlink(sock);
 			rmdir(dir);
 		}
 	}

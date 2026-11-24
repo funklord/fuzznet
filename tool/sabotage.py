@@ -689,6 +689,27 @@ SABOTAGES = [
 		"unsayable while the parser went on expecting it. sec 364",
 	),
 	(
+		"client-face-copy-without-a-socket",
+		"local/client.c",
+		"\tif (stat(path, &sock_st) != 0)\n\t\treturn 0;\n",
+		"\t(void)stat(path, &sock_st);\n",
+		"with no socket there is no owner to match the copy against, and a copy lying beside nothing would be taken -- sec 1434",
+	),
+	(
+		"client-face-copy-through-a-link",
+		"local/client.c",
+		"\tfd = open(at, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);\n\tif (fd < 0)\n\t\treturn 0;\n\tif (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != sock_st.st_uid\n",
+		"\tfd = open(at, O_RDONLY | O_CLOEXEC);\n\tif (fd < 0)\n\t\treturn 0;\n\tif (fstat(fd, &st) != 0 || st.st_uid != sock_st.st_uid\n",
+		"a link is followed to whatever it names, so the owner judged is the target's -- sec 1434",
+	),
+	(
+		"client-face-copy-others-may-write",
+		"local/client.c",
+		"\t    || (st.st_mode & (S_IWGRP | S_IWOTH)) || !(f = fdopen(fd, \"r\"))) {\n",
+		"\t    || !(f = fdopen(fd, \"r\"))) {\n",
+		"a copy others may write is one they may point at their own socket -- sec 1434",
+	),
+	(
 		"client-asks-for-the-request-bound",
 		"local/client.c",
 		"\tswitch (fzn_vocabulary_compose(out, cap, FZN_REQUEST_MAX, out_len, verb,",

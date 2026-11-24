@@ -160,9 +160,20 @@ def main(argv):
 				             % r.stderr[-300:])
 			print("livecheck: 0: a missing store named is refused; the default one is made "
 			      "0700 and refused once others may write to it")
+			# A LINK PLANTED WHERE THE COPY IS MADE, sec 1434: followed, it
+			# truncated the file it named; the copy is made new beside it.
+			decoy = os.path.join(scratch, "decoy")
+			with open(decoy, "w") as f:
+				f.write("not yours\n")
+			os.symlink(decoy, socks["a"] + ".face.new")
 			a = start("a")
 			if not ask(socks["a"], "status").startswith("ok "):
 				raise failed("a: A's status did not answer ok")
+			if copy_of(socks["a"]) != socks["a"]:
+				raise failed("a: with a link planted, A wrote no face copy")
+			with open(decoy) as f:
+				if f.read() != "not yours\n":
+					raise failed("a: the face copy was written through a planted link")
 			if face_of(store) != socks["a"]:
 				raise failed("a: the store's face names %r, not A's socket" % face_of(store))
 			# AND BESIDE ITS SOCKET, sec 1424, for a client who cannot read

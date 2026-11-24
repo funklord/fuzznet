@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1433
+The newest work is at the end of this file. **Read secs 1287 to 1436
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -63,6 +63,13 @@ listener port spans (`150e3106`).
   and pairing, so they run with `FZN_PRODUCT_HOST` (6,
   `--fuzznet-product=host`). Consumers switch, and re-pair, on their
   side.
+- **What a product is for -- the holder's, asked here** (secs 1435,
+  1436). Relayed by netcfgd and by fuzzypickles: a device paired under
+  another product is not refused; a consumer shows devices by the
+  services they carry; and a product exists to keep one instance of a
+  consumer per host or user, "not to gate keys or data" -- where the
+  code hashes the product into every capability the remote hop checks.
+  Nothing changes on a relay; fzpd stays on product 2 meanwhile.
 - **The clock's unit**: **microseconds since 1970 on the frame** (sec
   1417, the holder's choice of sec 1407's (c), 2026-11-23); the
   library's calls still speak seconds, converted at the frame. Next: the
@@ -77806,4 +77813,122 @@ in number order, and `make cites` resolves every `sec N` across both.
 
 **Next**: secs 601 onward, where the share of decisions is likely higher
 still; each batch is worth what it moves, measured before the next.
+
+## 1434. The face copy is made new, never written through a link, 2026-11-24
+
+Sec 1424's `<socket>.face` was written by `fopen("<socket>.face.new",
+"w")` and renamed into place. **The socket's directory is the operator's
+(`--socket=`), and may be one other users write to, while the daemon is
+often root**: a link planted at `<socket>.face.new` was followed and the
+file it named truncated -- on any file the daemon's user may write. Linux's
+`fs.protected_symlinks` stops that in a sticky directory by default; the
+code no longer leans on it.
+
+**Now**: a stale `.new` of this daemon's user is removed, and the
+temporary file is made with `O_CREAT | O_EXCL | O_NOFOLLOW`, 0644. One
+another user owns cannot be removed, so the copy is not written -- a
+refusal, never a write through it. The rename that puts it in place does
+not follow a link. **Only this writer had the shape**: every other
+`fopen(..., "w")` outside tests (the store's `face`, procedure offers,
+client config, logs, log buckets) writes in a directory of the store's or
+the user's own.
+
+**Test:** `tool/live_face.py` phase a plants the link at A's
+`.face.new`, pointing at a decoy: A writes its copy, and the decoy is
+unchanged. Against the daemon before the fix it fails ("the face copy
+was written through a planted link"), measured. `tool/sabotage.py`
+reaches no live script, so it holds no entry for this.
+
+**And the reading side, the same lens**: `fzn_client_face_of` took
+whatever `<socket>.face` said, so in a directory others write to a copy
+made before the daemon's would send a client's requests to somebody
+else's socket. It now takes the copy only when it is a regular file, not
+reached through a link, owned by the user who owns the socket, and not
+writable by group or others. `local/test/client_test.c` refuses a copy
+beside no socket, one others may write and one reached through a link;
+`tool/sabotage.py` holds each check (`client-face-copy-*`). **Not
+tested**: a copy owned by another user, which needs a second account.
+
+## 1435. Devices of other products, and showing by services: the holder's correction, relayed, 2026-11-24
+
+**Relayed by netcfgd** (inbox 20261124T1233Z), the holder in netcfgd's
+session, correcting how netcfgd read sec 1419: "no we do not refuse
+devices paired with other products, we write to the same fuzznet data
+stores and check what services/subsystems they have if they also have
+netcfgd we definitely need to show them. But if they don't they can
+still act as relay/retention or other services for netcfgd." And:
+"inform fuzznet to disseminate how the library is meant to be used and
+my corrections as it holds authority."
+
+**What already stands on the holder's own word here** (sec 1429): the
+daemons one user runs share that user's estate, its stores and one
+pairing, under `FZN_PRODUCT_HOST`.
+
+**What the correction would change, measured against the code**:
+
+1. **The remote hop refuses a device paired under another product.** It
+   checks ONE capability, `config.remote_capability`, from the serving
+   daemon's `--fuzznet-service`/`--fuzznet-product` (`node/node.c`,
+   `fzn_node_decide`); a device paired as netcfgd's (3) is refused by a
+   daemon serving as 6. Not refusing it is sec 1419's option (c): the hop
+   accepts the capability of each product the estate knows, the access
+   each grants still its own.
+2. **No verb says which services a device carries.** A consumer cannot
+   today ask "does this host have netcfgd"; to show devices by their
+   services, a host would state its consumers (the products and services
+   its daemons serve) where its peers can read it -- with its card, or
+   as an answer -- and the hosts list would carry it.
+3. **A device without the consumer still serves it** as relay and
+   retention. Not yet checked here: whether the relay and bucket layers
+   (secs 564-572, 579-587) serve a member without regard to its
+   products once it is admitted; (1) decides whether it is admitted.
+
+**Not built on the relay** (a relay carries information, not authority):
+asked of the holder here -- confirm (1) and (2), and fuzznet states the
+usage in this file and passes it to every consumer. Until then the
+statement above is information, and netcfgd was told so.
+
+## 1436. A product is "not to gate keys or data": the holder, relayed by fuzzypickles, 2026-11-24
+
+**Relayed by fuzzypickles** (inbox 20261124T1408Z), the holder speaking
+in its session, called "serious and fundamental": "Wait a bit, they do
+serve a different purpose. They are to ensure we only have one of any
+product running per host/user. Not to gate keys or data." Also: "Why
+are we using magic numbers and not enums? No one is using these products
+yet, this value sounds like something that may be removed entirely later
+also." And: "host not being the lowest index number is a bit confusing
+though." Put to them, "fzpd should run as --fuzznet-product=host" drew
+"I have no idea what this means?".
+
+**What the code does, the opposite**: the product is hashed into every
+capability the node checks remotely (`fzn_service_capability`,
+`chain/service.h`): the remote hop's, admin's, retention's
+(`node/daemon.c`, where the remote capability is composed) and a note
+share's. A paired device is granted the remote capability, so a pairing
+is bound to the product and a change of product re-pairs every device.
+Nothing uses the product to keep a second instance from running.
+
+**Owned here**: sec 1429 built the holder's words in this session --
+one user's daemons share one estate and one pairing -- as a product of
+their own, `FZN_PRODUCT_HOST`, and told the consumers to run with
+`--fuzznet-product=host`. That mechanism was this tree's reading, not
+the holder's words; the holder had not said it. raidcfgd took it
+(7468b40), netcfgd is taking it; fuzzypickles holds fzpd at 2.
+
+**What the holder's purpose would mean**, for the holder to confirm
+here, since it changes pairing for every consumer:
+- access rests on the identity and its grants alone: the capabilities
+  the hop, admin, retention and note shares check are composed without
+  the product (one per service, or none), so a device of any consumer is
+  admitted and a product change costs no re-pairing -- which also meets
+  sec 1435's "we do not refuse devices paired with other products";
+- the product becomes a name a daemon claims once per user and host --
+  a second daemon claiming it is refused at start -- spelled as a word
+  on the command line (`--fuzznet-product=netcfgd`), not a number;
+- which services a device carries is stated where peers can read it, so
+  a consumer shows the devices that carry it (sec 1435).
+Every paired device re-pairs once, on the change.
+
+**Until the holder answers here**: nothing changes; `FZN_PRODUCT_HOST`
+stays as built, and consumers are told it may go.
 
