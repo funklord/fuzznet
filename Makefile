@@ -3860,7 +3860,7 @@ $(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
 # submodule, compiled quietly as quirc is: vendored code is held to no warning
 # set of ours. An empty thorvg/ is an unfinished clone, said by `test`, and
 # the renderer still builds: a Lottie sticker then says why it is not drawn.
-THORVG_DIR      := thorvg
+THORVG_DIR      ?= thorvg
 OBJCOPY         ?= objcopy
 THORVG_ON       := $(if $(wildcard $(THORVG_DIR)/inc/thorvg.h),1)
 THORVG_SKIP     := $(if $(THORVG_ON),,the vendored $(THORVG_DIR)/ is empty, so Lottie stickers are not drawn. Run 'git submodule update --init $(THORVG_DIR)'.)

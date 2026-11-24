@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1426
+The newest work is at the end of this file. **Read secs 1287 to 1427
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97802,3 +97802,36 @@ channel (`local/rpc_media.c`) both use it.
 
 **Tests:** rpc_test: a binary call to no node says "the node at
 /nonexistent/fzn-test/fuzznetd.sock is not running".
+
+## 1427. Every vendored dependency's directory taken from the consumer, 2026-11-24
+
+**The holder's rule of 2026-11-24** (claude-guidelines' harmonization.md,
+*The leaf decides: one copy of each dependency, at the top*): the program
+at the end of the chain vendors every dependency once, at its root; a
+library keeps its submodules, so it builds and tests from its own clone,
+but **its build takes each dependency's directory from outside**, and a
+consumer points it at its own root copy and never fetches recursively.
+Measured by claude-guidelines (inbox 20261124T0126Z): fuzznet's five
+submodules arrived nested in every tree vendoring it -- fuzzypickles held
+monocypher, quirc, thorvg and qtty twice, qtty at two commits; netcfgd
+qtty twice. fuzznet is step 1 of 8.
+
+**What a consumer sets**, each defaulting to fuzznet's own submodule:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `MONOCYPHER_DIR` | `monocypher` | the AEAD, hash and signature |
+| `FLOG_DIR` | `flog` | the logging library |
+| `QUIRC_DIR` | `quirc` | the QR recogniser |
+| `QTTY_DIR` | `qtty` | the character-cell renderer |
+| `THORVG_DIR` | `thorvg` | the Lottie sticker renderer |
+
+The first four were `?=` already; **`THORVG_DIR` was `:=`, and is `?=`
+now**. `VENDOR_SHIM_HDRS` (`gui/thorvg/config.h`) is fuzznet's own
+header, not one inside the ThorVG directory, so it stays. **No recipe
+fetches or updates a submodule**: `git submodule` appears in the
+Makefile only in the words telling a person what to run when one is
+empty; `daemon-lib`, `client-lib`, `daemon-flags` and `fuzznetd` read
+the directories and fetch nothing. Measured: `make -p` with each of the
+five set on the command line takes the consumer's value.
+
