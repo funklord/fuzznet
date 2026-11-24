@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1438
+The newest work is at the end of this file. **Read secs 1287 to 1439
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -78001,4 +78001,28 @@ against the hand checks over a million fuzzed values:
 Sent to situ (inbox 20261124T1616Z) with the schema and the driver. Both
 stay hand-written until a content length, or a fixed field followed by
 " " or the end, can be stated.
+
+## 1439. Two null pointers read before their checks, found by the analysers, 2026-11-24
+
+`make analyze` (gcc -fanalyzer and cppcheck) over the tree as it stood.
+Two real faults, each with a test that fails without the fix (measured):
+
+- **`fzn_search_filter_word`** (`search/filter.c`) read `f->n_members`
+  in a declaration above the `!f` check that refused a null filter --
+  so a null crashed rather than being refused. Read after the check now.
+  `search/test/search_test.c` passes it a null (the old code segfaults)
+  and takes one word; the search test now links the filter.
+- **The object calls** (`fzn_rpc_object_add`, `_set`, `_remove`,
+  `_get`, `local/rpc.c`): a name or value the binary form would not take
+  went to the text verb, null included, where `%s` formatted it -- a
+  null value went out as `set object lamp (null)`. A null name or value
+  is refused now before either form. `local/test/rpc_test.c` asks all
+  four with nulls: refused, and the scripted node asked nothing.
+
+**Read and left, false positives**: the `contact_devices` estate-act
+walk (`cur` is an array element on the first step and checked before
+every later one); a redundant null test inside the log macro; and
+cppcheck's "uninitialized `arg`" across `local/rpc.c`, where `arg` is
+passed as a pointer and filled by `snprintf` in the same call's
+arguments, all evaluated before the call.
 

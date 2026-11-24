@@ -183,6 +183,24 @@ static void test_a_refusal_keeps_the_node_s_words(void)
 	      "a bare refusal was not told apart from a denial, or left no words");
 }
 
+/* A NULL NAME OR VALUE is refused, and nothing asked: the text verb's
+ * `%s` was handed it, and a set went out as "set object lamp (null)". */
+static void test_a_null_object_word_is_refused(void)
+{
+	struct script s = { { "ok" }, 0, 1, 0, { { 0 } } };
+	fzn_rpc_object_t one;
+	int found = 0;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_object_set(&c, "lamp", NULL) == FZN_RPC_ERR_MALFORMED
+	              && fzn_rpc_object_set(&c, NULL, "on") == FZN_RPC_ERR_MALFORMED
+	              && fzn_rpc_object_add(&c, NULL, "on off") == FZN_RPC_ERR_MALFORMED
+	              && fzn_rpc_object_remove(&c, NULL) == FZN_RPC_ERR_MALFORMED
+	              && fzn_rpc_object_get(&c, NULL, &one, &found) == FZN_RPC_ERR_MALFORMED,
+	      "an object call with a null name or value was not refused");
+	CHECK(s.asked[0][0] == '\0', "an object call with a null name or value asked the node");
+}
+
 /* `ok held`, sec 1037: taken, and to be written a moment later. */
 static void test_a_held_set_says_so(void)
 {
@@ -2813,6 +2831,7 @@ int main(void)
 	test_every_unread_count_is_read();
 	test_a_missed_call_is_told_from_one_taken_elsewhere();
 	test_a_refusal_keeps_the_node_s_words();
+	test_a_null_object_word_is_refused();
 	test_a_held_set_says_so();
 	test_an_object_is_read_or_absent();
 	test_nothing_answering_is_not_a_refusal();

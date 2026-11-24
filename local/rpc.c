@@ -11250,6 +11250,10 @@ int fzn_rpc_object_add(fzn_rpc_t *c, const char *name, const char *values) {
 	size_t allowed_len = 0;
 	struct objects_answer a;
 	int text = 0, rc;
+	/* NO NAME IS REFUSED HERE: past this a name the binary form will not
+	 * take goes to the text verb, where a null was formatted by `%s`
+	 * (cppcheck). */
+	if (!name) return encode_failed(c);
 	/* THE WORDS JOINED as the node keeps them, `on|off`; none is `*`. */
 	for (const char *p = values ? values : ""; *p;) {
 		while (*p == ' ') p++;
@@ -11278,7 +11282,8 @@ int fzn_rpc_object_set(fzn_rpc_t *c, const char *name, const char *value) {
 	uint32_t body_len = 0, n = 0;
 	struct objects_answer a;
 	int text = 0, rc;
-	if (!object_name_ok(name) || !value || !*value || strlen(value) > FZN_RPC_OBJECT_VALUE_MAX
+	if (!name || !value) return encode_failed(c);	/* as in fzn_rpc_object_add */
+	if (!object_name_ok(name) || !*value || strlen(value) > FZN_RPC_OBJECT_VALUE_MAX
 	    || fzn_objects_set_build(body, sizeof body, (const uint8_t *)name, (uint32_t)strlen(name),
 	                             (const uint8_t *)value, (uint32_t)strlen(value), &body_len) != SITU_OK
 	    || fzn_objects_message_build_set(req, sizeof req, (uint8_t)FZN_CMD_OBJECTS, body, body_len, &n)
@@ -11307,6 +11312,7 @@ int fzn_rpc_object_remove(fzn_rpc_t *c, const char *name) {
 	uint32_t n = 0;
 	struct objects_answer a;
 	int text = 0, rc;
+	if (!name) return encode_failed(c);	/* as in fzn_rpc_object_add */
 	if (!object_named(req, sizeof req, 0, name, &n)) return object_remove_text(c, name);
 	memset(&a, 0, sizeof a);
 	rc = objects_ask(c, req, n, &a, &text);
@@ -11319,6 +11325,7 @@ int fzn_rpc_object_get(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, in
 	struct objects_answer a;
 	int text = 0, rc;
 	*found = 0;
+	if (!name) return encode_failed(c);	/* as in fzn_rpc_object_add */
 	if (!object_named(req, sizeof req, 1, name, &n)) return object_get_text(c, name, out, found);
 	memset(&a, 0, sizeof a);
 	a.one = out;
