@@ -630,7 +630,7 @@ static inline uint32_t fzn_files_local_catalog_add_value_offset(situ_view_t view
 }
 static inline uint32_t fzn_files_local_catalog_add_value_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_files_local_catalog_add_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_files_local_catalog_add_value_len_offset(view)) + 0u)) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_catalog_add_value_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_files_local_catalog_add_value_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -662,7 +662,7 @@ static inline uint32_t fzn_files_local_catalog_add_extent(situ_view_t view)
 
 	uint32_t extent = 35u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u])));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_files_local_catalog_add_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_files_local_catalog_add_value_len_offset(view)) + 0u)) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_catalog_add_value_len_get(view))));
 	return extent;
 }
 
@@ -709,7 +709,7 @@ static inline situ_err_t fzn_files_local_catalog_add_required(const uint8_t *dat
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_files_local_catalog_add_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_files_local_catalog_add_value_len_offset(view)) + 0u)) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_catalog_add_value_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}
@@ -1121,7 +1121,7 @@ static inline uint32_t fzn_files_local_library_row_name_offset(situ_view_t view)
 }
 static inline uint32_t fzn_files_local_library_row_name_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_files_local_library_row_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_files_local_library_row_name_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_library_row_name_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_files_local_library_row_name_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -1153,7 +1153,7 @@ static inline uint32_t fzn_files_local_library_row_extent(situ_view_t view)
 
 	uint32_t extent = 55u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u])));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_files_local_library_row_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_files_local_library_row_name_len_offset(view)))[0u]) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_library_row_name_len_get(view))));
 	return extent;
 }
 
@@ -1200,7 +1200,7 @@ static inline situ_err_t fzn_files_local_library_row_required(const uint8_t *dat
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_files_local_library_row_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_files_local_library_row_name_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_library_row_name_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

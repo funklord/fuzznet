@@ -346,12 +346,12 @@ static inline uint32_t fzn_search_wire_ask_stores_offset(situ_view_t view)
 }
 static inline uint32_t fzn_search_wire_ask_stores_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get(view)));
 }
 
 static inline uint32_t fzn_search_wire_ask_stores_count_marked(situ_view_t view, const uint32_t *marks)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get_from(view, marks[0])));
 }
 /** Element `index`, walked: these have no single size, so
  * there is no stride to index by.
@@ -772,7 +772,7 @@ static inline uint32_t fzn_search_wire_ask_after_store_offset(situ_view_t view)
 }
 static inline uint32_t fzn_search_wire_ask_after_store_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_ask_after_store_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -839,14 +839,14 @@ static inline uint32_t fzn_search_wire_ask_after_key_offset(situ_view_t view)
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_search_wire_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (31u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_search_wire_ask_after_key_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_ask_after_key_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -905,16 +905,16 @@ static inline uint32_t fzn_search_wire_ask_filter_offset(situ_view_t view)
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_search_wire_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (31u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (2u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_search_wire_ask_filter_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_filter_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_ask_filter_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -981,18 +981,18 @@ static inline uint32_t fzn_search_wire_ask_within_offset(situ_view_t view)
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_search_wire_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (31u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (2u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_filter_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_search_wire_ask_within_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_within_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_ask_within_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -1029,13 +1029,13 @@ static inline uint32_t fzn_search_wire_ask_walked(situ_view_t view, uint32_t ind
 	at = situ_advance_u32(at, 30u, view.limit);
 	marks[1] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[1], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[1]))[0u]) : (uint64_t)0)))), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get_from(view, marks[1])))), view.limit);
 	marks[2] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[2], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[2]))[0u]) : (uint64_t)0)))), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get_from(view, marks[2])))), view.limit);
 	marks[3] = at;
 	at = situ_advance_u32(at, 2u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[3], 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + marks[3]) + 0u)) : (uint64_t)0)))), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_filter_len_get_from(view, marks[3])))), view.limit);
 	marks[4] = at;
 	return marks[index];
 }
@@ -1056,10 +1056,10 @@ static inline uint32_t fzn_search_wire_ask_extent(situ_view_t view)
 	uint32_t extent = 37u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
 	extent = extent + (fzn_search_wire_ask_stores_span(view));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0))));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_filter_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_within_len_get(view))));
 	return extent;
 }
 
@@ -1116,7 +1116,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0)))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get(view)))) {
 				break;
 			}
 			if (have < pos) {
@@ -1124,7 +1124,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n, 1u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get(view))) - n, 1u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_search_wire_store_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -1138,7 +1138,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 1u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get(view))) - n - 1u, 1u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);
@@ -1155,7 +1155,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_ask_after_store_len_get(view)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -1169,7 +1169,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_ask_after_key_len_get(view)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -1183,7 +1183,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_ask_filter_len_get(view)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -1197,7 +1197,7 @@ static inline situ_err_t fzn_search_wire_ask_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_ask_within_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}
@@ -1343,7 +1343,7 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_store_count_get(view)));
 		uint32_t at = fzn_search_wire_ask_stores_offset(view);
 		uint32_t n  = 0u;
 
@@ -1447,7 +1447,7 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 	/* ask.after_store: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_store_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_store_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_store_len_get(view))))) {
 		*which = FZN_SEARCH_WIRE_ASK_AFTER_STORE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -1466,7 +1466,7 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 	/* ask.after_key: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_after_key_len_get(view))))) {
 		*which = FZN_SEARCH_WIRE_ASK_AFTER_KEY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -1485,7 +1485,7 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 	/* ask.filter: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_filter_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_filter_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_search_wire_ask_filter_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_filter_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_filter_len_get(view))))) {
 		*which = FZN_SEARCH_WIRE_ASK_FILTER_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -1504,7 +1504,7 @@ static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *w
 	/* ask.within: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_within_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_within_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_within_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_within_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_ask_within_len_get(view))))) {
 		*which = FZN_SEARCH_WIRE_ASK_WITHIN_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -1687,7 +1687,7 @@ static inline uint32_t fzn_search_wire_hit_key_offset(situ_view_t view)
 }
 static inline uint32_t fzn_search_wire_hit_key_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_hit_key_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -1713,7 +1713,7 @@ static inline uint32_t fzn_search_wire_hit_score_offset(situ_view_t view)
 	uint32_t offset = 0u;
 	offset = situ_advance_u32(offset, (fzn_search_wire_hit_store_extent_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -1747,7 +1747,7 @@ static inline uint32_t fzn_search_wire_hit_time_ms_offset(situ_view_t view)
 	uint32_t offset = 0u;
 	offset = situ_advance_u32(offset, (fzn_search_wire_hit_store_extent_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (4u), view.limit);
 
 	return offset;
@@ -1820,14 +1820,14 @@ static inline uint32_t fzn_search_wire_hit_snippet_offset(situ_view_t view)
 	uint32_t offset = 0u;
 	offset = situ_advance_u32(offset, (fzn_search_wire_hit_store_extent_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (13u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_search_wire_hit_snippet_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_snippet_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_snippet_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_snippet_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_search_wire_hit_snippet_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -1856,7 +1856,7 @@ static inline uint32_t fzn_search_wire_hit_walked(situ_view_t view, uint32_t ind
 	at = situ_advance_u32(at, (fzn_search_wire_hit_store_extent_from(view, at)), view.limit);
 	marks[0] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)))), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get_from(view, marks[0])))), view.limit);
 	at = situ_advance_u32(at, 12u, view.limit);
 	marks[1] = at;
 	return marks[index];
@@ -1877,8 +1877,8 @@ static inline uint32_t fzn_search_wire_hit_extent(situ_view_t view)
 
 	uint32_t extent = 14u;
 	extent = extent + (fzn_search_wire_hit_store_extent(view));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0))));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_hit_snippet_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_snippet_len_offset(view)))[0u]) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_key_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_wire_hit_snippet_len_get(view))));
 	return extent;
 }
 
@@ -1934,7 +1934,7 @@ static inline situ_err_t fzn_search_wire_hit_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_key_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_hit_key_len_get(view)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -1948,7 +1948,7 @@ static inline situ_err_t fzn_search_wire_hit_required(const uint8_t *data, uint3
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_wire_hit_snippet_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_hit_snippet_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_search_wire_hit_snippet_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

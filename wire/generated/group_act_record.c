@@ -70,7 +70,7 @@ situ_err_t fzn_group_act_record_fzn_group_act_check(situ_view_t view, uint32_t *
 	/* fzn_group_act.signer: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_group_act_record_fzn_group_act_signer_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_group_act_record_fzn_group_act_signer_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_group_act_record_fzn_group_act_signer_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_group_act_record_fzn_group_act_signer_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_group_act_record_fzn_group_act_signer_len_get(view))))) {
 		*which = FZN_GROUP_ACT_RECORD_FZN_GROUP_ACT_SIGNER_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

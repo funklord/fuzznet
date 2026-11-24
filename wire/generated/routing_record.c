@@ -205,7 +205,7 @@ situ_err_t fzn_routing_record_fzn_routing_check(situ_view_t view, uint32_t *whic
 	/* fzn_routing.hops: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_routing_record_fzn_routing_hops_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_routing_record_fzn_routing_hop_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_routing_record_fzn_routing_hop_count_offset(view)))[0u]) : (uint64_t)0))) * 179u)) {
+	if (situ_remaining_u32(view.limit, fzn_routing_record_fzn_routing_hops_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_routing_record_fzn_routing_hop_count_get(view))) * 179u)) {
 		*which = FZN_ROUTING_RECORD_FZN_ROUTING_HOPS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -213,7 +213,7 @@ situ_err_t fzn_routing_record_fzn_routing_check(situ_view_t view, uint32_t *whic
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_routing_record_fzn_routing_hop_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_routing_record_fzn_routing_hop_count_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_routing_record_fzn_routing_hop_count_get(view)));
 		uint32_t at = fzn_routing_record_fzn_routing_hops_offset(view);
 		uint32_t n  = 0u;
 

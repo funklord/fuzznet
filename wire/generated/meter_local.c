@@ -129,7 +129,7 @@ situ_err_t fzn_meter_local_transfer_row_check(situ_view_t view, uint32_t *which)
 	/* transfer_row.peer: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_meter_local_transfer_row_peer_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_meter_local_transfer_row_peer_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_meter_local_transfer_row_peer_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_meter_local_transfer_row_peer_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_meter_local_transfer_row_peer_len_get(view))))) {
 		*which = FZN_METER_LOCAL_TRANSFER_ROW_PEER_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

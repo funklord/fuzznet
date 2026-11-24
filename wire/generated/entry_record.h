@@ -178,7 +178,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_name_record_program_offset(sit
 }
 static inline uint32_t fzn_entry_record_fzn_entry_name_record_program_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_name_record_program_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -204,7 +204,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_name_record_pid_offset(situ_vi
 	uint32_t offset = 17u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[16u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -238,7 +238,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_name_record_start_ms_offset(si
 	uint32_t offset = 17u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[16u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (4u), view.limit);
 
 	return offset;
@@ -272,7 +272,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_name_record_position_offset(si
 	uint32_t offset = 17u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[16u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (12u), view.limit);
 
 	return offset;
@@ -312,7 +312,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_name_record_extent(situ_view_t
 
 	uint32_t extent = 38u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[16u])));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view))));
 	return extent;
 }
 
@@ -359,7 +359,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_name_record_required(const u
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}
@@ -587,7 +587,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_record_subsystem_offset(situ_v
 }
 static inline uint32_t fzn_entry_record_fzn_entry_record_subsystem_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_subsystem_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_subsystem_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_subsystem_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -652,19 +652,19 @@ static inline uint32_t fzn_entry_record_fzn_entry_record_causes_offset(situ_view
 	uint32_t offset = 10u;
 	offset = situ_advance_u32(offset, (fzn_entry_record_fzn_entry_record_name_extent_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_subsystem_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_subsystem_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_entry_record_fzn_entry_record_causes_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_cause_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_cause_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get(view)));
 }
 
 static inline uint32_t fzn_entry_record_fzn_entry_record_causes_count_marked(situ_view_t view, const uint32_t *marks)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[1], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[1]))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get_from(view, marks[1])));
 }
 /** Element `index`, walked: these have no single size, so
  * there is no stride to index by.
@@ -848,7 +848,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_record_text_offset(situ_view_t
 	uint32_t offset = 10u;
 	offset = situ_advance_u32(offset, (fzn_entry_record_fzn_entry_record_name_extent_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_subsystem_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_subsystem_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_entry_record_fzn_entry_record_causes_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (2u), view.limit);
@@ -857,7 +857,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_record_text_offset(situ_view_t
 }
 static inline uint32_t fzn_entry_record_fzn_entry_record_text_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_entry_record_fzn_entry_record_text_len_offset(view)) + 0u)) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_text_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_text_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -888,7 +888,7 @@ static inline uint32_t fzn_entry_record_fzn_entry_record_walked(situ_view_t view
 	at = situ_advance_u32(at, (fzn_entry_record_fzn_entry_record_name_extent_from(view, at)), view.limit);
 	marks[0] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)))), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get_from(view, marks[0])))), view.limit);
 	marks[1] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
 	at = situ_advance_u32(at, (fzn_entry_record_fzn_entry_record_causes_span_from_marked(view, marks, at)), view.limit);
@@ -955,7 +955,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_record_required(const uint8_
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_subsystem_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_subsystem_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get(view)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -979,7 +979,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_record_required(const uint8_
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_cause_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_cause_count_offset(view)))[0u]) : (uint64_t)0)))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get(view)))) {
 				break;
 			}
 			if (have < pos) {
@@ -987,7 +987,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_record_required(const uint8_
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_cause_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_cause_count_offset(view)))[0u]) : (uint64_t)0))) - n, 38u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get(view))) - n, 38u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_entry_record_fzn_entry_name_record_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -1001,7 +1001,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_record_required(const uint8_
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_cause_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_cause_count_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 38u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get(view))) - n - 1u, 38u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);
@@ -1018,7 +1018,7 @@ static inline situ_err_t fzn_entry_record_fzn_entry_record_required(const uint8_
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_entry_record_fzn_entry_record_text_len_offset(view)) + 0u)) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_entry_record_fzn_entry_record_text_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

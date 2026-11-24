@@ -1177,7 +1177,7 @@ static inline uint32_t fzn_line_record_fzn_message_stored_sealed_offset(situ_vie
 }
 static inline uint32_t fzn_line_record_fzn_message_stored_sealed_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_line_record_fzn_message_stored_held_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_line_record_fzn_message_stored_held_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_line_record_fzn_message_stored_held_get(view)));
 }
 /** Element `index`, walked: these have no single size, so
  * there is no stride to index by.
@@ -1350,7 +1350,7 @@ static inline situ_err_t fzn_line_record_fzn_message_stored_required(const uint8
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_line_record_fzn_message_stored_held_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_line_record_fzn_message_stored_held_offset(view)))[0u]) : (uint64_t)0)))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_line_record_fzn_message_stored_held_get(view)))) {
 				break;
 			}
 			if (have < pos) {
@@ -1358,7 +1358,7 @@ static inline situ_err_t fzn_line_record_fzn_message_stored_required(const uint8
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_line_record_fzn_message_stored_held_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_line_record_fzn_message_stored_held_offset(view)))[0u]) : (uint64_t)0))) - n, 2u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_line_record_fzn_message_stored_held_get(view))) - n, 2u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_line_record_fzn_message_stored_part_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -1372,7 +1372,7 @@ static inline situ_err_t fzn_line_record_fzn_message_stored_required(const uint8
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_line_record_fzn_message_stored_held_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_line_record_fzn_message_stored_held_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 2u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_line_record_fzn_message_stored_held_get(view))) - n - 1u, 2u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);

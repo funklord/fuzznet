@@ -905,7 +905,7 @@ static inline uint32_t fzn_routing_record_fzn_routing_hops_offset(situ_view_t vi
 }
 static inline uint32_t fzn_routing_record_fzn_routing_hops_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_routing_record_fzn_routing_hop_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_routing_record_fzn_routing_hop_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_routing_record_fzn_routing_hop_count_get(view)));
 }
 static inline situ_err_t fzn_routing_record_fzn_routing_hops_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -935,7 +935,7 @@ static inline uint32_t fzn_routing_record_fzn_routing_sig_offset(situ_view_t vie
 	uint32_t offset = 84u;
 	offset = situ_advance_u32(offset, (fzn_routing_record_fzn_routing_entries_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_routing_record_fzn_routing_hop_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_routing_record_fzn_routing_hop_count_offset(view)))[0u]) : (uint64_t)0))) * 179u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_routing_record_fzn_routing_hop_count_get(view))) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -1033,7 +1033,7 @@ static inline situ_err_t fzn_routing_record_fzn_routing_required(const uint8_t *
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = situ_need_mul_u32((uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_routing_record_fzn_routing_hop_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_routing_record_fzn_routing_hop_count_offset(view)))[0u]) : (uint64_t)0))), 179u);
+		const uint32_t len = situ_need_mul_u32((uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_routing_record_fzn_routing_hop_count_get(view))), 179u);
 
 		at = situ_need_u32(at, len);
 	}

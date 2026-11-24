@@ -189,7 +189,7 @@ situ_err_t fzn_search_local_hit_check(situ_view_t view, uint32_t *which)
 	/* hit.key: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_local_hit_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_hit_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_hit_key_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_local_hit_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_local_hit_key_len_get(view))))) {
 		*which = FZN_SEARCH_LOCAL_HIT_KEY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -222,7 +222,7 @@ situ_err_t fzn_search_local_hit_check(situ_view_t view, uint32_t *which)
 	/* hit.snippet: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_search_local_hit_snippet_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_hit_snippet_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_hit_snippet_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_search_local_hit_snippet_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_search_local_hit_snippet_len_get(view))))) {
 		*which = FZN_SEARCH_LOCAL_HIT_SNIPPET_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

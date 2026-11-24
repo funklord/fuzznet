@@ -85,7 +85,7 @@ situ_err_t fzn_messages_local_newest_row_check(situ_view_t view, uint32_t *which
 	/* newest_row.text: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_messages_local_newest_row_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_newest_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_newest_row_text_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_messages_local_newest_row_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_messages_local_newest_row_text_len_get(view))))) {
 		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_TEXT_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -261,7 +261,7 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which)
 	/* line_row.sender: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_messages_local_line_row_sender_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_messages_local_line_row_sender_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_messages_local_line_row_sender_len_get(view))))) {
 		*which = FZN_MESSAGES_LOCAL_LINE_ROW_SENDER_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -280,7 +280,7 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which)
 	/* line_row.text: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_messages_local_line_row_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_messages_local_line_row_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_messages_local_line_row_text_len_get(view))))) {
 		*which = FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

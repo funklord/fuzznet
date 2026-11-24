@@ -242,7 +242,7 @@ static inline uint32_t fzn_gather_wire_fzn_gather_query_match_offset(situ_view_t
 }
 static inline uint32_t fzn_gather_wire_fzn_gather_query_match_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_gather_wire_fzn_gather_query_match_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_gather_wire_fzn_gather_query_match_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_gather_wire_fzn_gather_query_match_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_gather_wire_fzn_gather_query_match_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -303,7 +303,7 @@ static inline situ_err_t fzn_gather_wire_fzn_gather_query_required(const uint8_t
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_gather_wire_fzn_gather_query_match_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_gather_wire_fzn_gather_query_match_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_gather_wire_fzn_gather_query_match_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

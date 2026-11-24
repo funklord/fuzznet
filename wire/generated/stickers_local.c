@@ -532,7 +532,7 @@ situ_err_t fzn_stickers_local_match_ask_check(situ_view_t view, uint32_t *which)
 	/* match_ask.typed: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_stickers_local_match_ask_typed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_stickers_local_match_ask_typed_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_stickers_local_match_ask_typed_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_stickers_local_match_ask_typed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_stickers_local_match_ask_typed_len_get(view))))) {
 		*which = FZN_STICKERS_LOCAL_MATCH_ASK_TYPED_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

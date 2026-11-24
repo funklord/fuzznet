@@ -388,7 +388,7 @@ situ_err_t fzn_line_record_fzn_message_stored_check(situ_view_t view, uint32_t *
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_line_record_fzn_message_stored_held_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_line_record_fzn_message_stored_held_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_line_record_fzn_message_stored_held_get(view)));
 		uint32_t at = fzn_line_record_fzn_message_stored_sealed_offset(view);
 		uint32_t n  = 0u;
 

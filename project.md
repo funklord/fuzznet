@@ -96339,6 +96339,16 @@ text 1,003,531 -> 1,041,027 bytes (+37,496, 3.7%), data 8,208 -> 8,952,
 bss 13,516,920 -> 12,922,936 (-593,984). So the smallest host pays a
 fraction of netcfgd's figure in code, and less memory than before.
 
+**situ e485b900 taken** (its a99516fc: a length driver's getter called
+rather than re-emitted inline), on situ's word that it shrinks the
+generated `.c`. Regenerated: 44 files under `wire/generated/`, 274 lines
+each way; `make schema` matches. The embedded profile, both built alike
+from `git archive` with only the generated files differing: text
+1,041,027 -> 1,039,563 (-1,464 bytes, 0.14%), data and bss unchanged.
+**A build in place read +6,399 for the same change** -- the build's
+location, not situ -- so compare sizes only between builds made the
+same way.
+
 ## 1429. One product for a host, whatever consumers it carries, 2026-11-24
 
 **The holder, 2026-11-24**, answering sec 1419's question directly:
@@ -96372,6 +96382,11 @@ the same user shares its pairing.
 
 **Tests:** cli_test: `--fuzznet-product=host` is product 6, a second
 product refused as a duplicate, `hosts` refused.
+
+**Taken by raidcfgd** (its inbox message 20261124T0420Z): raidcfgd
+7468b40 pins aac57be5 and its daemon passes `--fuzznet-product=6` unless
+the command line names one; its stand-in for netcfgd's face carries 6
+too, and its 37 suites pass.
 
 ## 1430. The nonce set stays fuzznet's own; what situ's replay form would buy, 2026-11-24
 

@@ -143,7 +143,7 @@ situ_err_t fzn_notes_local_note_fields_check(situ_view_t view, uint32_t *which)
 	/* note_fields.labels: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_notes_local_note_fields_labels_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_notes_local_note_fields_labels_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_notes_local_note_fields_labels_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_notes_local_note_fields_labels_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_notes_local_note_fields_labels_len_get(view))))) {
 		*which = FZN_NOTES_LOCAL_NOTE_FIELDS_LABELS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -162,7 +162,7 @@ situ_err_t fzn_notes_local_note_fields_check(situ_view_t view, uint32_t *which)
 	/* note_fields.ref: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_notes_local_note_fields_ref_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_notes_local_note_fields_ref_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_notes_local_note_fields_ref_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_notes_local_note_fields_ref_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_notes_local_note_fields_ref_len_get(view))))) {
 		*which = FZN_NOTES_LOCAL_NOTE_FIELDS_REF_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -678,7 +678,7 @@ situ_err_t fzn_notes_local_note_row_check(situ_view_t view, uint32_t *which)
 	/* note_row.labels: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_notes_local_note_row_labels_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_notes_local_note_row_labels_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_notes_local_note_row_labels_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_notes_local_note_row_labels_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_notes_local_note_row_labels_len_get(view))))) {
 		*which = FZN_NOTES_LOCAL_NOTE_ROW_LABELS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

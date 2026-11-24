@@ -180,7 +180,7 @@ situ_err_t fzn_settings_local_setting_ask_check(situ_view_t view, uint32_t *whic
 	/* setting_ask.value: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_settings_local_setting_ask_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_settings_local_setting_ask_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_settings_local_setting_ask_value_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_settings_local_setting_ask_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_settings_local_setting_ask_value_len_get(view))))) {
 		*which = FZN_SETTINGS_LOCAL_SETTING_ASK_VALUE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -253,7 +253,7 @@ situ_err_t fzn_settings_local_fork_row_check(situ_view_t view, uint32_t *which)
 	/* fork_row.grounds: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_settings_local_fork_row_grounds_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_settings_local_fork_row_grounds_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_settings_local_fork_row_grounds_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_settings_local_fork_row_grounds_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_settings_local_fork_row_grounds_len_get(view))))) {
 		*which = FZN_SETTINGS_LOCAL_FORK_ROW_GROUNDS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -272,7 +272,7 @@ situ_err_t fzn_settings_local_fork_row_check(situ_view_t view, uint32_t *which)
 	/* fork_row.value: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_settings_local_fork_row_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_settings_local_fork_row_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_settings_local_fork_row_value_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_settings_local_fork_row_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_settings_local_fork_row_value_len_get(view))))) {
 		*which = FZN_SETTINGS_LOCAL_FORK_ROW_VALUE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

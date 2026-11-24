@@ -75,7 +75,7 @@ situ_err_t fzn_attribute_row_fzn_catalog_attribute_check(situ_view_t view, uint3
 	/* fzn_catalog_attribute.value: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_attribute_row_fzn_catalog_attribute_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_attribute_row_fzn_catalog_attribute_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_attribute_row_fzn_catalog_attribute_value_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_attribute_row_fzn_catalog_attribute_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_attribute_row_fzn_catalog_attribute_value_len_get(view))))) {
 		*which = FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_VALUE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

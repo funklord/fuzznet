@@ -125,7 +125,7 @@ situ_err_t fzn_objects_add_check(situ_view_t view, uint32_t *which)
 	/* add.allowed: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_objects_add_allowed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_objects_add_allowed_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_objects_add_allowed_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_objects_add_allowed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_objects_add_allowed_len_get(view))))) {
 		*which = FZN_OBJECTS_ADD_ALLOWED_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -194,7 +194,7 @@ situ_err_t fzn_objects_set_check(situ_view_t view, uint32_t *which)
 	/* set.value: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_objects_set_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_objects_set_value_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_objects_set_value_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_objects_set_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_objects_set_value_len_get(view))))) {
 		*which = FZN_OBJECTS_SET_VALUE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -258,7 +258,7 @@ situ_err_t fzn_objects_row_check(situ_view_t view, uint32_t *which)
 	/* row.value: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_objects_row_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_objects_row_value_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_objects_row_value_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_objects_row_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_objects_row_value_len_get(view))))) {
 		*which = FZN_OBJECTS_ROW_VALUE_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -291,7 +291,7 @@ situ_err_t fzn_objects_row_check(situ_view_t view, uint32_t *which)
 	/* row.allowed: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_objects_row_allowed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_objects_row_allowed_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_objects_row_allowed_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_objects_row_allowed_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_objects_row_allowed_len_get(view))))) {
 		*which = FZN_OBJECTS_ROW_ALLOWED_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

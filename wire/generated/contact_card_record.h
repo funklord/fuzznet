@@ -4822,12 +4822,12 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_card_seeds_offset(sit
 }
 static inline uint32_t fzn_contact_card_record_fzn_contact_card_seeds_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_seed_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_seed_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get(view)));
 }
 
 static inline uint32_t fzn_contact_card_record_fzn_contact_card_seeds_count_marked(situ_view_t view, const uint32_t *marks)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get_from(view, marks[0])));
 }
 /** Element `index`, walked: these have no single size, so
  * there is no stride to index by.
@@ -5025,7 +5025,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_card_name_offset(situ
 }
 static inline uint32_t fzn_contact_card_record_fzn_contact_card_name_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_name_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_name_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_contact_card_record_fzn_contact_card_name_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -5053,7 +5053,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_card_expires_at_offse
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_contact_card_record_fzn_contact_card_seeds_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_name_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_name_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -5089,7 +5089,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_card_sig_offset(situ_
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, (fzn_contact_card_record_fzn_contact_card_seeds_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_name_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_name_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (8u), view.limit);
 
 	return offset;
@@ -5180,7 +5180,7 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_required(const
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_seed_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_seed_count_offset(view)))[0u]) : (uint64_t)0)))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get(view)))) {
 				break;
 			}
 			if (have < pos) {
@@ -5188,7 +5188,7 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_required(const
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_seed_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_seed_count_offset(view)))[0u]) : (uint64_t)0))) - n, 5u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get(view))) - n, 5u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_contact_card_record_fzn_contact_card_seed_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -5202,7 +5202,7 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_required(const
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_seed_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_seed_count_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 5u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get(view))) - n - 1u, 5u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);
@@ -5219,7 +5219,7 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_required(const
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_name_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_contact_card_record_fzn_contact_card_name_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

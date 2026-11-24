@@ -182,7 +182,7 @@ situ_err_t fzn_contact_card_record_fzn_contact_card_check(situ_view_t view, uint
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_seed_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_seed_count_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_seed_count_get(view)));
 		uint32_t at = fzn_contact_card_record_fzn_contact_card_seeds_offset(view);
 		uint32_t n  = 0u;
 
@@ -229,7 +229,7 @@ situ_err_t fzn_contact_card_record_fzn_contact_card_check(situ_view_t view, uint
 	/* fzn_contact_card.name: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_contact_card_record_fzn_contact_card_name_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contact_card_record_fzn_contact_card_name_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contact_card_record_fzn_contact_card_name_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_contact_card_record_fzn_contact_card_name_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_contact_card_record_fzn_contact_card_name_len_get(view))))) {
 		*which = FZN_CONTACT_CARD_RECORD_FZN_CONTACT_CARD_NAME_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

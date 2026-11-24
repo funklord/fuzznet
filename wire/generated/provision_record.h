@@ -224,12 +224,12 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_proof_offset(situ
 }
 static inline uint32_t fzn_provision_record_fzn_provision_card_proof_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view)));
 }
 
 static inline uint32_t fzn_provision_record_fzn_provision_card_proof_count_marked(situ_view_t view, const uint32_t *marks)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get_from(view, marks[0])));
 }
 static inline situ_err_t fzn_provision_record_fzn_provision_card_proof_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -257,7 +257,7 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_prekey_offset(sit
 	uint32_t offset = 35u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -281,7 +281,7 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_expires_at_offset
 	uint32_t offset = 35u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u), view.limit);
 	offset = situ_advance_u32(offset, (138u), view.limit);
 
 	return offset;
@@ -348,14 +348,14 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_host_offset(situ_
 	uint32_t offset = 35u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u), view.limit);
 	offset = situ_advance_u32(offset, (147u), view.limit);
 
 	return offset;
 }
 static inline uint32_t fzn_provision_record_fzn_provision_card_host_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_host_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -384,9 +384,9 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_port_offset(situ_
 	uint32_t offset = 35u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u), view.limit);
 	offset = situ_advance_u32(offset, (147u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -414,9 +414,9 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_signature_offset(
 	uint32_t offset = 35u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u), view.limit);
 	offset = situ_advance_u32(offset, (147u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (2u), view.limit);
 
 	return offset;
@@ -453,7 +453,7 @@ static inline uint32_t fzn_provision_record_fzn_provision_card_walked(situ_view_
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])) * 179u), view.limit);
 	marks[0] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0))) * 130u), view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get_from(view, marks[0]))) * 130u), view.limit);
 	at = situ_advance_u32(at, 146u, view.limit);
 	marks[1] = at;
 	return marks[index];
@@ -503,7 +503,7 @@ static inline situ_err_t fzn_provision_record_fzn_provision_card_required(const 
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = situ_need_mul_u32((uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))), 130u);
+		const uint32_t len = situ_need_mul_u32((uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))), 130u);
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -517,7 +517,7 @@ static inline situ_err_t fzn_provision_record_fzn_provision_card_required(const 
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}
@@ -579,7 +579,7 @@ static inline situ_err_t fzn_provision_record_fzn_provision_card_signature_cover
 	/* fzn_provision_card.proof: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_proof_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u)) {
+	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_proof_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u)) {
 		return SITU_ERR_BOUNDS;
 	}
 	/* fzn_provision_card.prekey: its offset is a sum of lengths the message
@@ -603,7 +603,7 @@ static inline situ_err_t fzn_provision_record_fzn_provision_card_signature_cover
 	/* fzn_provision_card.host: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_host_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_host_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view))))) {
 		return SITU_ERR_BOUNDS;
 	}
 	/* fzn_provision_card.port: its offset is a sum of lengths the message

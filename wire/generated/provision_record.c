@@ -106,7 +106,7 @@ situ_err_t fzn_provision_record_fzn_provision_card_check(situ_view_t view, uint3
 	/* fzn_provision_card.proof: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_proof_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0))) * 130u)) {
+	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_proof_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view))) * 130u)) {
 		*which = FZN_PROVISION_RECORD_FZN_PROVISION_CARD_PROOF_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -114,7 +114,7 @@ situ_err_t fzn_provision_record_fzn_provision_card_check(situ_view_t view, uint3
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_proof_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_proof_count_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_proof_count_get(view)));
 		uint32_t at = fzn_provision_record_fzn_provision_card_proof_offset(view);
 		uint32_t n  = 0u;
 
@@ -190,7 +190,7 @@ situ_err_t fzn_provision_record_fzn_provision_card_check(situ_view_t view, uint3
 	/* fzn_provision_card.host: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_host_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_provision_record_fzn_provision_card_host_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_provision_record_fzn_provision_card_host_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_provision_record_fzn_provision_card_host_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_provision_record_fzn_provision_card_host_len_get(view))))) {
 		*which = FZN_PROVISION_RECORD_FZN_PROVISION_CARD_HOST_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

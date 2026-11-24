@@ -4633,7 +4633,7 @@ static inline uint32_t fzn_group_act_record_fzn_group_act_signer_offset(situ_vie
 }
 static inline uint32_t fzn_group_act_record_fzn_group_act_signer_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_group_act_record_fzn_group_act_signer_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_group_act_record_fzn_group_act_signer_len_offset(view)) + 0u)) : (uint64_t)0))),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_group_act_record_fzn_group_act_signer_len_get(view))),
 		situ_remaining_u32(view.limit, fzn_group_act_record_fzn_group_act_signer_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
@@ -4667,7 +4667,7 @@ static inline uint32_t fzn_group_act_record_fzn_group_act_sig_offset(situ_view_t
 	uint32_t offset = 122u;
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 120u)))), view.limit);
 	offset = situ_advance_u32(offset, (2u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_group_act_record_fzn_group_act_signer_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_group_act_record_fzn_group_act_signer_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_group_act_record_fzn_group_act_signer_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -4730,7 +4730,7 @@ static inline situ_err_t fzn_group_act_record_fzn_group_act_required(const uint8
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_group_act_record_fzn_group_act_signer_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_group_act_record_fzn_group_act_signer_len_offset(view)) + 0u)) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_group_act_record_fzn_group_act_signer_len_get(view)));
 
 		at = situ_need_u32(at, len);
 	}

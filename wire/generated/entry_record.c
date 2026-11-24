@@ -86,7 +86,7 @@ situ_err_t fzn_entry_record_fzn_entry_name_record_check(situ_view_t view, uint32
 	/* fzn_entry_name_record.program: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_name_record_program_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_name_record_program_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_name_record_program_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_name_record_program_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_name_record_program_len_get(view))))) {
 		*which = FZN_ENTRY_RECORD_FZN_ENTRY_NAME_RECORD_PROGRAM_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -205,7 +205,7 @@ situ_err_t fzn_entry_record_fzn_entry_record_check(situ_view_t view, uint32_t *w
 	/* fzn_entry_record.subsystem: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_subsystem_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_subsystem_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_subsystem_len_offset(view)))[0u]) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_subsystem_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_subsystem_len_get(view))))) {
 		*which = FZN_ENTRY_RECORD_FZN_ENTRY_RECORD_SUBSYSTEM_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -260,7 +260,7 @@ situ_err_t fzn_entry_record_fzn_entry_record_check(situ_view_t view, uint32_t *w
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_cause_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_entry_record_fzn_entry_record_cause_count_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_cause_count_get(view)));
 		uint32_t at = fzn_entry_record_fzn_entry_record_causes_offset(view);
 		uint32_t n  = 0u;
 
@@ -307,7 +307,7 @@ situ_err_t fzn_entry_record_fzn_entry_record_check(situ_view_t view, uint32_t *w
 	/* fzn_entry_record.text: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_entry_record_fzn_entry_record_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_entry_record_fzn_entry_record_text_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+	if (situ_remaining_u32(view.limit, fzn_entry_record_fzn_entry_record_text_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_entry_record_fzn_entry_record_text_len_get(view))))) {
 		*which = FZN_ENTRY_RECORD_FZN_ENTRY_RECORD_TEXT_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
