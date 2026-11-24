@@ -1662,6 +1662,11 @@ static uint64_t estate_clock(void)
  * 32768 slots of 24 bytes, 768 KiB, hold about 109 requests a second for
  * the whole lifetime. */
 #define FZND_REPLAY_ENTRIES 32768u
+/* THE PRODUCT EVERY CAPABILITY THIS NODE CHECKS IS COMPOSED UNDER, sec 1437:
+ * one for the estate's every consumer, so pairing never differs by product.
+ * The host's (sec 1429), so the daemons already serving under it keep their
+ * devices' pairings. */
+#define FZND_NODE_PRODUCT FZN_PRODUCT_HOST
 
 /* HOW LONG A PAIRING CARD MAY WAIT TO BE ACCEPTED. The card carries no
  * secret -- the node's root, the node's prekey, and a grant only the device's
@@ -26034,19 +26039,27 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * It is derived from fuzznet's own options, and a remote hop without
 	 * them is refused here rather than bound -- before the store is
 	 * opened, so a refused command line creates nothing. sec 376. */
+	/* ONE PAIRING WHATEVER THE CONSUMER, sec 1437 (the holder, 2026-11-24:
+	 * "why would the different products running as root need to be paired
+	 * differently?"). The capabilities are composed under FZND_NODE_PRODUCT,
+	 * not the daemon's --fuzznet-product, so a device paired with any
+	 * consumer's daemon is admitted by every other one of the estate, and a
+	 * product changes nothing a device holds. The product is still taken
+	 * on the command line, and a product with no service still refused
+	 * rather than quietly ignored. */
 	if (cli.service != FZN_SERVICE_NONE || cli.product != FZN_PRODUCT_NONE) {
-		if (fzn_service_capability(cli.service, cli.product, NULL, 0, &hash_ops,
-		                           &state.config.remote_capability) != FZN_CHAIN_OK
-		    || fzn_service_capability(cli.service, cli.product,
+		if (cli.service == FZN_SERVICE_NONE
+		    || fzn_service_capability(cli.service, FZND_NODE_PRODUCT, NULL, 0, &hash_ops,
+		                              &state.config.remote_capability) != FZN_CHAIN_OK
+		    || fzn_service_capability(cli.service, FZND_NODE_PRODUCT,
 		                              (const uint8_t *)FZN_NODE_ADMIN_NAME,
 		                              sizeof(FZN_NODE_ADMIN_NAME) - 1u, &hash_ops,
 		                              &state.config.admin_capability) != FZN_CHAIN_OK
-		    || fzn_service_capability(cli.service, cli.product,
+		    || fzn_service_capability(cli.service, FZND_NODE_PRODUCT,
 		                              (const uint8_t *)FZN_NODE_RETENTION_NAME,
 		                              sizeof(FZN_NODE_RETENTION_NAME) - 1u, &hash_ops,
 		                              &state.config.retention_capability) != FZN_CHAIN_OK) {
-			fprintf(stderr, "fuzznetd: the remote capability needs both "
-			                "--fuzznet-service and --fuzznet-product\n");
+			fprintf(stderr, "fuzznetd: the remote capability needs --fuzznet-service\n");
 			return 2;
 		}
 		has_capability = 1;
@@ -26054,7 +26067,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		state.config.has_retention = 1;
 	}
 	if ((udp_port >= 0 || pair_hex) && !has_capability) {
-		fprintf(stderr, "fuzznetd: %s needs --fuzznet-service and --fuzznet-product: "
+		fprintf(stderr, "fuzznetd: %s needs --fuzznet-service: "
 		                "the remote hop checks one capability, and with none "
 		                "configured it would require one nobody can hold\n",
 		        pair_hex ? "--pair" : "--udp-port");
@@ -27634,7 +27647,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					/* SHARING, sec 436: a contact's chain for the share
 					 * capability verifies against this node's own key. */
 					if (has_capability
-					    && fzn_notes_share_capability(cli.service, cli.product, &hash_ops,
+					    && fzn_notes_share_capability(cli.service, FZND_NODE_PRODUCT, &hash_ops,
 					                                  &state.config.share_capability)
 					               == FZN_NOTES_OK) {
 						memcpy(state.config.share_root, identity.pubkey, FZN_PUBKEY_LEN);

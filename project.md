@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1436
+The newest work is at the end of this file. **Read secs 1287 to 1437
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -63,13 +63,12 @@ listener port spans (`150e3106`).
   and pairing, so they run with `FZN_PRODUCT_HOST` (6,
   `--fuzznet-product=host`). Consumers switch, and re-pair, on their
   side.
-- **What a product is for -- the holder's, asked here** (secs 1435,
-  1436). Relayed by netcfgd and by fuzzypickles: a device paired under
-  another product is not refused; a consumer shows devices by the
-  services they carry; and a product exists to keep one instance of a
-  consumer per host or user, "not to gate keys or data" -- where the
-  code hashes the product into every capability the remote hop checks.
-  Nothing changes on a relay; fzpd stays on product 2 meanwhile.
+- **Pairing does not differ by product** (sec 1437, the holder here
+  2026-11-24): every capability the node checks is composed under one
+  product, so a device paired with any consumer's daemon is the
+  estate's. Open, "too early to tell" by the holder: what a product is
+  for beyond that (one instance per host or user, sec 1436), showing
+  devices by their services (sec 1435), and a host in several estates.
 - **The clock's unit**: **microseconds since 1970 on the frame** (sec
   1417, the holder's choice of sec 1407's (c), 2026-11-23); the
   library's calls still speak seconds, converted at the frame. Next: the
@@ -77931,4 +77930,39 @@ Every paired device re-pairs once, on the change.
 
 **Until the holder answers here**: nothing changes; `FZN_PRODUCT_HOST`
 stays as built, and consumers are told it may go.
+
+## 1437. One pairing for every consumer: the product leaves the capabilities, 2026-11-24
+
+**The holder, in this session**, answering secs 1435-1436: "Let's get
+down to possible use cases, why would the different products running as
+root need to be paired differently? It is usually the same estate
+handling all the machines, only in the future will we see the demand for
+multiple estates on the same network. So we are optimizing for use-cases
+we don't fully understand yet. Maybe the solution is for a host/user to
+be able to belong to multiple estates? driven by permissions? In any
+case, too early to tell."
+
+**Built**: the daemon composes every capability it checks -- the remote
+hop's, the admin's, retention's and a note share's -- under one product,
+`FZND_NODE_PRODUCT` (`FZN_PRODUCT_HOST`, 6), not the daemon's
+`--fuzznet-product`. So a device paired with netcfgd's daemon is admitted
+by raidcfgd's and fzpd's, and a product never re-pairs anything again.
+**6 rather than a new number**: raidcfgd and netcfgd already serve as 6
+(sec 1429), so their pairings stand; a daemon that served as another
+product (fzpd, 2) has its devices re-paired once. The remote hop now
+needs `--fuzznet-service` alone; a product with no service is still
+refused rather than ignored. Every consumer passes service 1, so the
+service does not split pairings either.
+
+**Not decided, the holder's "too early to tell"**: what a product is for
+beyond this -- one instance per host or user (sec 1436) -- whether it
+stays at all, words rather than numbers on the command line, a host
+stating its services so a consumer shows devices by them (sec 1435), and
+a host or user in several estates. `--fuzznet-product` is still taken,
+and still refuses 0 and the wildcard.
+
+**Tests:** `tool/live_device.py` phase c3 restarts R as product 5 where
+the device was paired while R ran as 1: the device asks again and is
+answered. Against the daemon before this change it gets no answer
+("device: no answer"), measured.
 

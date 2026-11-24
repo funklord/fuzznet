@@ -23,8 +23,9 @@ that passes is held to the link's size, and may be lost.
        nothing
     c2 a rule at R says who may call `events` (sec 921): none, root and a rule for
        every procedure keep D out, and `host:D` and `member` let it in
-    c3 R is restarted between two calls of one session: R says nothing to a frame it
-       cannot read, the device asks for a session again and is answered
+    c3 R is restarted between two calls of one session, as another product (sec
+       1437): R says nothing to a frame it cannot read, the device asks for a
+       session again and is answered
     d  R revokes D while a session stands: the very next call is refused, and the
        same image is answered no more
 
@@ -50,6 +51,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import live_rejoin  # noqa: E402
 from live_rejoin import command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 from live_groups import PREKEY_HOST  # noqa: E402
@@ -320,10 +322,18 @@ def main(argv):
 
 			# c3: R started again in the middle: the session is gone with it, R says
 			# nothing to a frame it cannot read, and the device asks for another.
+			# AND AS ANOTHER PRODUCT, sec 1437: pairing does not differ by
+			# product, so the device paired while R ran as product 1 is still
+			# R's when R comes back as product 5.
 			def restart():
 				nonlocal r
 				r.stop()
-				r = daemon(run, "r1", dirs["r"], sock, extra=["--udp-port=" + port])
+				was = live_rejoin.CAPABILITY
+				live_rejoin.CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=5"]
+				try:
+					r = daemon(run, "r1", dirs["r"], sock, extra=["--udp-port=" + port])
+				finally:
+					live_rejoin.CAPABILITY = was
 
 			code, said, up, _ = on_the_air(run, image, 51, 0.0, "events", "0", port, presses=6,
 			                               during=restart)
@@ -331,7 +341,8 @@ def main(argv):
 				raise failed("c3: across a restart the device said %r (%d)" % (said, code))
 			if up.passed < 2 * UNITS_A_FRAME + 6:
 				raise failed("c3: no second session in %d units up" % up.passed)
-			print("livecheck: c3: asked again after R restarted, %d units up" % up.passed)
+			print("livecheck: c3: asked again after R restarted as another product, %d units up"
+			      % up.passed)
 
 			# d: revoked in the middle of a session. Its next frame is refused, with
 			# no new ask needed for that to be so.

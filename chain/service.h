@@ -79,7 +79,10 @@
  *                             user's estate and one pairing -- root's
  *                             (netcfgd, raidcfgd, a root fuzzypickles) and
  *                             each other user's alike (the holder,
- *                             2026-11-24, sec 1429). The consumer products
+ *                             2026-11-24, sec 1429). fuzznetd composes every
+ *                             capability it checks under this one, whatever
+ *                             its --fuzznet-product, so pairing never differs
+ *                             by product (sec 1437). The consumer products
  *                             above stay assigned. */
 #define FZN_SERVICE_NODE 1u
 #define FZN_PRODUCT_TEST 1u
