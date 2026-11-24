@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1427
+The newest work is at the end of this file. **Read secs 1287 to 1428
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97838,4 +97838,26 @@ Makefile only in the words telling a person what to run when one is
 empty; `daemon-lib`, `client-lib`, `daemon-flags` and `fuzznetd` read
 the directories and fetch nothing. Measured: `make -p` with each of the
 five set on the command line takes the consumer's value.
+
+## 1428. What the moves onto situ cost a consumer's binary: 158 KB in netcfgd, 2026-11-24
+
+**From netcfgd** (inbox 20261124T0236Z, information): moving its pin from
+c20c1a66 to 1640ff38 for the face copy (sec 1424), the same netcfgd HEAD
+built against each, -Os with section GC: installed 3,021,400 ->
+3,179,928 bytes (+158,528), text +121,656. **No one culprit**: spread over
+situ-generated wire and record modules -- `fzn_entry_record` +6,724,
+`fzn_contact_devices` +6,318, `grant_of` +3,020 (new, sec 1415),
+`fzn_permit_grant` +2,936, `fzn_provision_record` +2,909, `fzn_sync_wire`
++2,548, `fzn_gather_wire` +2,255, `fzn_entry_unpack` +2,212 -- and a tail
+of `*_check` and `*_pack` functions near 1 KB each. netcfgd raised its
+size budget with that reason; nothing asked of fuzznet.
+
+**Read here**: the span covers this tree's moves of layouts onto situ's
+generated code (secs 1396-1415 among them), so the growth is mostly the
+price of "situ owns all layouts" in the shape situ generates checks --
+the holder's direction (sec 1312), not a fault. It is passed to situ as a
+measurement of its generated code's size (situ's inbox), since -Os and
+the embedded profile (sec 922) make size a property situ's C backend can
+weigh. Not measured here yet: fuzznet's own embedded profile across the
+same span.
 
