@@ -79,29 +79,11 @@ static const char *events_permit_check(const uint8_t *value, size_t len)
 }
 
 /* `group/member`, sec 868: group names apart by single spaces, each one
- * `fzn_scope_group_id` takes, none twice. */
+ * `fzn_scope_group_id` takes, none twice -- node/permit.situ's group_list
+ * since sec 1441. */
 static const char *member_check(const uint8_t *value, size_t len)
 {
-	static const char WHY[] = "group names of a-z, 0-9 and ._-, 1 to 32 bytes, apart by "
-	                          "single spaces, none twice";
-	uint8_t id[FZN_SUBJECT_LEN], seen[16][FZN_SUBJECT_LEN];
-	size_t at = 0, n_seen = 0, i;
-
-	while (at < len) {
-		size_t start = at;
-
-		while (at < len && value[at] != ' ')
-			at++;
-		if (!fzn_scope_group_id(value + start, at - start, id) || n_seen == 16u)
-			return WHY;
-		for (i = 0; i < n_seen; i++)
-			if (memcmp(seen[i], id, sizeof(id)) == 0)
-				return WHY;
-		memcpy(seen[n_seen++], id, sizeof(id));
-		if (at < len && ++at == len)
-			return WHY;	/* a trailing space */
-	}
-	return n_seen ? NULL : WHY;
+	return fzn_node_group_list_check(value, len);
 }
 
 /* The registry's `log_level_word`, which `fzn_node_schema_log_level` reads. */

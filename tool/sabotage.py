@@ -15638,6 +15638,13 @@ SABOTAGES = [
 		"a word that does not frame ends the run short of it, and the words before it were judged alone -- \"root none h m\" called none-alone -- sec 1440",
 	),
 	(
+		"group-list-situ-trailing-space",
+		"node/permit.c",
+		"\tif (!value || !len || len > UINT32_MAX || value[len - 1u] == ' ')\n\t\treturn WHY;\n",
+		"\tif (!value || !len || len > UINT32_MAX)\n\t\treturn WHY;\n",
+		"a group list ending in a space is the one rule its schema does not state; dropped, \"family \" is taken -- sec 1441",
+	),
+	(
 		"remote-permit-admin-is-anyone",
 		"node/permit.c",
 		"(word_is(value + at, n, \"admin\") && rank >= FZN_SETTING_RANK_ADMIN)",

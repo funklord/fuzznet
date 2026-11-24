@@ -51,6 +51,14 @@ struct group_grant size=7..
   body case 35: id
   body case default: text
 
+struct group_list size=0..528
+  @0x0000   0..528    group_name names  while=1 while-or-end while-max=16
+  group_list refuses: name_twice when !unique(g in group_list.names: g.name)
+
+struct group_name size=0..33
+  @0x0000   until:20|end u8         name  cap=33 chars="\x2D.0-9_a-z"
+  group_name refuses: name_length when count(group_name.name) < 1 || count(group_name.name) > 32
+
 struct group_target size=2..65
   @0x0000   1         u8         sigil  must_eq=64
   @0x0001   1..64     target     who

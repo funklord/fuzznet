@@ -3338,6 +3338,434 @@ void fzn_permit_remote_permit_messages(situ_view_t view, uint32_t *ids, size_t c
 #define FZN_PERMIT_REMOTE_PERMIT_NO_RULE_MSG 0u
 #define FZN_PERMIT_REMOTE_PERMIT_NONE_ALONE_MSG 1u
 
+/* ---- struct group_name ---- */
+
+#define FZN_PERMIT_GROUP_NAME_SIZE_MIN   0u
+#define FZN_PERMIT_GROUP_NAME_SIZE_MAX   33u
+
+/* INVALIDATION: nothing invalidates a group_name view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_permit_group_name_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	/* No minimum: every member of this struct may be empty. */
+	return situ_view_at(msg, offset, length, out);
+}
+
+/* group_name.name : u8  at AbsoluteStatic(0x00)
+ * size=Bounded(0, 33) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+/** `name` runs to the first `" "`. Reaching anything after
+ * it means this scan, which is why the map calls their offsets Scanned
+ * rather than Dynamic: it is a search, and the delimiter may not be there.
+ */
+static const uint8_t fzn_permit_group_name_name_delim[1] = {0x20u};
+
+/** The scan, from a base the caller already knows.
+ *
+ * Everything that accumulates offsets -- the offset functions,
+ * `_required`, the offset cache -- walks the members in order and
+ * has `at` in hand. Calling the plain `_span` there re-resolves
+ * the base by rescanning every member before it, so a loop over M
+ * members costs M^2 scans while looking like one pass. Measured:
+ * an eight-member record took three times *longer* through a
+ * cache built that way than through the per-call offsets it was
+ * meant to replace.
+ */
+static inline uint32_t fzn_permit_group_name_name_len_from(situ_view_t view, uint32_t at)
+{
+	return situ_scan(situ_base(view) + at, situ_min_u32(33u, situ_remaining_u32(view.limit, at)), fzn_permit_group_name_name_delim, 1u);
+}
+
+static inline uint32_t fzn_permit_group_name_name_len(situ_view_t view)
+{
+	return fzn_permit_group_name_name_len_from(view, 0u);
+}
+
+static inline int fzn_permit_group_name_name_terminated_from(situ_view_t view, uint32_t at)
+{
+	return fzn_permit_group_name_name_len_from(view, at) < (situ_min_u32(33u, situ_remaining_u32(view.limit, at)));
+}
+
+static inline int fzn_permit_group_name_name_terminated(situ_view_t view)
+{
+	return fzn_permit_group_name_name_terminated_from(view, 0u);
+}
+
+static inline uint32_t fzn_permit_group_name_name_span_from(situ_view_t view, uint32_t at)
+{
+	/* The delimiter is this member's too, so the next member starts
+	 * after it. Where it is missing there is nothing to add: the
+	 * member ran to the end of the buffer, and claiming the extra
+	 * bytes would put the next one past the limit its own bounds
+	 * check trusts. */
+	return fzn_permit_group_name_name_len_from(view, at) + (fzn_permit_group_name_name_terminated_from(view, at) ? 1u : 0u);
+}
+
+static inline uint32_t fzn_permit_group_name_name_span(situ_view_t view)
+{
+	return fzn_permit_group_name_name_span_from(view, 0u);
+}
+
+static inline const uint8_t *fzn_permit_group_name_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** Whether `name` is a given token, compared byte for byte.
+ *
+ * The length is checked first, so a prefix is not a match -- which is
+ * what `strncmp` against a literal quietly makes it.
+ */
+static inline int fzn_permit_group_name_name_eq(situ_view_t view, const uint8_t *other, uint32_t other_len)
+{
+	return situ_bytes_eq(fzn_permit_group_name_name_ptr(view), fzn_permit_group_name_name_len(view), other, other_len);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member that ends at a delimiter
+ *              the length is wherever the delimiter turns out to be, so a longer value needs more room and the bytes after it have to move to make it
+ *   remedy:    `until D max N` bounds the scan, which makes the member statically allocatable and turns a missing delimiter into an error instead of a read to the end of the buffer
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `group_name` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_permit_group_name_extent(situ_view_t view)
+{
+	uint32_t extent = 0u;
+	extent = extent + (fzn_permit_group_name_name_span(view));
+	return extent;
+}
+
+/** How many bytes a whole `group_name` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_permit_group_name_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 0u;
+	uint32_t pos = 0u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	if (!fzn_permit_group_name_name_terminated_from(view, pos)) {
+		/* The delimiter is not in what we have. How much more is a
+		 * question only the sender can answer, so the honest lower
+		 * bound is one byte: read again and ask again. */
+		*need = situ_need_u32(at, (have > pos ? have - pos : 0u) + 1u);
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = fzn_permit_group_name_name_span_from(view, pos);
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_permit_group_name_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_permit_group_name_check(situ_view_t view, uint32_t *which);
+#define FZN_PERMIT_GROUP_NAME_NAME_CHECK 0u
+
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_permit_group_name_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_PERMIT_GROUP_NAME_NAME_LENGTH_MSG 0u
+
+/* ---- struct group_list ---- */
+
+#define FZN_PERMIT_GROUP_LIST_SIZE_MIN   0u
+#define FZN_PERMIT_GROUP_LIST_SIZE_MAX   528u
+
+/* INVALIDATION: nothing invalidates a group_list view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_permit_group_list_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	/* No minimum: every member of this struct may be empty. */
+	return situ_view_at(msg, offset, length, out);
+}
+
+/* group_list.names : group_name  at AbsoluteStatic(0x00)
+ * size=Bounded(0, 528) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ */
+/** Whether the last element read says the run is over: a frame that
+ * stops first cut it short.
+ */
+static inline int fzn_permit_group_list_names_ended(situ_view_t view)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit && n < 16u) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			return 0;
+		}
+		size = fzn_permit_group_name_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			return 0;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			return 1;
+		}
+	}
+	(void)n;
+	return 1;
+}
+
+/** `names` is a run of `group_name` ending after the
+ * element for which `1` is false. The element that
+ * ends it is part of the run: the condition is asked about it after it
+ * has been read, which is the whole difference from a delimiter.
+ */
+static inline uint32_t fzn_permit_group_list_names_count(situ_view_t view)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit && n < 16u) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_group_name_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	return n;
+}
+
+static inline situ_err_t fzn_permit_group_list_names_at(situ_view_t view, uint32_t index, situ_view_t *out)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit && n < 16u) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_group_name_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The walk, from a base the caller already knows: the same
+ * helper every delimited member has, for the same reason.
+ */
+static inline uint32_t fzn_permit_group_list_names_span_from(situ_view_t view, uint32_t start)
+{
+	uint32_t at = start;
+	uint32_t n  = 0u;
+
+	while (at < view.limit && n < 16u) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_group_name_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	(void)n;
+	return at - start;
+}
+
+static inline uint32_t fzn_permit_group_list_names_span(situ_view_t view)
+{
+	return fzn_permit_group_list_names_span_from(view, 0u);
+}
+
+/** How many bytes a whole `group_list` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_permit_group_list_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 1u;
+	uint32_t pos = 0u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	if (at < UINT32_MAX) {
+		at -= 1u; /* its own length goes in below */
+	}
+
+	/* group_list.names: a run of `group_name`, framed one element at
+	 * a time. The walk the accessors use stops at the end of the bytes
+	 * as readily as at the end of the run; this asks each element whether
+	 * it is whole, which is the same question one level down. */
+	{
+		uint32_t n = 0u;
+		for (;;) {
+			uint32_t   part;
+			situ_err_t e;
+			situ_view_t element;
+
+			if (have < pos) {
+				*need = at;
+				return SITU_ERR_TRUNCATED;
+			}
+			e = fzn_permit_group_name_required(data + pos, situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+			if (part == 0u || situ_view_sub(view, pos, part, &element) != SITU_OK) {
+				break;
+			}
+			at  = situ_need_u32(at, part);
+			pos = situ_need_u32(pos, part);
+
+			/* The condition is asked about the element just read, which is
+			 * the whole difference from a delimiter -- and it can only be
+			 * asked once that element is known to be entirely here. */
+			if (!(1)) {
+				break;
+			}
+			n = n + 1u;
+			if (n == 16u) {
+				break;
+			}
+		}
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_permit_group_list_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_permit_group_list_check(situ_view_t view, uint32_t *which);
+#define FZN_PERMIT_GROUP_LIST_NAMES_CHECK 0u
+
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_permit_group_list_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_PERMIT_GROUP_LIST_NAME_TWICE_MSG 0u
+
 #ifdef __cplusplus
 }
 #endif

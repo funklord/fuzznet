@@ -1099,3 +1099,210 @@ void fzn_permit_remote_permit_messages(situ_view_t view, uint32_t *ids, size_t c
 
 	*count = held;
 }
+situ_err_t fzn_permit_group_name_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* group_name.name [chars = "\x2D.0-9_a-z"] */
+	{
+		static const uint8_t chars_table[32] = {
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x60u, 0xFFu, 0x03u,
+			0x00u, 0x00u, 0x00u, 0x80u, 0xFEu, 0xFFu, 0xFFu, 0x07u,
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+		};
+		const uint8_t *chars_at = fzn_permit_group_name_name_ptr(view);
+		const uint32_t chars_n = fzn_permit_group_name_name_len(view);
+		uint32_t chars_i;
+
+		for (chars_i = 0; chars_i < chars_n; chars_i++) {
+			const uint8_t b = chars_at[chars_i];
+
+			if (((chars_table[b >> 3] >> (b & 7u)) & 1u) == 0u) {
+				*which = FZN_PERMIT_GROUP_NAME_NAME_CHECK;
+				return SITU_ERR_CONSTRAINT;
+			}
+		}
+	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if (((uint64_t)fzn_permit_group_name_name_len(view) < 1) || ((uint64_t)fzn_permit_group_name_name_len(view) > 32)) {
+		/* name_length */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_permit_group_name_validate(situ_view_t view)
+{
+	return fzn_permit_group_name_check(view, NULL);
+}
+
+
+void fzn_permit_group_name_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse name_length */
+	if (((uint64_t)fzn_permit_group_name_name_len(view) < 1) || ((uint64_t)fzn_permit_group_name_name_len(view) > 32)) {
+		if (held < cap) {
+			ids[held] = FZN_PERMIT_GROUP_NAME_NAME_LENGTH_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}
+/* `unique` over `group_list.names` by `name`, for `name_twice`: every pair compared. */
+static uint32_t fzn_permit_group_list_name_twice_rule0(situ_view_t view)
+{
+	const uint32_t total = (uint32_t)fzn_permit_group_list_names_count(view);
+	uint32_t at = 0u;
+	uint32_t n = 0u;
+
+	while (n < total && at < view.limit) {
+		situ_view_t a;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &a) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_group_name_extent(a);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)
+		    || situ_view_sub(view, at, size, &a) != SITU_OK) {
+			break;
+		}
+		{
+			uint32_t bt = at + size;
+			uint32_t m  = n + 1u;
+
+			while (m < total && bt < view.limit) {
+				situ_view_t b;
+				uint32_t    bsize;
+
+				if (situ_view_sub(view, bt, situ_remaining_u32(view.limit, bt), &b) != SITU_OK) {
+					break;
+				}
+				bsize = fzn_permit_group_name_extent(b);
+				if (bsize == 0u || bsize > situ_remaining_u32(view.limit, bt)
+				    || situ_view_sub(view, bt, bsize, &b) != SITU_OK) {
+					break;
+				}
+				if (situ_bytes_eq(fzn_permit_group_name_name_ptr(a), fzn_permit_group_name_name_len(a), fzn_permit_group_name_name_ptr(b), fzn_permit_group_name_name_len(b)) != 0) {
+					return 0u;
+				}
+				bt = bt + bsize;
+				m  = m + 1u;
+			}
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return 1u;
+}
+
+situ_err_t fzn_permit_group_list_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* `names` ends by its own rule, and a frame that
+	 * stops first cut it short. */
+	if (!fzn_permit_group_list_names_ended(view)) {
+		*which = FZN_PERMIT_GROUP_LIST_NAMES_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* group_list.names: each `group_name` the run holds, through its
+	 * own validator. A refusal names the run, or the variant it
+	 * is an arm of (26.789, 26.790). */
+	{
+		uint32_t at = 0u;
+		uint32_t n  = 0u;
+
+		while (at < view.limit && n < 16u) {
+			situ_view_t element;
+			uint32_t    size;
+
+			if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+				break;
+			}
+			size = fzn_permit_group_name_extent(element);
+			if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+				/* A zero-extent element would walk here forever, and one
+				 * running past the limit was never in this frame. */
+				break;
+			}
+			{
+				situ_view_t one;
+				situ_err_t  err = situ_view_sub(view, at, size, &one);
+
+				if (err == SITU_OK) {
+					err = fzn_permit_group_name_check(one, NULL);
+				}
+				if (err != SITU_OK) {
+					*which = FZN_PERMIT_GROUP_LIST_NAMES_CHECK;
+					return err;
+				}
+			}
+			at = at + size;
+			n  = n + 1u;
+			if (!(1)) {
+				break;
+			}
+		}
+		(void)n;
+	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if (!(fzn_permit_group_list_name_twice_rule0(view) != 0)) {
+		/* name_twice */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_permit_group_list_validate(situ_view_t view)
+{
+	return fzn_permit_group_list_check(view, NULL);
+}
+
+
+void fzn_permit_group_list_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse name_twice */
+	if (!(fzn_permit_group_list_name_twice_rule0(view) != 0)) {
+		if (held < cap) {
+			ids[held] = FZN_PERMIT_GROUP_LIST_NAME_TWICE_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}

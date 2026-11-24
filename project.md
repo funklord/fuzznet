@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1440
+The newest work is at the end of this file. **Read secs 1287 to 1441
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -88,10 +88,9 @@ listener port spans (`150e3106`).
   the table itself is the registry's rows (sec 1412), three of the
   nine hand-only grammars are its token cells (sec 1414), and the local
   permit's grammar is situ's (sec 1415), the remote permit's too (sec
-  1440); the manifest's order is the schema's (sec 1438). The group list
-  is statable now (`count`, `unique`) and agreed with its hand check on a
-  million values in scratch -- next, as a registry cell; the erasure
-  shape stays hand-written for the reason given. The scheduler matches a reply
+  1440), and the group list's (sec 1441); the manifest's order is the
+  schema's (sec 1438). The erasure shape stays hand-written for the
+  reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -77145,9 +77144,7 @@ under each row's size bounds -- 29 taken by both, none differing.
   refuses "04+2" -- a spelling the check and the reader both take today,
   so a stored value would become unusable -- and the sum's bound (at
   most 32) would still be a `when`. Kept by hand.
-- **The group list**: names `fzn_scope_group_id` takes, none twice.
-  situ's `unique` states the "none twice" (sec 1438); a name's length
-  (1 to 32) cannot yet be, so it stays by hand.
+- **The group list**: on situ's code since sec 1441.
 - **The permits** (`local/permit/`, `remote/permit`, `local/events`):
   their grammar is `node/permit.c`'s, with its own suite, parsed both to
   check and to match. A probe at abf7ef5d builds a list of words
@@ -78066,4 +78063,24 @@ g.name)`, with C refusing a trailing space, agreed with `member_check`
 (`node/schema.c`) on a million fuzzed values. Not moved in this pass:
 next, as a cell of `node/settings_registry.situ`, the hand check kept as
 oracle.
+
+## 1441. The group list read through situ's code, 2026-11-24
+
+Sec 1440's next step. **`group/member`'s grammar is in `node/permit.situ`**
+beside the permits: `group_name name[] until " " | end max 33 [chars =
+"a-z0-9._-"]`, a run `while (1) | end max 16`, `count(name)` 1 to 32,
+`unique(g in names: g.name)`. **`fzn_node_group_list_check`**
+(`node/permit.c`, public in `node/permit.h`) reads a value through it,
+refusing in C the one thing it does not state, a trailing space, with
+`member_check`'s words; `node/schema.c`'s `member_check` calls it. Placed
+with the permits rather than in the settings registry because every
+program linking the settings check already links the permit's code.
+
+**Held by an oracle**: `member_check` as it was, with
+`fzn_scope_group_id`'s rule, is kept whole as
+`node/test/group_list_ref.h`; `permit_agree_fuzz` gives both the same
+values each step -- up to 20 names, so past the 16, at, below and past 32
+characters, repeated, upper case and stray bytes -- and requires the same
+answer word for word: two million values, no difference. Sabotage:
+`group-list-situ-trailing-space`.
 

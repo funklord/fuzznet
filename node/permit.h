@@ -99,6 +99,11 @@ int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *p
 const char *fzn_node_remote_permit_check(const uint8_t *value, size_t len);
 
 /* 1 when the member `host`, of `rank`, is let in by the rule in `value`. */
+/* A GROUP LIST (`group/member`, sec 868): group names apart by single
+ * spaces, each 1 to 32 of a-z 0-9 . _ -, at most 16, none twice. NULL when
+ * `value` is one, else why not. Read through situ's code, sec 1441. */
+const char *fzn_node_group_list_check(const uint8_t *value, size_t len);
+
 int fzn_node_remote_permit_allows(const uint8_t *value, size_t len,
                                   const uint8_t host[FZN_PUBKEY_LEN], fzn_setting_rank_t rank);
 

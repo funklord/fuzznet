@@ -103,3 +103,17 @@ struct remote_permit {
 when count(remote_permit.rules) == 0 refuse no_rule "a rule is member, admin, root, host:HEX or none";
 when count(host_rule.key) != 64 refuse key_length "a host is host: and 64 hex digits";
 when any(r in remote_permit.rules: r.kind == 'n') && count(remote_permit.rules) > 1 refuse none_alone "none stands alone";
+
+// THE GROUP LIST (`group/member`, sec 868): group names apart by single
+// spaces, each 1 to 32 of a-z 0-9 . _ -, at most 16, none twice. Read
+// through this since sec 1441 (fzn_node_group_list_check); a value ending
+// in a space, which this does not state, node/permit.c refuses.
+struct group_name {
+	u8 name[] until " " | end max 33 [chars = "a-z0-9._-"];
+}
+struct group_list {
+	group_name names[] while (1) | end max 16;
+}
+
+when count(group_name.name) < 1 || count(group_name.name) > 32 refuse name_length "a group name is 1 to 32 characters";
+when !unique(g in group_list.names: g.name) refuse name_twice "no group named twice";

@@ -21,6 +21,7 @@
 #include "../permit.h"
 #include "permit_ref.h"
 #include "remote_permit_ref.h"
+#include "group_list_ref.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -48,8 +49,8 @@ static const char *const PARTS[] = {
 	"grp:", "=r=", "\t", "local:#1001=rwx", "group:#0=r", "user:#7=x", "local:@#1001=rw",
 };
 
-static unsigned differ[5];
-static char first[5][256];
+static unsigned differ[6];
+static char first[6][256];
 
 static void note(unsigned kind, const char *v)
 {
@@ -111,9 +112,39 @@ static void remote_step(void)
 	}
 }
 
+/* THE GROUP LIST'S PIECES, sec 1441: names at, below and past 32, their
+ * characters and near misses, names repeated, and the spaces between. */
+static const char *const GROUPS[] = {
+	"a", "b", "family", "work.team", "x_y-z", " ", "  ", "A", "a b", "0123456789abcdef0123456789abcdef",
+	"0123456789abcdef0123456789abcdef0", "q", "family", "!", "\t", "z9", ".",
+};
+
+/* Each value given to both group checks, up to 20 names so past the 16. */
+static void group_step(void)
+{
+	char v[800];
+	size_t n = 0, k;
+	const char *a, *b;
+
+	v[0] = '\0';
+	for (k = 1u + next() % 20u; k; k--) {
+		n += (size_t)snprintf(v + n, sizeof(v) - n, "%s", GROUPS[next() % (sizeof(GROUPS) / sizeof(GROUPS[0]))]);
+		if (next() % 3u && n + 1u < sizeof(v))
+			v[n++] = ' ', v[n] = '\0';
+	}
+	if (next() % 3u == 0u && n)
+		n--;
+	a = fzn_node_group_list_check((const uint8_t *)v, n);
+	b = ref_group_list_check((const uint8_t *)v, n);
+	if ((a == NULL) != (b == NULL) || (a && strcmp(a, b) != 0)) {
+		v[n < 255u ? n : 255u] = '\0';
+		note(5, v);
+	}
+}
+
 int main(int argc, char **argv)
 {
-	static const char *const kinds[5] = { "permit check", "events check", "a right granted", "heard", "remote permit" };
+	static const char *const kinds[6] = { "permit check", "events check", "a right granted", "heard", "remote permit", "group list" };
 	static const unsigned rights[3] = { FZN_PERMIT_READ, FZN_PERMIT_CHANGE, FZN_PERMIT_RRPC };
 	const unsigned steps = argc > 1 ? (unsigned)strtoul(argv[1], NULL, 10) : STEPS;
 	unsigned step, taken = 0, granted = 0, i;
@@ -160,12 +191,14 @@ int main(int argc, char **argv)
 		if (fzn_node_permit_hears((const uint8_t *)v, n, &peer) != ref_permit_hears((const uint8_t *)v, n, &peer))
 			note(3, v);
 		remote_step();
+		group_step();
 	}
 	printf("permit_agree_fuzz: %u values, %u permits taken by both, %u rights granted by both, %u remote "
-	       "permits alike; %u difference(s)\n",
-	       steps, taken, granted, steps - differ[4], differ[0] + differ[1] + differ[2] + differ[3] + differ[4]);
-	for (i = 0; i < 5u; i++)
+	       "permits and %u group lists alike; %u difference(s)\n",
+	       steps, taken, granted, steps - differ[4], steps - differ[5],
+	       differ[0] + differ[1] + differ[2] + differ[3] + differ[4] + differ[5]);
+	for (i = 0; i < 6u; i++)
 		if (differ[i])
 			printf("  %s: %u, first \"%s\"\n", kinds[i], differ[i], first[i]);
-	return differ[0] + differ[1] + differ[2] + differ[3] + differ[4] ? 1 : 0;
+	return differ[0] + differ[1] + differ[2] + differ[3] + differ[4] + differ[5] ? 1 : 0;
 }

@@ -425,6 +425,25 @@ const char *fzn_node_remote_permit_check(const uint8_t *value, size_t len)
 	return SHAPE;
 }
 
+/* See permit.h. THROUGH SITU'S CODE, sec 1441: node/permit.situ's
+ * group_list; a value ending in a space, which it does not state, is
+ * refused here, as `member_check` refused it (node/test/group_list_ref.h). */
+const char *fzn_node_group_list_check(const uint8_t *value, size_t len)
+{
+	static const char WHY[] = "group names of a-z, 0-9 and ._-, 1 to 32 bytes, apart by "
+	                          "single spaces, none twice";
+	situ_msg_t m;
+	situ_view_t p;
+
+	if (!value || !len || len > UINT32_MAX || value[len - 1u] == ' ')
+		return WHY;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)value, (uint32_t)len);
+	if (fzn_permit_group_list_view(&m, 0u, (uint32_t)len, &p) != SITU_OK
+	    || fzn_permit_group_list_validate(p) != SITU_OK)
+		return WHY;
+	return NULL;
+}
+
 int fzn_node_remote_permit_allows(const uint8_t *value, size_t len,
                                   const uint8_t host[FZN_PUBKEY_LEN], fzn_setting_rank_t rank)
 {

@@ -74,6 +74,14 @@ struct group_grant size=7.. mutate=Shifting address=Unstable repr=TextConverted 
   group_grant.who.body.text.text         offset=AbsoluteStatic(0x06) size=Bounded(1, 64) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   group_grant.rights                     offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable effect=EffectOnRead
 
+struct group_list size=0..528 access=Sequential mutate=Shifting atomic=NonAtomic
+  group_list.names                       offset=AbsoluteStatic(0x00) size=Bounded(0, 528) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  group_list.names[]                     offset=FrameStatic(0x00) size=Bounded(0, 33) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  group_list.names[].name                offset=FrameStatic(0x00) size=Bounded(0, 33) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct group_name size=0..33 mutate=Shifting
+  group_name.name                        offset=AbsoluteStatic(0x00) size=Bounded(0, 33) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct group_target size=2..65 mutate=Shifting repr=TextConverted atomic=NonAtomic canonical=NonCanonical
   group_target.sigil                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   group_target.who                       offset=AbsoluteStatic(0x01) size=Bounded(1, 64) align=Aligned(1) repr=TextConverted atomic=NonAtomic mutate=Shifting canonical=NonCanonical
