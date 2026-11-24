@@ -85,6 +85,10 @@ struct group_target size=2..65 mutate=Shifting repr=TextConverted atomic=NonAtom
   group_target.who.body.text             offset=AbsoluteStatic(0x01) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   group_target.who.body.text.text        offset=AbsoluteStatic(0x01) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
+struct host_rule size=5..70 mutate=Shifting atomic=NonAtomic
+  host_rule.scheme                       offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  host_rule.key                          offset=AbsoluteStatic(0x05) size=Bounded(0, 65) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct local_grant size=7.. mutate=Shifting address=Unstable repr=TextConverted atomic=NonAtomic canonical=NonCanonical effect=EffectOnRead
   local_grant.scheme                     offset=AbsoluteStatic(0x00) size=Fixed(6) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   local_grant.who                        offset=AbsoluteStatic(0x06) size=Bounded(1, 65) align=Aligned(2) repr=TextConverted atomic=NonAtomic mutate=Shifting canonical=NonCanonical
@@ -188,6 +192,24 @@ struct permit size=0.. access=Sequential mutate=Shifting address=Unstable repr=T
   permit.grants[].body.user.who.body.text offset=FrameStatic(0x05) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=FrameStable
   permit.grants[].body.user.who.body.text.text offset=FrameStatic(0x05) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
   permit.grants[].body.user.rights       offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable effect=EffectOnRead
+
+struct remote_permit size=1.. access=Sequential mutate=Shifting atomic=NonAtomic effect=EffectOnRead
+  remote_permit.rules                    offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  remote_permit.rules[]                  offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting effect=EffectOnRead
+  remote_permit.rules[].kind             offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  remote_permit.rules[].body             offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  remote_permit.rules[].body.host        offset=FrameStatic(0x00) size=Bounded(5, 70) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  remote_permit.rules[].body.host.scheme offset=FrameStatic(0x00) size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  remote_permit.rules[].body.host.key    offset=FrameStatic(0x05) size=Bounded(0, 65) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  remote_permit.rules[].body.word        offset=FrameStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnRead
+
+struct rule size=1.. mutate=Shifting atomic=NonAtomic effect=EffectOnRead
+  rule.kind                              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  rule.body                              offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  rule.body.host                         offset=AbsoluteStatic(0x00) size=Bounded(5, 70) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  rule.body.host.scheme                  offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  rule.body.host.key                     offset=AbsoluteStatic(0x05) size=Bounded(0, 65) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  rule.body.word                         offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnRead
 
 struct target size=1..64 mutate=Shifting repr=TextConverted atomic=NonAtomic canonical=NonCanonical
   target.first                           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord

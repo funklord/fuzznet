@@ -58,6 +58,11 @@ struct group_target size=2..65
   body case 35: id
   body case default: text
 
+struct host_rule size=5..70
+  @0x0000   5         u8         scheme  big must_eq="host:"
+  @0x0005   until:20|end u8         key  cap=65 chars="0-9a-f"
+  host_rule refuses: key_length when count(host_rule.key) != 64
+
 struct local_grant size=7..
   @0x0000   6         u8         scheme  big must_eq="local:"
   @0x0006   1..65     local_target who
@@ -112,6 +117,21 @@ struct permit size=0..
   body switch: first
   body case 35: id
   body case default: text
+
+struct remote_permit size=1..
+  @0x0000   1..       rule       rules  while=1 while-or-end
+  body switch: kind
+  body case 104: host
+  body case default: word
+  remote_permit refuses: no_rule when count(remote_permit.rules) == 0
+  remote_permit refuses: none_alone when any(r in remote_permit.rules: r.kind == 'n') && count(remote_permit.rules) > 1
+
+struct rule size=1..
+  @0x0000   1         u8         kind  peek
+  @0x0000   0..       variant    body
+  body switch: kind
+  body case 104: host host_rule
+  body case default: word rule_word
 
 struct target size=1..64
   @0x0000   1         u8         first  peek

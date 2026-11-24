@@ -390,30 +390,39 @@ const char *fzn_node_remote_permit_check(const uint8_t *value, size_t len)
 {
 	static const char *const SHAPE =
 	        "a rule is member, admin, root, host:HEX or none, apart by spaces";
-	uint8_t key[FZN_PUBKEY_LEN];
-	size_t at = 0, words = 0;
-	int none = 0;
+	static const char *const ALONE = "none stands alone";
+	uint32_t ids[4], i, rules, words;
+	size_t said = 0, k;
+	situ_msg_t m;
+	situ_view_t p, r;
 
-	if (!value || !len)
+	/* THROUGH SITU'S CODE, sec 1440: the grammar is node/permit.situ's;
+	 * a value ending in a space, which it does not state, is refused here,
+	 * as the hand check it replaced did (node/test/remote_permit_ref.h). */
+	if (!value || !len || len > UINT32_MAX || value[len - 1u] == ' ')
 		return SHAPE;
-	while (at < len) {
-		size_t n = 0;
-
-		while (at + n < len && value[at + n] != ' ')
-			n++;
-		if (!n)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)value, (uint32_t)len);
+	if (fzn_permit_remote_permit_view(&m, 0u, (uint32_t)len, &p) != SITU_OK)
+		return SHAPE;
+	if (fzn_permit_remote_permit_validate(p) == SITU_OK)
+		return NULL;
+	/* "NONE STANDS ALONE" only when every word is one: the words it
+	 * answered before, named for what is wrong. Every word, so the rules
+	 * read are as many as the words -- a word that does not even frame as
+	 * a rule ends the run short of it. */
+	rules = fzn_permit_remote_permit_rules_count(p);
+	for (k = 0, words = 1u; k < len; k++)
+		words += value[k] == ' ';
+	if (rules != words)
+		return SHAPE;
+	for (i = 0; i < rules; i++)
+		if (fzn_permit_remote_permit_rules_at(p, i, &r) != SITU_OK || fzn_permit_rule_validate(r) != SITU_OK)
 			return SHAPE;
-		if (word_is(value + at, n, "none"))
-			none = 1;
-		else if (!word_is(value + at, n, "member") && !word_is(value + at, n, "admin")
-		         && !word_is(value + at, n, "root") && !host_word(value + at, n, key))
-			return SHAPE;
-		words++;
-		at += n;
-		if (at < len && ++at == len)
-			return SHAPE;
-	}
-	return none && words > 1u ? "none stands alone" : NULL;
+	fzn_permit_remote_permit_messages(p, ids, sizeof(ids) / sizeof(ids[0]), &said);
+	for (k = 0; k < said && k < sizeof(ids) / sizeof(ids[0]); k++)
+		if (ids[k] == FZN_PERMIT_REMOTE_PERMIT_NONE_ALONE_MSG)
+			return ALONE;
+	return SHAPE;
 }
 
 int fzn_node_remote_permit_allows(const uint8_t *value, size_t len,

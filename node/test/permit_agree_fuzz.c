@@ -20,6 +20,7 @@
 
 #include "../permit.h"
 #include "permit_ref.h"
+#include "remote_permit_ref.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -47,8 +48,8 @@ static const char *const PARTS[] = {
 	"grp:", "=r=", "\t", "local:#1001=rwx", "group:#0=r", "user:#7=x", "local:@#1001=rw",
 };
 
-static unsigned differ[4];
-static char first[4][256];
+static unsigned differ[5];
+static char first[5][256];
 
 static void note(unsigned kind, const char *v)
 {
@@ -76,9 +77,43 @@ static size_t bound(char *v, size_t cap)
 	return n;
 }
 
+/* THE REMOTE PERMIT'S PIECES, sec 1440: its words, near misses, a host key
+ * at, below and past 64 digits, upper case, and what lies between. */
+static const char *const REMOTE[] = {
+	"member", "admin", "root", "none", "host:", " ", "  ", "nonee", "Member", "memb", "rootx", "host", "h",
+	"n", "m", "a", "r", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	"0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef", "0123456789abcdef", "f", "g",
+	"\t", "=", ":",
+};
+
+/* Each value given to both remote checks: the same answer, word for word. */
+static void remote_step(void)
+{
+	char v[400];
+	size_t n = 0, k;
+	const char *a, *b;
+
+	v[0] = '\0';
+	for (k = 1u + next() % 5u; k; k--) {
+		n += (size_t)snprintf(v + n, sizeof(v) - n, "%s", REMOTE[next() % (sizeof(REMOTE) / sizeof(REMOTE[0]))]);
+		if (next() % 2u && n + 1u < sizeof(v))
+			v[n++] = ' ', v[n] = '\0';
+	}
+	if (next() % 3u == 0u && n)
+		n--;
+	if (next() % 10u == 0u && n)
+		v[next() % n] = (char)(next() & 0x7fu);
+	a = fzn_node_remote_permit_check((const uint8_t *)v, n);
+	b = ref_remote_permit_check((const uint8_t *)v, n);
+	if ((a == NULL) != (b == NULL) || (a && strcmp(a, b) != 0)) {
+		v[n < sizeof(v) ? n : sizeof(v) - 1u] = '\0';
+		note(4, v);
+	}
+}
+
 int main(int argc, char **argv)
 {
-	static const char *const kinds[4] = { "permit check", "events check", "a right granted", "heard" };
+	static const char *const kinds[5] = { "permit check", "events check", "a right granted", "heard", "remote permit" };
 	static const unsigned rights[3] = { FZN_PERMIT_READ, FZN_PERMIT_CHANGE, FZN_PERMIT_RRPC };
 	const unsigned steps = argc > 1 ? (unsigned)strtoul(argv[1], NULL, 10) : STEPS;
 	unsigned step, taken = 0, granted = 0, i;
@@ -124,11 +159,13 @@ int main(int argc, char **argv)
 		}
 		if (fzn_node_permit_hears((const uint8_t *)v, n, &peer) != ref_permit_hears((const uint8_t *)v, n, &peer))
 			note(3, v);
+		remote_step();
 	}
-	printf("permit_agree_fuzz: %u values, %u permits taken by both, %u rights granted by both; %u difference(s)\n",
-	       steps, taken, granted, differ[0] + differ[1] + differ[2] + differ[3]);
-	for (i = 0; i < 4u; i++)
+	printf("permit_agree_fuzz: %u values, %u permits taken by both, %u rights granted by both, %u remote "
+	       "permits alike; %u difference(s)\n",
+	       steps, taken, granted, steps - differ[4], differ[0] + differ[1] + differ[2] + differ[3] + differ[4]);
+	for (i = 0; i < 5u; i++)
 		if (differ[i])
 			printf("  %s: %u, first \"%s\"\n", kinds[i], differ[i], first[i]);
-	return differ[0] + differ[1] + differ[2] + differ[3] ? 1 : 0;
+	return differ[0] + differ[1] + differ[2] + differ[3] + differ[4] ? 1 : 0;
 }

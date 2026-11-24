@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1439
+The newest work is at the end of this file. **Read secs 1287 to 1440
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -87,8 +87,11 @@ listener port spans (`150e3106`).
   parsers are situ's generated ones (sec 1408), "007" still taken, and
   the table itself is the registry's rows (sec 1412), three of the
   nine hand-only grammars are its token cells (sec 1414), and the local
-  permit's grammar is situ's (sec 1415); the remote permit, the group
-  list and the erasure shape stay hand-written, each for a reason given. The scheduler matches a reply
+  permit's grammar is situ's (sec 1415), the remote permit's too (sec
+  1440); the manifest's order is the schema's (sec 1438). The group list
+  is statable now (`count`, `unique`) and agreed with its hand check on a
+  million values in scratch -- next, as a registry cell; the erasure
+  shape stays hand-written for the reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
   table now (sec 1405); its slots, quota and clock stay its own.
@@ -78025,4 +78028,38 @@ every later one); a redundant null test inside the log macro; and
 cppcheck's "uninitialized `arg`" across `local/rpc.c`, where `arg` is
 passed as a pointer and filled by `snprintf` in the same call's
 arguments, all evaluated before the call.
+
+## 1440. The remote permit read through situ's code, 2026-11-24
+
+situ answered sec 1438 the same day: `count(field)` of a delimited run of
+bytes is its content length, terminator excluded (situ f0f0c93a, its
+26.1171), so "64 hex digits, then a space" and "65 at the end" now
+differ. **The remote permit's grammar is in `node/permit.situ`** beside
+the local one: words apart by single spaces, each `member`, `admin`,
+`root`, `none` or `host:` and 64 lowercase hex digits (`count(key) !=
+64`), `none` only alone (`any(r in rules: r.kind == 'n') &&
+count(rules) > 1`). The schema's `whitespace` does not loosen it:
+doubled spaces stay refused.
+
+**`fzn_node_remote_permit_check` reads through the generated code**.
+C keeps what situ does not state -- a value ending in a space -- and
+the words it answers: "none stands alone" only when every word is a
+rule, so the rules read must be as many as the words (a word that does
+not frame, `h m`, ends the run short of it; found by the agreement
+fuzz). The matching (`fzn_node_remote_permit_allows`) stays hand-written.
+
+**Held by an oracle, as sec 1415**: the hand check is kept whole as
+`node/test/remote_permit_ref.h`, and `permit_agree_fuzz` gives both
+checks the same values each step -- words, near misses, keys at, below
+and past 64 digits, upper case, stray bytes -- and requires the same
+answer word for word: two million values, no difference. Sabotage:
+`remote-permit-situ-trailing-space`, `remote-permit-situ-every-word-a-rule`.
+
+**The group list** (sec 1438) is now statable the same way: in scratch,
+`group_name name[] until " " | end max 33 [chars = "a-z0-9._-"]`, a run
+`while (1) | end max 16`, `count(name)` 1 to 32 and `unique(g in names:
+g.name)`, with C refusing a trailing space, agreed with `member_check`
+(`node/schema.c`) on a million fuzzed values. Not moved in this pass:
+next, as a cell of `node/settings_registry.situ`, the hand check kept as
+oracle.
 

@@ -728,3 +728,374 @@ situ_err_t fzn_permit_permit_validate(situ_view_t view)
 	return fzn_permit_permit_check(view, NULL);
 }
 
+situ_err_t fzn_permit_host_rule_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_PERMIT_HOST_RULE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* host_rule.scheme [must_eq = "host:"] */
+	{
+		static const uint8_t want[][5] = {
+			{ 0x68u, 0x6Fu, 0x73u, 0x74u, 0x3Au },
+		};
+		const uint32_t at = 0u;
+		uint32_t a, i;
+		int matched = 0;
+
+		for (a = 0; a < 1u && !matched; a++) {
+			matched = 1;
+			for (i = 0; i < 5u; i++) {
+				if ((situ_base(view))[at + i] != want[a][i]) {
+					matched = 0;
+					break;
+				}
+			}
+		}
+		if (!matched) {
+			*which = FZN_PERMIT_HOST_RULE_SCHEME_CHECK;
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	/* host_rule.key [chars = "0-9a-f"] */
+	{
+		static const uint8_t chars_table[32] = {
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0xFFu, 0x03u,
+			0x00u, 0x00u, 0x00u, 0x00u, 0x7Eu, 0x00u, 0x00u, 0x00u,
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+			0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+		};
+		const uint8_t *chars_at = fzn_permit_host_rule_key_ptr(view);
+		const uint32_t chars_n = fzn_permit_host_rule_key_len(view);
+		uint32_t chars_i;
+
+		for (chars_i = 0; chars_i < chars_n; chars_i++) {
+			const uint8_t b = chars_at[chars_i];
+
+			if (((chars_table[b >> 3] >> (b & 7u)) & 1u) == 0u) {
+				*which = FZN_PERMIT_HOST_RULE_KEY_CHECK;
+				return SITU_ERR_CONSTRAINT;
+			}
+		}
+	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if ((uint64_t)fzn_permit_host_rule_key_len(view) != 64) {
+		/* key_length */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_permit_host_rule_validate(situ_view_t view)
+{
+	return fzn_permit_host_rule_check(view, NULL);
+}
+
+
+void fzn_permit_host_rule_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse key_length */
+	if ((uint64_t)fzn_permit_host_rule_key_len(view) != 64) {
+		if (held < cap) {
+			ids[held] = FZN_PERMIT_HOST_RULE_KEY_LENGTH_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}
+situ_err_t fzn_permit_rule_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_PERMIT_RULE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* rule.body: the arm the discriminant selects has to
+	 * fit the frame (26.777). */
+	if (situ_remaining_u32(view.limit, 0u) < ((fzn_permit_rule_kind_get(view) == 104u ? (fzn_permit_rule_body_host_extent(view)) : (fzn_permit_rule_body_word_span(view))))) {
+		*which = FZN_PERMIT_RULE_BODY_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* rule.body.host: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_permit_rule_body_host_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_permit_host_rule_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_PERMIT_RULE_BODY_HOST_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* rule.body.word: checked where the discriminant
+	 * selects this arm, and nothing to check where it does
+	 * not. */
+	if (!((fzn_permit_rule_kind_get(view) == 104u))) {
+		/* `word` is one of `rule_word`'s 4 spelling(s), where selected. */
+		{
+			const uint8_t *token_at = NULL;
+			uint32_t token_n = 0u;
+			const situ_err_t got = fzn_permit_rule_body_word_ptr(view, &token_at, &token_n);
+
+			if (got == SITU_OK && fzn_permit_rule_word_which(token_at, token_n) == FZN_PERMIT_RULE_WORD_UNKNOWN) {
+				*which = FZN_PERMIT_RULE_BODY_WORD_CHECK;
+				return SITU_ERR_CONSTRAINT;
+			}
+			if (got != SITU_OK && got != SITU_ERR_VERSION) {
+				return got;
+			}
+		}
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_permit_rule_validate(situ_view_t view)
+{
+	return fzn_permit_rule_check(view, NULL);
+}
+
+/* `count` over `remote_permit.rules`, for `no_rule`: the run walked once. */
+static uint32_t fzn_permit_remote_permit_no_rule_rule0(situ_view_t view)
+{
+	const uint32_t total = (uint32_t)fzn_permit_remote_permit_rules_count(view);
+	uint32_t at = 0u;
+	uint32_t n = 0u;
+	uint32_t hits = 0u;
+
+	while (n < total && at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)
+		    || situ_view_sub(view, at, size, &element) != SITU_OK) {
+			break;
+		}
+		if (1) {
+			hits = hits + 1u;
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return hits;
+}
+
+/* `any` over `remote_permit.rules`, for `none_alone`: the run walked once. */
+static uint32_t fzn_permit_remote_permit_none_alone_rule0(situ_view_t view)
+{
+	const uint32_t total = (uint32_t)fzn_permit_remote_permit_rules_count(view);
+	uint32_t at = 0u;
+	uint32_t n = 0u;
+	uint32_t hits = 0u;
+
+	while (n < total && at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)
+		    || situ_view_sub(view, at, size, &element) != SITU_OK) {
+			break;
+		}
+		if (fzn_permit_rule_kind_get(element) == 110) {
+			hits = hits + 1u;
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return hits != 0u ? 1u : 0u;
+}
+
+/* `count` over `remote_permit.rules`, for `none_alone`: the run walked once. */
+static uint32_t fzn_permit_remote_permit_none_alone_rule1(situ_view_t view)
+{
+	const uint32_t total = (uint32_t)fzn_permit_remote_permit_rules_count(view);
+	uint32_t at = 0u;
+	uint32_t n = 0u;
+	uint32_t hits = 0u;
+
+	while (n < total && at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)
+		    || situ_view_sub(view, at, size, &element) != SITU_OK) {
+			break;
+		}
+		if (1) {
+			hits = hits + 1u;
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return hits;
+}
+
+situ_err_t fzn_permit_remote_permit_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_PERMIT_REMOTE_PERMIT_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* `rules` ends by its own rule, and a frame that
+	 * stops first cut it short. */
+	if (!fzn_permit_remote_permit_rules_ended(view)) {
+		*which = FZN_PERMIT_REMOTE_PERMIT_RULES_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* remote_permit.rules: each `rule` the run holds, through its
+	 * own validator. A refusal names the run, or the variant it
+	 * is an arm of (26.789, 26.790). */
+	{
+		uint32_t at = 0u;
+		uint32_t n  = 0u;
+
+		while (at < view.limit) {
+			situ_view_t element;
+			uint32_t    size;
+
+			if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+				break;
+			}
+			size = fzn_permit_rule_extent(element);
+			if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+				/* A zero-extent element would walk here forever, and one
+				 * running past the limit was never in this frame. */
+				break;
+			}
+			{
+				situ_view_t one;
+				situ_err_t  err = situ_view_sub(view, at, size, &one);
+
+				if (err == SITU_OK) {
+					err = fzn_permit_rule_check(one, NULL);
+				}
+				if (err != SITU_OK) {
+					*which = FZN_PERMIT_REMOTE_PERMIT_RULES_CHECK;
+					return err;
+				}
+			}
+			at = at + size;
+			n  = n + 1u;
+			if (!(1)) {
+				break;
+			}
+		}
+		(void)n;
+	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if (fzn_permit_remote_permit_no_rule_rule0(view) == 0) {
+		/* no_rule */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
+	if ((fzn_permit_remote_permit_none_alone_rule0(view) != 0) && (fzn_permit_remote_permit_none_alone_rule1(view) > 1)) {
+		/* none_alone */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_permit_remote_permit_validate(situ_view_t view)
+{
+	return fzn_permit_remote_permit_check(view, NULL);
+}
+
+
+void fzn_permit_remote_permit_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse no_rule */
+	if (fzn_permit_remote_permit_no_rule_rule0(view) == 0) {
+		if (held < cap) {
+			ids[held] = FZN_PERMIT_REMOTE_PERMIT_NO_RULE_MSG;
+		}
+		held++;
+	}
+	/* refuse none_alone */
+	if ((fzn_permit_remote_permit_none_alone_rule0(view) != 0) && (fzn_permit_remote_permit_none_alone_rule1(view) > 1)) {
+		if (held < cap) {
+			ids[held] = FZN_PERMIT_REMOTE_PERMIT_NONE_ALONE_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}

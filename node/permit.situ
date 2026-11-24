@@ -76,3 +76,30 @@ struct permit {
 }
 
 when size(text_name.text) < 2 refuse empty_name "a name is 1 to 63 characters";
+
+// THE REMOTE PERMIT (`remote/permit/SUBJECT`, sec 921): who of the estate
+// may call a procedure remotely -- words apart by single spaces, each
+// member, admin, root, none, or `host:` and a host key's 64 lowercase hex
+// digits; `none` only alone. Read through this since sec 1440; the
+// matching stays node/permit.c's. What situ does not state, node/permit.c
+// keeps: a value ending in a space.
+tokens rule_word { member = "member", admin = "admin", root = "root", none = "none", default = error, }
+
+struct host_rule {
+	u8 scheme[5] [must_eq = "host:"];
+	u8 key[] until " " | end max 65 [chars = "0-9a-f"];
+}
+struct rule {
+	peek u8 kind;
+	variant body switch (kind) {
+		case 'h': host_rule host;
+		default: rule_word word until " " | end;
+	}
+}
+struct remote_permit {
+	rule rules[] while (1) | end;
+}
+
+when count(remote_permit.rules) == 0 refuse no_rule "a rule is member, admin, root, host:HEX or none";
+when count(host_rule.key) != 64 refuse key_length "a host is host: and 64 hex digits";
+when any(r in remote_permit.rules: r.kind == 'n') && count(remote_permit.rules) > 1 refuse none_alone "none stands alone";

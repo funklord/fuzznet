@@ -96,6 +96,45 @@ static inline uint32_t fzn_permit_anyone_word_which(const uint8_t *bytes, uint32
 	return FZN_PERMIT_ANYONE_WORD_UNKNOWN;
 }
 
+/** tokens rule_word -- compared byte for byte; unknown spellings are error
+ */
+#define FZN_PERMIT_RULE_WORD_MEMBER 0u
+#define FZN_PERMIT_RULE_WORD_ADMIN 1u
+#define FZN_PERMIT_RULE_WORD_ROOT 2u
+#define FZN_PERMIT_RULE_WORD_NONE 3u
+#define FZN_PERMIT_RULE_WORD_UNKNOWN 0xFFFFFFFFu
+
+static const uint8_t fzn_permit_rule_word_member[6] = { 0x6Du, 0x65u, 0x6Du, 0x62u, 0x65u, 0x72u };
+static const uint8_t fzn_permit_rule_word_admin[5] = { 0x61u, 0x64u, 0x6Du, 0x69u, 0x6Eu };
+static const uint8_t fzn_permit_rule_word_root[4] = { 0x72u, 0x6Fu, 0x6Fu, 0x74u };
+static const uint8_t fzn_permit_rule_word_none[4] = { 0x6Eu, 0x6Fu, 0x6Eu, 0x65u };
+
+/** Which member of `rule_word` these bytes spell, or
+ * FZN_PERMIT_RULE_WORD_UNKNOWN.
+ *
+ * The length is compared first, so a prefix is not a match -- which is
+ * what a `strncmp` against a literal quietly makes it.
+ */
+static inline uint32_t fzn_permit_rule_word_which(const uint8_t *bytes, uint32_t len)
+{
+	static const struct { const uint8_t *run; uint32_t len; } arms[] = {
+		{ fzn_permit_rule_word_member, 6u },
+		{ fzn_permit_rule_word_admin, 5u },
+		{ fzn_permit_rule_word_root, 4u },
+		{ fzn_permit_rule_word_none, 4u },
+	};
+	uint32_t a, i;
+
+	for (a = 0; a < sizeof arms / sizeof arms[0]; a++) {
+		if (arms[a].len != len) continue;
+		for (i = 0; i < len; i++) {
+			if (bytes[i] != arms[a].run[i]) break;
+		}
+		if (i == len) return (uint32_t)a;
+	}
+	return FZN_PERMIT_RULE_WORD_UNKNOWN;
+}
+
 /* ---- struct numeric ---- */
 
 #define FZN_PERMIT_NUMERIC_SIZE_MIN   2u
@@ -2634,6 +2673,670 @@ situ_err_t fzn_permit_permit_validate(situ_view_t view);
  */
 situ_err_t fzn_permit_permit_check(situ_view_t view, uint32_t *which);
 #define FZN_PERMIT_PERMIT_GRANTS_CHECK 0u
+
+/* ---- struct host_rule ---- */
+
+#define FZN_PERMIT_HOST_RULE_SIZE_MIN   5u
+#define FZN_PERMIT_HOST_RULE_SIZE_MAX   70u
+
+/* INVALIDATION: nothing invalidates a host_rule view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_permit_host_rule_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_PERMIT_HOST_RULE_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** host_rule.scheme : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_PERMIT_HOST_RULE_SCHEME_COUNT 5u
+static inline uint8_t *fzn_permit_host_rule_scheme_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/* host_rule.key : u8  at AbsoluteStatic(0x05)
+ * size=Bounded(0, 65) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+/** `key` runs to the first `" "`. Reaching anything after
+ * it means this scan, which is why the map calls their offsets Scanned
+ * rather than Dynamic: it is a search, and the delimiter may not be there.
+ */
+static const uint8_t fzn_permit_host_rule_key_delim[1] = {0x20u};
+
+/** The scan, from a base the caller already knows.
+ *
+ * Everything that accumulates offsets -- the offset functions,
+ * `_required`, the offset cache -- walks the members in order and
+ * has `at` in hand. Calling the plain `_span` there re-resolves
+ * the base by rescanning every member before it, so a loop over M
+ * members costs M^2 scans while looking like one pass. Measured:
+ * an eight-member record took three times *longer* through a
+ * cache built that way than through the per-call offsets it was
+ * meant to replace.
+ */
+static inline uint32_t fzn_permit_host_rule_key_len_from(situ_view_t view, uint32_t at)
+{
+	return situ_scan(situ_base(view) + at, situ_min_u32(65u, situ_remaining_u32(view.limit, at)), fzn_permit_host_rule_key_delim, 1u);
+}
+
+static inline uint32_t fzn_permit_host_rule_key_len(situ_view_t view)
+{
+	return fzn_permit_host_rule_key_len_from(view, 5u);
+}
+
+static inline int fzn_permit_host_rule_key_terminated_from(situ_view_t view, uint32_t at)
+{
+	return fzn_permit_host_rule_key_len_from(view, at) < (situ_min_u32(65u, situ_remaining_u32(view.limit, at)));
+}
+
+static inline int fzn_permit_host_rule_key_terminated(situ_view_t view)
+{
+	return fzn_permit_host_rule_key_terminated_from(view, 5u);
+}
+
+static inline uint32_t fzn_permit_host_rule_key_span_from(situ_view_t view, uint32_t at)
+{
+	/* The delimiter is this member's too, so the next member starts
+	 * after it. Where it is missing there is nothing to add: the
+	 * member ran to the end of the buffer, and claiming the extra
+	 * bytes would put the next one past the limit its own bounds
+	 * check trusts. */
+	return fzn_permit_host_rule_key_len_from(view, at) + (fzn_permit_host_rule_key_terminated_from(view, at) ? 1u : 0u);
+}
+
+static inline uint32_t fzn_permit_host_rule_key_span(situ_view_t view)
+{
+	return fzn_permit_host_rule_key_span_from(view, 5u);
+}
+
+static inline const uint8_t *fzn_permit_host_rule_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 5u;
+}
+
+/** Whether `key` is a given token, compared byte for byte.
+ *
+ * The length is checked first, so a prefix is not a match -- which is
+ * what `strncmp` against a literal quietly makes it.
+ */
+static inline int fzn_permit_host_rule_key_eq(situ_view_t view, const uint8_t *other, uint32_t other_len)
+{
+	return situ_bytes_eq(fzn_permit_host_rule_key_ptr(view), fzn_permit_host_rule_key_len(view), other, other_len);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member that ends at a delimiter
+ *              the length is wherever the delimiter turns out to be, so a longer value needs more room and the bytes after it have to move to make it
+ *   remedy:    `until D max N` bounds the scan, which makes the member statically allocatable and turns a missing delimiter into an error instead of a read to the end of the buffer
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `host_rule` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_permit_host_rule_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 5u)) {
+		return 5u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 5u;
+	extent = extent + (fzn_permit_host_rule_key_span(view));
+	return extent;
+}
+
+/** How many bytes a whole `host_rule` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_permit_host_rule_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 5u;
+	uint32_t pos = 5u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* host_rule.key: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	if (!fzn_permit_host_rule_key_terminated_from(view, pos)) {
+		/* The delimiter is not in what we have. How much more is a
+		 * question only the sender can answer, so the honest lower
+		 * bound is one byte: read again and ask again. */
+		*need = situ_need_u32(at, (have > pos ? have - pos : 0u) + 1u);
+		/* ... and never below the total the walk has
+		 * already accounted. The two are different
+		 * quantities and neither bounds the other, so
+		 * `framed`'s six fell to five the moment its
+		 * fourth byte arrived (26.726). */
+		if (*need < at) {
+			*need = at;
+		}
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = fzn_permit_host_rule_key_span_from(view, pos);
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_permit_host_rule_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_permit_host_rule_check(situ_view_t view, uint32_t *which);
+#define FZN_PERMIT_HOST_RULE_SCHEME_CHECK 0u
+#define FZN_PERMIT_HOST_RULE_KEY_CHECK 1u
+
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_permit_host_rule_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_PERMIT_HOST_RULE_KEY_LENGTH_MSG 0u
+
+/* ---- struct rule ---- */
+
+#define FZN_PERMIT_RULE_SIZE_MIN   1u
+/* No FZN_PERMIT_RULE_SIZE_MAX: nothing in the schema bounds this
+ * struct's length. Give the driving length field a `[max = N]`
+ * to make it statically allocatable. */
+
+/* INVALIDATION: nothing invalidates a rule view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_permit_rule_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_PERMIT_RULE_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** rule.kind : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_permit_rule_kind_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_permit_rule_kind_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_permit_rule_kind_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/* rule.body : variant  at AbsoluteStatic(0x00)
+ * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ */
+/* `body` is a variant: exactly one of `host` is
+ * present, and which one is in the discriminant. The variant has no
+ * accessor of its own -- there is no one thing to hand back -- and
+ * each arm's members are below, guarded. */
+
+/* rule.body.host, present when the discriminant selects `'h'`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `host` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_permit_rule_body_host_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 0u, situ_remaining_u32(view.limit, 0u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_permit_host_rule_extent(whole);
+}
+static inline situ_err_t fzn_permit_rule_body_host_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_permit_rule_kind_get(view) != 104u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 0u, situ_remaining_u32(view.limit, 0u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_permit_host_rule_extent(whole);
+	return situ_view_sub(view, 0u, size, out);
+}
+
+/** rule.body.word, present when the discriminant selects `default`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static const uint8_t fzn_permit_rule_body_word_delim[1] = {0x20u};
+
+static inline uint32_t fzn_permit_rule_body_word_len(situ_view_t view)
+{
+	return situ_scan(situ_base(view) + 0u,
+		situ_remaining_u32(view.limit, 0u), fzn_permit_rule_body_word_delim, 1u);
+}
+
+/** Content plus the delimiter: where the next member starts.
+ * Where the delimiter is missing there is nothing to add --
+ * the arm ran to the end of what the view holds.
+ */
+static inline uint32_t fzn_permit_rule_body_word_span(situ_view_t view)
+{
+	const uint32_t content = fzn_permit_rule_body_word_len(view);
+
+	return content + (content < situ_remaining_u32(view.limit, 0u)
+		? 1u : 0u);
+}
+
+/** Whether the delimiter is within the view: a frame that does
+ * not hold it was cut short, and the scan above stopped at
+ * the end rather than at the end of the member.
+ */
+static inline int fzn_permit_rule_body_word_terminated(situ_view_t view)
+{
+	return fzn_permit_rule_body_word_len(view) < situ_remaining_u32(view.limit, 0u);
+}
+
+static inline situ_err_t fzn_permit_rule_body_word_ptr(situ_view_t view, const uint8_t **out, uint32_t *len)
+{
+	if ((fzn_permit_rule_kind_get(view) == 104u)) {
+		return SITU_ERR_VERSION;
+	}
+	*out = situ_base(view) + 0u;
+	*len = fzn_permit_rule_body_word_len(view);
+	return SITU_OK;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member that ends at a delimiter
+ *              the length is wherever the delimiter turns out to be, so a longer value needs more room and the bytes after it have to move to make it
+ *   remedy:    `until D max N` bounds the scan, which makes the member statically allocatable and turns a missing delimiter into an error instead of a read to the end of the buffer
+ *   caused by: a member with no upper bound on its length
+ *              changing its length moves everything after it
+ *   remedy:    bound whatever decides the extent: `[max = N]` on a length field, `max N` after `until` for a scan, `max N` on a `while` run. A `[remaining]` member is bounded only by the frame it sits in, and an aggregate by whatever inside it is unbounded
+ */
+
+/** How many bytes one `rule` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_permit_rule_extent(situ_view_t view)
+{
+	uint32_t extent = 0u;
+	extent = extent + (((situ_in_bounds(view, 0u, 1u) ? fzn_permit_rule_kind_get(view) : 0u) == 104u ? (fzn_permit_rule_body_host_extent(view)) : (fzn_permit_rule_body_word_span(view))));
+	return extent;
+}
+
+/** How many bytes a whole `rule` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_permit_rule_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 0u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	if (have < 1u) {
+		*need = 1u;
+		return SITU_ERR_TRUNCATED;
+	}
+
+	{
+		const uint32_t len = (fzn_permit_rule_kind_get(view) == 104u ? (fzn_permit_rule_body_host_extent(view)) : (fzn_permit_rule_body_word_span(view)));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_permit_rule_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_permit_rule_check(situ_view_t view, uint32_t *which);
+#define FZN_PERMIT_RULE_BODY_CHECK 0u
+#define FZN_PERMIT_RULE_BODY_HOST_CHECK 1u
+#define FZN_PERMIT_RULE_BODY_WORD_CHECK 2u
+
+/* ---- struct remote_permit ---- */
+
+#define FZN_PERMIT_REMOTE_PERMIT_SIZE_MIN   1u
+/* No FZN_PERMIT_REMOTE_PERMIT_SIZE_MAX: nothing in the schema bounds this
+ * struct's length. Give the driving length field a `[max = N]`
+ * to make it statically allocatable. */
+
+/* INVALIDATION: nothing invalidates a remote_permit view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_permit_remote_permit_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_PERMIT_REMOTE_PERMIT_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/* remote_permit.rules : rule  at AbsoluteStatic(0x00)
+ * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ */
+/** Whether the last element read says the run is over: a frame that
+ * stops first cut it short.
+ */
+static inline int fzn_permit_remote_permit_rules_ended(situ_view_t view)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			return 0;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			return 0;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			return 1;
+		}
+	}
+	(void)n;
+	return 1;
+}
+
+/** `rules` is a run of `rule` ending after the
+ * element for which `1` is false. The element that
+ * ends it is part of the run: the condition is asked about it after it
+ * has been read, which is the whole difference from a delimiter.
+ */
+static inline uint32_t fzn_permit_remote_permit_rules_count(situ_view_t view)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	return n;
+}
+
+static inline situ_err_t fzn_permit_remote_permit_rules_at(situ_view_t view, uint32_t index, situ_view_t *out)
+{
+	uint32_t at = 0u;
+	uint32_t n  = 0u;
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The walk, from a base the caller already knows: the same
+ * helper every delimited member has, for the same reason.
+ */
+static inline uint32_t fzn_permit_remote_permit_rules_span_from(situ_view_t view, uint32_t start)
+{
+	uint32_t at = start;
+	uint32_t n  = 0u;
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_permit_rule_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		at = at + size;
+		n  = n + 1u;
+		if (!(1)) {
+			break;
+		}
+	}
+	(void)n;
+	return at - start;
+}
+
+static inline uint32_t fzn_permit_remote_permit_rules_span(situ_view_t view)
+{
+	return fzn_permit_remote_permit_rules_span_from(view, 0u);
+}
+
+/** How many bytes a whole `remote_permit` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_permit_remote_permit_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 1u;
+	uint32_t pos = 0u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	if (at < UINT32_MAX) {
+		at -= 1u; /* its own length goes in below */
+	}
+
+	/* remote_permit.rules: a run of `rule`, framed one element at
+	 * a time. The walk the accessors use stops at the end of the bytes
+	 * as readily as at the end of the run; this asks each element whether
+	 * it is whole, which is the same question one level down. */
+	{
+		for (;;) {
+			uint32_t   part;
+			situ_err_t e;
+			situ_view_t element;
+
+			if (have < pos) {
+				*need = at;
+				return SITU_ERR_TRUNCATED;
+			}
+			e = fzn_permit_rule_required(data + pos, situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+			if (part == 0u || situ_view_sub(view, pos, part, &element) != SITU_OK) {
+				break;
+			}
+			at  = situ_need_u32(at, part);
+			pos = situ_need_u32(pos, part);
+
+			/* The condition is asked about the element just read, which is
+			 * the whole difference from a delimiter -- and it can only be
+			 * asked once that element is known to be entirely here. */
+			if (!(1)) {
+				break;
+			}
+		}
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_permit_remote_permit_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_permit_remote_permit_check(situ_view_t view, uint32_t *which);
+#define FZN_PERMIT_REMOTE_PERMIT_RULES_CHECK 0u
+
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_permit_remote_permit_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_PERMIT_REMOTE_PERMIT_NO_RULE_MSG 0u
+#define FZN_PERMIT_REMOTE_PERMIT_NONE_ALONE_MSG 1u
 
 #ifdef __cplusplus
 }

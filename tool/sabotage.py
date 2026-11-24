@@ -15631,6 +15631,20 @@ SABOTAGES = [
 		"half a malformed rule lets a caller in -- sec 921",
 	),
 	(
+		"remote-permit-situ-trailing-space",
+		"node/permit.c",
+		"\tif (!value || !len || len > UINT32_MAX || value[len - 1u] == ' ')\n\t\treturn SHAPE;\n",
+		"\tif (!value || !len || len > UINT32_MAX)\n\t\treturn SHAPE;\n",
+		"a value ending in a space is the one rule the schema does not state; dropped, \"member \" is taken -- sec 1440",
+	),
+	(
+		"remote-permit-situ-every-word-a-rule",
+		"node/permit.c",
+		"\tif (rules != words)\n\t\treturn SHAPE;\n",
+		"",
+		"a word that does not frame ends the run short of it, and the words before it were judged alone -- \"root none h m\" called none-alone -- sec 1440",
+	),
+	(
 		"remote-permit-admin-is-anyone",
 		"node/permit.c",
 		"(word_is(value + at, n, \"admin\") && rank >= FZN_SETTING_RANK_ADMIN)",
