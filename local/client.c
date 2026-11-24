@@ -6,6 +6,7 @@
 #include "socket.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -136,6 +137,26 @@ fzn_client_err_t fzn_client_connect_default(int *out_fd)
 	if (fzn_socket_default_path(path, sizeof(path)) != FZN_SOCKET_OK)
 		return FZN_CLIENT_ERR_MALFORMED;
 	return fzn_client_connect(path, out_fd);
+}
+
+int fzn_client_face_of(const char *path, char *out, size_t cap)
+{
+	char at[sizeof(((struct sockaddr_un *)0)->sun_path) + 8u];
+	FILE *f;
+	size_t n;
+	int k;
+
+	if (!path || !out || cap < 2u)
+		return 0;
+	k = snprintf(at, sizeof(at), "%s.face", path);
+	if (k <= 0 || (size_t)k >= sizeof(at) || !(f = fopen(at, "r")))
+		return 0;
+	n = fread(out, 1u, cap - 1u, f);
+	(void)fclose(f);
+	while (n && (out[n - 1u] == '\n' || out[n - 1u] == '\r'))
+		n--;
+	out[n] = '\0';
+	return n > 0u && out[0] == '/';
 }
 
 fzn_client_err_t fzn_client_send(int fd, const uint8_t *verb, size_t verb_len,

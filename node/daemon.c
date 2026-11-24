@@ -24690,6 +24690,52 @@ static void face_write(const char *core_dir, const char *sock)
 	(void)atexit(face_unwrite);
 }
 
+/* THE FACE, SAID BESIDE THIS DAEMON'S OWN SOCKET (sec 1424): `<socket>.face`,
+ * readable by anyone who can reach the socket, holding the face's socket --
+ * this one's where it is the face, the face's where it follows. The store's
+ * own `face` sits where only the store's user reads, so a client at the desk
+ * talking to root's store could not find a face and fell back to a
+ * follower's socket, which serves its own user alone (netcfgd, inbox
+ * 20261123T2026Z). Rewritten when the face it names changes; removed when
+ * this daemon stops. */
+static char face_copy_path[1110], face_copy_said[1100];
+
+static void face_copy_unwrite(void)
+{
+	if (face_copy_path[0])
+		(void)unlink(face_copy_path);
+	face_copy_path[0] = '\0';
+	face_copy_said[0] = '\0';
+}
+
+static void face_copy(const char *own_sock, const char *face_sock)
+{
+	static int registered;
+	char tmp[1120];
+	FILE *f;
+	mode_t was;
+
+	if (!own_sock || !face_sock || !face_sock[0] || strcmp(face_copy_said, face_sock) == 0)
+		return;
+	(void)snprintf(face_copy_path, sizeof(face_copy_path), "%s.face", own_sock);
+	(void)snprintf(tmp, sizeof(tmp), "%s.new", face_copy_path);
+	was = umask(022);
+	f = fopen(tmp, "w");
+	(void)umask(was);
+	if (!f)
+		return;
+	(void)fprintf(f, "%s\n", face_sock);
+	if (fclose(f) != 0 || rename(tmp, face_copy_path) != 0) {
+		(void)unlink(tmp);
+		return;
+	}
+	(void)snprintf(face_copy_said, sizeof(face_copy_said), "%s", face_sock);
+	if (!registered) {
+		registered = 1;
+		(void)atexit(face_copy_unwrite);
+	}
+}
+
 /* STOPPED AS ASKED, sec 835: the socket closed and removed, the face file
  * removed and the claim released, so a follower takes the face at once
  * rather than finding a stale one. */
@@ -24736,6 +24782,7 @@ static int stop_serving(int lfd, const char *sock_path, int ufd)
 		fzn_udp_close(ufd);
 	face_unwrite();
 	face_written[0] = '\0';
+	face_copy_unwrite();
 #ifdef FZN_CLAIM_FILE_ON
 	if (face_claim) {
 		(void)fzn_claim_release(face_claim);
@@ -25371,11 +25418,20 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 			if (pfd[first_own + k].revents & (POLLIN | POLLHUP | POLLERR))
 				ext_ready(NULL, own[k]);
 		ext_tick();
+		/* THE FACE, SAID BESIDE ITS OWN SOCKET, sec 1424: re-read each
+		 * pass, rewritten only when it moved. */
+		if (mine) {
+			char face[1100];
+
+			if (face_socket(core_dir, face, sizeof(face)))
+				face_copy(mine, face);
+		}
 		/* ASKED TO STOP, sec 838: the socket closed and removed. A follower
 		 * holds no claim and writes no face file. */
 		if (stop_due) {
 			while (follows_n)
 				follow_drop(follows_n - 1u);
+			face_copy_unwrite();
 			fzn_socket_close(lfd, mine);
 			offers_withdraw();
 			following_dir = NULL;
@@ -26862,8 +26918,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	state.on_binary_ctx = NULL;
 	/* WHERE THE FACE SERVES, sec 666, for a follower to forward to: written
 	 * by the claim's holder alone, removed at its exit. */
-	if (face_dir && sock_path)
+	if (face_dir && sock_path) {
 		face_write(face_dir, sock_path);
+		/* AND BESIDE ITS OWN SOCKET, for a client who cannot read the
+		 * store, sec 1424. */
+		face_copy(sock_path, sock_path);
+	}
 
 	if (udp_port >= 0) {
 		/* FUZZNET'S SPAN, sec 1289: its first free port, the root span's

@@ -16,6 +16,8 @@ One store, two fuzznetd processes on it, each with a socket of its own.
     b3 thirty clients that close before their answers leave B serving
     c  A stopped, B takes the claim within seconds and starts again as the
        face, serving its own socket
+    a2 each daemon names the face beside its own socket, `<socket>.face`,
+       readable by others; the face's goes with it (sec 1424)
     d  a node with no service, product or extension answers `rrpc` as a
        call and the rest as unsupported, not with its status line (sec 1421)
 
@@ -64,6 +66,19 @@ def ask(sock, line, within=10.0):
 		except OSError:
 			if time.monotonic() > until:
 				raise failed("%s never answered %r" % (sock, line))
+			time.sleep(0.2)
+
+
+def copy_of(sock, within=10.0):
+	"""The face named beside a daemon's socket, sec 1424, or None."""
+	until = time.monotonic() + within
+	while True:
+		try:
+			with open(sock + ".face") as f:
+				return f.read().strip()
+		except OSError:
+			if time.monotonic() > until:
+				return None
 			time.sleep(0.2)
 
 
@@ -150,6 +165,12 @@ def main(argv):
 				raise failed("a: A's status did not answer ok")
 			if face_of(store) != socks["a"]:
 				raise failed("a: the store's face names %r, not A's socket" % face_of(store))
+			# AND BESIDE ITS SOCKET, sec 1424, for a client who cannot read
+			# the store.
+			if copy_of(socks["a"]) != socks["a"]:
+				raise failed("a: A's socket's face copy names %r" % copy_of(socks["a"]))
+			if os.stat(socks["a"] + ".face").st_mode & 0o044 != 0o044:
+				raise failed("a: the face copy is not readable by others")
 			print("livecheck: a: A took the claim and is the face, its socket in the store")
 
 			b = start("b")
@@ -166,6 +187,9 @@ def main(argv):
 				raise failed("b: a setting written through B was refused")
 			if ask(socks["a"], "get setting host x/through").split()[:1] != ["ok"]:
 				raise failed("b: A does not hold the setting written through B")
+			# B SAYS WHERE THE FACE IS beside its own socket, sec 1424: A's.
+			if copy_of(socks["b"]) != socks["a"]:
+				raise failed("b: B's socket's face copy names %r, not A's" % copy_of(socks["b"]))
 			print("livecheck: b: B followed, its status and a setting written through it A's")
 
 			# EVENTS THROUGH B, with a request beside them: the follower holds
@@ -235,6 +259,11 @@ def main(argv):
 				raise failed("c: the store's face names %r, not B's socket" % face_of(store))
 			if b.pid != pid_b or b.poll() is not None:
 				raise failed("c: B did not start again in place")
+			# A'S COPY GONE WITH A, and B's naming B now, sec 1424.
+			if os.path.exists(socks["a"] + ".face"):
+				raise failed("c: A stopped and left its face copy")
+			if copy_of(socks["b"]) != socks["b"]:
+				raise failed("c: B, now the face, has a copy naming %r" % copy_of(socks["b"]))
 			print("livecheck: c: A gone, B took the claim and serves as the face")
 
 			# d: NO CAPABILITY AND NO EXTENSION, sec 1421: a fuzznetd started

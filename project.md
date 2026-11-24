@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1423
+The newest work is at the end of this file. **Read secs 1287 to 1424
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -97342,7 +97342,11 @@ under each row's size bounds -- 29 taken by both, none differing.
 **Kept hand-written, each for a reason**:
 - **The erasure shape** (`K+M`): situ's delimited decimal would take
   "004+2", which `fzn_node_settings_erasure` refuses; a declaration must
-  be no wider than its reader (sec 686).
+  be no wider than its reader (sec 686). situ offered
+  `[leading_zeros = refused]` for it (inbox 20261123T2317Z), which
+  refuses "04+2" -- a spelling the check and the reader both take today,
+  so a stored value would become unusable -- and the sum's bound (at
+  most 32) would still be a `when`. Kept by hand.
 - **The group list**: names `fzn_scope_group_id` takes, none twice --
   a uniqueness rule over a run, which no situ construct states.
 - **The permits** (`local/permit/`, `remote/permit`, `local/events`):
@@ -97581,7 +97585,11 @@ paired with the node whatever consumers it carries, each consumer's
 procedures separated by their own permits (secs 852, 921) --
 recommended, as "the same estate, the same way" suggests, but it
 re-pairs netcfgd's devices; (c) the hop accepts one capability per
-product the node carries. Open, asked of the holder.
+product the node carries. Open, asked of the holder. **Relayed**, not
+yet the holder's word here: raidcfgd reports the holder chose (b) in its
+session, 2026-11-24 ("go with fuzznet's recommendation, one product for
+the machine", inbox 20261124T0005Z); fuzznet builds it on the holder's
+own confirmation.
 
 **And a node with no service and product answering `rrpc NAME` with
 its status line**: asked of raidcfgd for its command line, and fixed in
@@ -97722,4 +97730,31 @@ sticker_picker_view_test -- a sticker toggled is sent. Every GUI test
 the same one line each; and TalkBack itself, which is fuzzypickles'
 Fold. Sabotage: `a11y-settings-not-chosen`, `a11y-sticker-not-sent`,
 `a11y-current-not-moved`.
+
+## 1424. Where the face serves, said beside every daemon's own socket, 2026-11-24
+
+**From netcfgd** (inbox 20261123T2026Z, information): netcfgd and
+raidcfgd share root's default store, whichever starts first the face. A
+client at the desk -- `ncfg`, the GUI, as an ordinary user -- finds the
+face by `<store>/face`, under /root and unreadable to it, so it falls
+back to netcfgd's own socket; where raidcfgd is the face, that socket is
+a follower's, which serves its own user alone (sec 667), and the client
+is refused. raidcfgd had worked round it by copying the face into its
+own /run file; netcfgd would not, its node file holding nothing that
+goes stale.
+
+**Built**: every daemon writes **`<its socket>.face`** beside its own
+socket -- readable by others (0644), where a client that can reach the
+socket can read it -- holding the face's socket: its own where it is the
+face, the face's where it follows. A follower re-reads the store's
+`face` each pass of its loop (at most a second) and rewrites the copy
+only when it moved; a daemon removes its copy when it stops; a follower
+taking the face writes its own path over it. **`fzn_client_face_of(path,
+out, cap)`** reads it for a client, which then connects to the face; the
+typed client's connect is unchanged, the choice the caller's.
+
+**Tests:** `live_face`: A, the face, names itself beside its socket,
+readable by others; B, following, names A; A stopped, its copy is gone,
+and B, now the face, names itself. client_test: the copy read back, none
+where there is none, and a copy naming no absolute path refused.
 

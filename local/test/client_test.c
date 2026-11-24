@@ -279,6 +279,33 @@ int main(void)
 	ok(fzn_client_connect(NULL, NULL) == FZN_CLIENT_ERR_MALFORMED,
 	   "a NULL path connected");
 
+	/* WHERE THE FACE SERVES, read beside a socket, sec 1424: the path a
+	 * daemon wrote, its newline gone; nothing where there is no copy, or
+	 * where the copy names no absolute path. */
+	{
+		char dir[] = "/tmp/fzn-face-XXXXXX", sock[64], copy[80], got[64];
+		FILE *f;
+
+		if (mkdtemp(dir)) {
+			snprintf(sock, sizeof(sock), "%s/s", dir);
+			snprintf(copy, sizeof(copy), "%s/s.face", dir);
+			ok(!fzn_client_face_of(sock, got, sizeof(got)), "a face was read where no copy is");
+			if ((f = fopen(copy, "w")) != NULL) {
+				fprintf(f, "/run/netcfgd/fuzznet.sock\n");
+				fclose(f);
+			}
+			ok(fzn_client_face_of(sock, got, sizeof(got)) && !strcmp(got, "/run/netcfgd/fuzznet.sock"),
+			   "the face written beside a socket was not read back");
+			if ((f = fopen(copy, "w")) != NULL) {
+				fprintf(f, "relative.sock\n");
+				fclose(f);
+			}
+			ok(!fzn_client_face_of(sock, got, sizeof(got)), "a copy naming no absolute path was taken");
+			unlink(copy);
+			rmdir(dir);
+		}
+	}
+
 	printf("client_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

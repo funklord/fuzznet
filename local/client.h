@@ -101,6 +101,14 @@ fzn_client_err_t fzn_client_connect(const char *path, int *out_fd);
  * where fuzznetd serves when it is told nowhere. */
 fzn_client_err_t fzn_client_connect_default(int *out_fd);
 
+/* WHERE THE FACE SERVES, as the daemon on `path` says (sec 1424): the socket
+ * written in `<path>.face` beside it, into `out` -- `path` itself where that
+ * daemon is the face, the face's where it follows one. 1 when there is one,
+ * 0 when there is none or it cannot be read. For a client who is not the
+ * store's user: a follower serves its own user alone (sec 667), and the
+ * store's own `face` file sits where only that user reads. */
+int fzn_client_face_of(const char *path, char *out, size_t cap);
+
 /* Compose and send one request. Writes the whole line or reports IO: a
  * partial request is a line the server will read as a different one. */
 fzn_client_err_t fzn_client_send(int fd, const uint8_t *verb, size_t verb_len,
