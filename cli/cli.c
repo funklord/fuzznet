@@ -153,8 +153,11 @@ fzn_cli_err_t fzn_cli_arg(fzn_cli_t *cli, const char *arg, int *claimed)
 		 * check for the same reason: a record belongs to a project, not
 		 * to all of them. Accepting it here would let a node claim to
 		 * BE every product. */
-		if (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE
-		    || number > FZN_PRODUCT_MAX)
+		/* `host`, sec 1429: the product every daemon of one user's host
+		 * shares, said by its name rather than its number. */
+		if (strcmp(value, "host") == 0)
+			number = FZN_PRODUCT_HOST;
+		else if (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE || number > FZN_PRODUCT_MAX)
 			return FZN_CLI_ERR_VALUE;
 		if (cli->product != FZN_PRODUCT_NONE)
 			return FZN_CLI_ERR_DUPLICATE;
@@ -266,7 +269,8 @@ const char *fzn_cli_usage(void)
 	       "  --fuzznet-dir=PATH       identity and claim directory\n"
 	       "  --fuzznet-store=PATH     record store directory\n"
 	       "  --fuzznet-service=N      service number, 1 or above\n"
-	       "  --fuzznet-product=N      product number, 1 to 65534\n"
+	       "  --fuzznet-product=N      product number, 1 to 65534, or `host`: one\n"
+	       "                           user's host, shared by that user's daemons\n"
 	       "  --fuzznet-owner=WHICH    auto (default), yes, or no\n"
 	       "node options:\n"
 	       "  --socket=PATH            this node's own local socket\n"

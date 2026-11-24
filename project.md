@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1428
+The newest work is at the end of this file. **Read secs 1287 to 1429
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,12 +58,11 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). The binary `list sticker
   match` too (sec 1402), owed by sec 1208 rather than waiting on a
   measurement.
-- **The holder's: a node shared by several consumers' daemons** (sec
-  1419): its remote hop checks one capability, the first daemon's
-  (service, product), so another consumer's paired devices are refused.
-  (a) the store fixes its product, (b) one product for the machine's
-  node -- recommended, re-pairs netcfgd's devices, (c) one capability
-  per carried product.
+- **A host shared by several consumers' daemons: settled** (sec 1429,
+  the holder 2026-11-24): one user's daemons share that user's estate
+  and pairing, so they run with `FZN_PRODUCT_HOST` (6,
+  `--fuzznet-product=host`). Consumers switch, and re-pair, on their
+  side.
 - **The clock's unit**: **microseconds since 1970 on the frame** (sec
   1417, the holder's choice of sec 1407's (c), 2026-11-23); the
   library's calls still speak seconds, converted at the frame. Next: the
@@ -97585,11 +97584,9 @@ paired with the node whatever consumers it carries, each consumer's
 procedures separated by their own permits (secs 852, 921) --
 recommended, as "the same estate, the same way" suggests, but it
 re-pairs netcfgd's devices; (c) the hop accepts one capability per
-product the node carries. Open, asked of the holder. **Relayed**, not
-yet the holder's word here: raidcfgd reports the holder chose (b) in its
-session, 2026-11-24 ("go with fuzznet's recommendation, one product for
-the machine", inbox 20261124T0005Z); fuzznet builds it on the holder's
-own confirmation.
+product the node carries. **Settled by the holder, sec 1429**: (b), and
+wider than asked -- one product for any user's host, not only the
+machine's root node.
 
 **And a node with no service and product answering `rrpc NAME` with
 its status line**: asked of raidcfgd for its command line, and fixed in
@@ -97860,4 +97857,38 @@ measurement of its generated code's size (situ's inbox), since -Os and
 the embedded profile (sec 922) make size a property situ's C backend can
 weigh. Not measured here yet: fuzznet's own embedded profile across the
 same span.
+
+## 1429. One product for a host, whatever consumers it carries, 2026-11-24
+
+**The holder, 2026-11-24**, answering sec 1419's question directly:
+"Each user is normally separate so netcfgd and raidcfgd use the same
+estate and pairing, and with this kind of software the userspace program
+assumes they are talking to root daemon. fuzzypickles daemon runs as a
+user or root (for port/relay purposes) but for now only as user. The
+root one would be the same estate as those others." And, the same
+minute: "software running as other users also share estate per user".
+
+So **the daemons one unix user runs share that user's estate and one
+pairing** -- root's daemons (netcfgd, raidcfgd, a root fuzzypickles) one
+estate, each other user's daemons theirs. That is sec 1419's (b), wider
+than it was asked: not the machine's root node alone but every user's
+host, in this tree's words (sec 430: a host is an account's node).
+
+**Built**: **`FZN_PRODUCT_HOST` 6** (`chain/service.h`), and
+`--fuzznet-product=host` naming it (`cli/cli.c`, in the help). A
+daemon's product composes only its capabilities -- the remote hop's, the
+admin's, retention's, a note share's (sec 376) -- and no record stream
+is derived from it (`fzn_service_stream` has no caller outside tests),
+so consumers sharing the product share a pairing and nothing else. The
+consumer products (2 fuzzypickles, 3 netcfgd, 4 beerssh, 5 raidcfgd)
+stay assigned: a number once given is not taken back, and a consumer's
+own records, should it write any, keep their own space.
+
+**What moves on the consumers' side**, told to each: netcfgd and
+raidcfgd start their daemons with `--fuzznet-product=host`, and their
+devices re-pair; fuzzypickles' user daemon too, so another consumer of
+the same user shares its pairing.
+
+**Tests:** cli_test: `--fuzznet-product=host` is product 6, a second
+product refused as a duplicate, `hosts` refused.
 

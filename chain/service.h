@@ -73,13 +73,21 @@
  *   FZN_PRODUCT_BEERSSH       beerssh: beersshd and the client's device
  *                             side, one product (asked 2026-11-18, sec 1270).
  *   FZN_PRODUCT_RAIDCFGD      raidcfgd: its root daemon served as a node,
- *                             its bridge and tray (asked 2026-11-23, sec 1410). */
+ *                             its bridge and tray (asked 2026-11-23, sec 1410).
+ *   FZN_PRODUCT_HOST          a host, whatever consumers it carries: the
+ *                             daemons one user runs on a machine share that
+ *                             user's estate and one pairing -- root's
+ *                             (netcfgd, raidcfgd, a root fuzzypickles) and
+ *                             each other user's alike (the holder,
+ *                             2026-11-24, sec 1429). The consumer products
+ *                             above stay assigned. */
 #define FZN_SERVICE_NODE 1u
 #define FZN_PRODUCT_TEST 1u
 #define FZN_PRODUCT_FUZZYPICKLES 2u
 #define FZN_PRODUCT_NETCFGD 3u
 #define FZN_PRODUCT_BEERSSH 4u
 #define FZN_PRODUCT_RAIDCFGD 5u
+#define FZN_PRODUCT_HOST 6u
 
 /* The longest consumer-supplied name. Bounded so the derivation's input
  * buffer is a fixed size and the function allocates nothing, which is this

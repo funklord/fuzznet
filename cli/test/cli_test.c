@@ -84,6 +84,22 @@ static void test_every_option_is_read(void)
 	CHECK(offer(&cli, "--fuzznet-product=100", &claimed) == FZN_CLI_OK,
 	      "the product was not read");
 	CHECK(cli.product == 100u, "the product is wrong");
+	/* `host`, sec 1429: the product one user's daemons share, by its name;
+	 * a second product still refused as a duplicate. */
+	{
+		fzn_cli_t root;
+		int took = 0;
+
+		memset(&root, 0, sizeof(root));
+		CHECK(offer(&root, "--fuzznet-product=host", &took) == FZN_CLI_OK && took
+		              && root.product == FZN_PRODUCT_HOST,
+		      "--fuzznet-product=host was not the host's product");
+		CHECK(offer(&root, "--fuzznet-product=host", &took) == FZN_CLI_ERR_DUPLICATE,
+		      "a second product was taken");
+		memset(&root, 0, sizeof(root));
+		CHECK(offer(&root, "--fuzznet-product=hosts", &took) == FZN_CLI_ERR_VALUE,
+		      "a word that is not `host` was taken as a product");
+	}
 	CHECK(offer(&cli, "--fuzznet-owner=no", &claimed) == FZN_CLI_OK, "the owner was not read");
 	CHECK(cli.owner == FZN_CLI_OWNER_NO, "the owner is wrong");
 	/* THE THIRD VALUE. `auto` and `no` were both read back here and `yes`

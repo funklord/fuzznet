@@ -4630,8 +4630,8 @@ SABOTAGES = [
 	(
 		"cli-product-bound-is-shared",
 		"cli/cli.c",
-		"\t\tif (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE\n\t\t    || number > FZN_PRODUCT_MAX)\n",
-		"\t\tif (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE)\n",
+		"\t\telse if (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE || number > FZN_PRODUCT_MAX)\n",
+		"\t\telse if (!parse_u32(value, &number) || number == FZN_PRODUCT_NONE)\n",
 		"the bound belongs to chain/service.h and a value this accepted that the module refuses fails much later and somewhere else -- the wildcard would let a node claim to be every product",
 	),
 	(
