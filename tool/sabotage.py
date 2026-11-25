@@ -689,6 +689,22 @@ SABOTAGES = [
 		"unsayable while the parser went on expecting it. sec 364",
 	),
 	(
+		"sticker-raster-any-canvas",
+		"gui/sticker_render.cpp",
+		"\treturn !s.isValid() || ((unsigned)s.width() <= APNG_SIDE_MAX && (unsigned)s.height() <= APNG_SIDE_MAX);\n",
+		"\treturn true;\n",
+		"a contact's 256 KiB PNG of an 8000-pixel canvas decoded to half a gigabyte "
+		"in 540 ms -- sec 1446",
+	),
+	(
+		"sticker-apng-composed-from-the-first-frame-each-tick",
+		"gui/sticker_render.cpp",
+		"\tif (p.shown < 0 || (size_t)p.shown > index) {\n",
+		"\tif (1) {\n",
+		"each tick composed frames 0..N again: a 44-frame 1024-pixel APNG took a "
+		"quarter second a tick on the GUI thread -- sec 1445",
+	),
+	(
 		"client-face-copy-through-a-link",
 		"local/client.c",
 		"\tfd = open(at, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);\n\tif (fd < 0)\n\t\treturn 0;\n\tif (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != sock_st.st_uid\n",
@@ -18290,8 +18306,8 @@ SABOTAGES = [
 	(
 		"apng-first-frame-only",
 		"gui/sticker_render.cpp",
-		"\t\timg = apng_draw(a, at);\n",
-		"\t\timg = apng_draw(a, 0);\n",
+		"\t\t\timg = apng_draw(*p, at);\n",
+		"\t\t\timg = apng_draw(*p, 0);\n",
 		"an APNG drawn at its first frame wherever asked: it never moves; sticker_picker_view_test -- sec 1322",
 	),
 	(

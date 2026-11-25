@@ -63,6 +63,13 @@ fzn_sticker_render_result fzn_sticker_render_art(const uint8_t *art, size_t art_
 int fzn_sticker_render_frames(const uint8_t *art, size_t art_len, uint8_t format);
 
 /*
+ * HOW MANY APNG FRAMES have been decoded in this process (sec 1445): the
+ * work playing costs, for a test to count -- a loop of N frames is about N
+ * decodes, not N squared over two.
+ */
+unsigned long fzn_sticker_render_decodes(void);
+
+/*
  * A MESSAGE or NAME sticker as sent: `drawn`, the art at whatever size it
  * was drawn, with `text` -- the sender's words, carried by the message --
  * fitted into the sticker's box over its fill. The box is in the main

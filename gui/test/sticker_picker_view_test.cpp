@@ -243,6 +243,139 @@ static void test_an_apng_plays(void)
 	      "a still was counted as moving, or drawn differently further in");
 }
 
+/* A CANVAS TOO LARGE, sec 1446: a raster wider or taller than 1024 pixels is
+ * refused from its header, before it is decoded, and says so; 1024 is drawn.
+ * 256 KiB of PNG holds a flat 8000-pixel canvas, half a gigabyte decoded. */
+static QByteArray png_sized(int w, int h)
+{
+	QImage img(w, h, QImage::Format_ARGB32);
+	QByteArray png;
+	QBuffer buf(&png);
+
+	img.fill(Qt::red);
+	buf.open(QIODevice::WriteOnly);
+	img.save(&buf, "PNG");
+	return png;
+}
+
+static void test_a_canvas_too_large(void)
+{
+	const QByteArray wide = png_sized(1025, 4), tall = png_sized(4, 1025), edge = png_sized(1024, 4);
+	const fzn_sticker_render_result r =
+	        fzn_sticker_render_art((const uint8_t *)wide.constData(), (size_t)wide.size(), FZN_STICKER_PNG, QSize(64, 64));
+
+	CHECK(r.pixmap.isNull() && r.unavailable_reason.contains(QStringLiteral("too large")),
+	      "a raster 1025 pixels wide was drawn, or refused without saying why");
+	CHECK(fzn_sticker_render_art((const uint8_t *)tall.constData(), (size_t)tall.size(), FZN_STICKER_PNG,
+	                             QSize(64, 64))
+	              .pixmap.isNull()
+	              && fzn_sticker_render_frames((const uint8_t *)tall.constData(), (size_t)tall.size(),
+	                                           FZN_STICKER_PNG)
+	                         == 0,
+	      "a raster 1025 pixels tall was drawn or counted");
+	CHECK(!fzn_sticker_render_art((const uint8_t *)edge.constData(), (size_t)edge.size(), FZN_STICKER_PNG,
+	                              QSize(64, 64))
+	               .pixmap.isNull(),
+	      "a raster 1024 pixels wide was not drawn");
+}
+
+/* AN APNG MANGLED, sec 1445: sticker art is a contact's bytes, and the
+ * composer reads lengths, sizes and offsets from them. A twenty-frame APNG
+ * with bytes overwritten, cut short or grown, each drawn at three points of
+ * a loop and counted: nothing may crash or read past it -- which `sancheck`
+ * turns into a failure -- and every draw returns. Seeded, so a failure
+ * repeats. */
+static QByteArray apng_of(uint32_t frames)
+{
+	QByteArray ihdr, red, green, apng("\x89PNG\r\n\x1a\n", 8), actl;
+	uint32_t seq = 0;
+
+	png_of(Qt::red, &ihdr, &red);
+	png_of(Qt::green, &ihdr, &green);
+	chunk(apng, "IHDR", ihdr);
+	be32(actl, frames);
+	be32(actl, 0);
+	chunk(apng, "acTL", actl);
+	for (uint32_t i = 0; i < frames; i++) {
+		QByteArray fdat;
+		fctl(apng, seq++);
+		if (i == 0) {
+			chunk(apng, "IDAT", red);
+			continue;
+		}
+		be32(fdat, seq++);
+		fdat.append(i % 2u ? green : red);
+		chunk(apng, "fdAT", fdat);
+	}
+	chunk(apng, "IEND", QByteArray());
+	return apng;
+}
+
+static void test_a_mangled_apng(void)
+{
+	const QByteArray whole = apng_of(20u);
+	uint64_t rng = 0x1445u;
+	int drawn = 0, cases = 0;
+
+	for (int c = 0; c < 3000; c++, cases++) {
+		QByteArray b = whole;
+		rng ^= rng << 13, rng ^= rng >> 7, rng ^= rng << 17;
+		const int at = 8 + (int)(rng % (uint64_t)(b.size() - 8));
+		switch ((rng >> 32) % 4u) {
+		case 0: /* a byte */
+			b[at] = (char)(rng >> 40);
+			break;
+		case 1: /* a length or a field, four bytes */
+			for (int k = 0; k < 4 && at + k < b.size(); k++)
+				b[at + k] = (char)(rng >> (40 + 8 * (k % 3)));
+			break;
+		case 2: /* cut short */
+			b.truncate(at);
+			break;
+		default: /* grown by what follows */
+			b.insert(at, b.mid(at, 64));
+			break;
+		}
+		for (float p : { 0.0f, 0.5f, 0.97f })
+			if (!fzn_sticker_render_art((const uint8_t *)b.constData(), (size_t)b.size(), FZN_STICKER_APNG,
+			                            QSize(4, 4), p)
+			             .pixmap.isNull())
+				drawn++;
+		(void)fzn_sticker_render_frames((const uint8_t *)b.constData(), (size_t)b.size(), FZN_STICKER_APNG);
+	}
+	CHECK(drawn > 0, "no mangled APNG drew at all, so none reached the composer");
+	printf("  %d mangled APNGs, %d draws of 3 each returned a picture\n", cases, drawn);
+}
+
+/* PLAYED ON, NOT COMPOSED AGAIN, sec 1445: twenty frames, red and green by
+ * turns, asked for at each 40 ms tick of two 2 s loops, as a pop-up plays
+ * one. Each ask composed frames 0..N again, about 500 decodes here and a
+ * quarter second a tick for a large sticker; played on from the last ask, a
+ * loop is its twenty, and each frame is still the one asked for. */
+static void test_an_apng_plays_on(void)
+{
+	const uint32_t frames = 20u;
+	const QByteArray apng = apng_of(frames);
+	unsigned long before, decoded;
+	int wrong = 0;
+
+	before = fzn_sticker_render_decodes();
+	for (int loop = 0; loop < 2; loop++)
+		for (int tick = 0; tick < 50; tick++) {
+			const float progress = (float)tick / 50.0f;
+			const size_t at = (size_t)(progress * (float)frames);
+			const QImage img = fzn_sticker_render_art((const uint8_t *)apng.constData(), (size_t)apng.size(),
+			                                          FZN_STICKER_APNG, QSize(4, 4), progress)
+			                           .pixmap.toImage();
+			if (img.isNull() || img.pixelColor(2, 2) != QColor(at % 2u ? Qt::green : Qt::red))
+				wrong++;
+		}
+	decoded = fzn_sticker_render_decodes() - before;
+	CHECK(wrong == 0, "a frame played on was not the one asked for");
+	CHECK(decoded <= 3u * frames, "two loops decoded every earlier frame again at each tick");
+	printf("  two loops of %u frames: %lu decodes\n", (unsigned)frames, decoded);
+}
+
 static void test_the_test_set_draws(void)
 {
 	const QDir art(QStringLiteral("sticker/fixture/test-set/art"));
@@ -282,6 +415,9 @@ int main(int argc, char **argv)
 
 	test_the_test_set_draws();
 	test_an_apng_plays();
+	test_an_apng_plays_on();
+	test_a_mangled_apng();
+	test_a_canvas_too_large();
 
 	v.on_pick([&picked](const QString &ref) { picked = ref; });
 #ifdef FZN_THORVG_ON

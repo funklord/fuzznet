@@ -78213,3 +78213,75 @@ generated constant beside the narrowing. The hand oracle
 `node/test/permit_ref.h` refuses the same, so `permit_agree_fuzz` still
 holds the two to one verdict. permit_test asks a wrapped user and group
 and the bound.
+
+## 1445. A playing sticker goes on from its last frame, 2026-11-25
+
+**Found reading the APNG composer as a parser of other people's bytes**
+(sticker art arrives in a contact's pack): its bounds hold, but its cost
+did not. A pop-up or chosen sticker is asked for one frame at a time,
+every 40 ms (`PLAY_FRAME_MS`), and each ask parsed the art again and
+composed frames 0..N from nothing -- N decodes a tick, N squared over
+two a loop, on the GUI thread. Measured with the tree's
+`sticker_render.o`: a 44-frame 1024-pixel APNG within the 256 KiB a
+caller reads took up to 292 ms a tick and 14.6 s over two 2 s loops; 300
+frames of 512 pixels, 520 ms and 25.2 s. An animated WebP the same, Qt's
+reader read from frame 0 to the one asked at every tick, with no cap on
+its frames.
+
+**Now `gui/sticker_render.cpp` keeps the stickers in play** -- four, by
+their bytes compared whole, newest first: an APNG's canvas as its shown
+frame left it, with what lay under it for disposal 2, or the WebP's
+reader at its frame. A later frame goes on from there; an earlier one,
+a loop's restart, begins again at frame 0. Frame 0, as a log paints
+every sticker it shows, is composed alone and kept out of the four.
+Same two stickers: worst tick 44 and 38 ms (one decode of a 1024-pixel
+frame), 0.7 and 1.1 s over the two loops.
+
+**Proved the same picture**: the old and new renderers, built side by
+side, hash identical pixels at every ask -- ticks, a jump back mid-loop,
+a skip ahead, a restart -- over four generated APNGs of 37 and 120
+frames with random sizes, offsets, all three disposals, both blends and
+translucent colours. **Rejected**: a decoded-pixel budget refusing large
+stickers (it bounds the stall rather than removing it, and refuses art
+that plays well once composed incrementally); decoding off the GUI
+thread (a thread per sticker for work that is one decode a frame).
+
+**Tests:** sticker_picker_view_test asks twenty frames over two loops
+at each tick and counts decodes through `fzn_sticker_render_decodes`
+(42; 1040 with the reuse sabotaged), every frame the one asked for.
+Sabotage `sticker-apng-composed-from-the-first-frame-each-tick`;
+`apng-first-frame-only` follows the new call. And the composer read as
+a parser: the same test mangles a twenty-frame APNG 3000 ways, seeded --
+a byte or a four-byte field overwritten, cut short, grown -- and draws
+each at three points of a loop; clean under ASan and UBSan, built by
+hand for the run (`sancheck` takes it from here).
+
+## 1446. Sticker art past 1024 pixels a side is refused from its header, 2026-11-25
+
+The next lens from sec 1445: what else of a contact's art costs more to
+draw than its bytes suggest. **A still or an animated WebP was decoded
+whatever canvas its header named.** 256 KiB of PNG holds a flat canvas
+of nearly 8000 pixels a side: measured through the tree's renderer, 540
+ms and 529 MB of peak memory to draw one such sticker -- once a view for
+a still, and at every frame for a moving one -- on a desktop; on a phone,
+reason enough for the system to end the app. Qt 6's allocation limit is
+256 MB, so this was inside it.
+
+**Now** `gui/sticker_render.cpp` asks Qt's reader for the canvas before
+anything is decoded and refuses a raster wider or taller than 1024
+pixels -- the bound the APNG composer already kept (`APNG_SIDE_MAX`) --
+with "this sticker's image is too large to draw", and counts it as no
+frames. A reader that cannot tell the size goes on to Qt as before. The
+same sticker: refused at 39 MB peak. A sticker's renditions are drawn at
+56 to a few hundred pixels, so nothing honest is lost; a larger one
+would be scaled down anyway.
+
+**Not changed, measured**: a call's video frame is one piece of at most
+1024 bytes, and a flat JPEG costs some bits per 8x8 block -- 4 KB at
+1000 pixels a side -- so its canvas is bounded by the piece. A 250 KB
+Lottie of 165 layers draws in at most 18 ms a tick, inside the 40 ms one.
+
+**Tests:** sticker_picker_view_test -- 1025 pixels wide refused and
+saying why, 1025 tall refused and counted as no frames, 1024 drawn; the
+two refusals fail with the check sabotaged
+(`sticker-raster-any-canvas`).

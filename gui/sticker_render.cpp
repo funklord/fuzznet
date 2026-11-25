@@ -13,11 +13,10 @@
  * sticker says why it is not drawn, and the caller shows its words. */
 #ifdef FZN_THORVG_ON
 #include <thorvg.h>
-
-#include <memory>
 #endif
 
 #include <algorithm>
+#include <memory>
 #include <string.h>
 #include <vector>
 
@@ -251,48 +250,144 @@ static bool apng_read(const uint8_t *b, size_t len, apng &a) {
 	return true;
 }
 
-/* FRAME `index` OF `a`, composed onto its canvas: a null image where a
- * frame does not decode. */
-static QImage apng_draw(const apng &a, size_t index) {
+static unsigned long apng_decodes;
+
+unsigned long fzn_sticker_render_decodes(void) { return apng_decodes; }
+
+/* ONE FRAME OF `a` DECODED: a null image where it does not. */
+static QImage apng_part(const apng &a, const apng_frame &f) {
 	static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
-	QImage canvas((int)a.width, (int)a.height, QImage::Format_ARGB32_Premultiplied), saved;
-	canvas.fill(Qt::transparent);
-	for (size_t i = 0; i <= index && i < a.frames.size(); i++) {
-		const apng_frame &f = a.frames[i];
-		QByteArray png((const char *)sig, 8), ihdr = a.ihdr;
-		QImage part;
-		ihdr[0] = (char)(f.w >> 24), ihdr[1] = (char)(f.w >> 16), ihdr[2] = (char)(f.w >> 8), ihdr[3] = (char)f.w;
-		ihdr[4] = (char)(f.h >> 24), ihdr[5] = (char)(f.h >> 16), ihdr[6] = (char)(f.h >> 8), ihdr[7] = (char)f.h;
-		put_chunk(png, "IHDR", (const uint8_t *)ihdr.constData(), 13);
-		png.append(a.shared);
-		put_chunk(png, "IDAT", (const uint8_t *)f.data.constData(), (size_t)f.data.size());
-		put_chunk(png, "IEND", nullptr, 0);
-		if (!part.loadFromData(png, "PNG"))
-			return QImage();
-		/* DISPOSE_OP_PREVIOUS keeps what lay under it, to put back. */
-		if (f.dispose == 2u)
-			saved = canvas.copy((int)f.x, (int)f.y, (int)f.w, (int)f.h);
-		{
-			QPainter p(&canvas);
-			p.setCompositionMode(f.blend == 0u ? QPainter::CompositionMode_Source
-			                                  : QPainter::CompositionMode_SourceOver);
-			p.drawImage((int)f.x, (int)f.y, part);
+	QByteArray png((const char *)sig, 8), ihdr = a.ihdr;
+	QImage part;
+
+	apng_decodes++;
+	ihdr[0] = (char)(f.w >> 24), ihdr[1] = (char)(f.w >> 16), ihdr[2] = (char)(f.w >> 8), ihdr[3] = (char)f.w;
+	ihdr[4] = (char)(f.h >> 24), ihdr[5] = (char)(f.h >> 16), ihdr[6] = (char)(f.h >> 8), ihdr[7] = (char)f.h;
+	put_chunk(png, "IHDR", (const uint8_t *)ihdr.constData(), 13);
+	png.append(a.shared);
+	put_chunk(png, "IDAT", (const uint8_t *)f.data.constData(), (size_t)f.data.size());
+	put_chunk(png, "IEND", nullptr, 0);
+	if (!part.loadFromData(png, "PNG"))
+		return QImage();
+	return part;
+}
+
+/* ---- Playing, sec 1445 ------------------------------------------------------
+ *
+ * A caller asks for one frame at a time, at a rising `progress`, every 40 ms
+ * (conversation_view's PLAY_FRAME_MS). Composing frame N from frame 0 at each
+ * ask decoded 0..N again every tick: a 44-frame 1024-pixel APNG within the
+ * 256 KiB a caller reads took 278 ms a tick by the end of its loop, on the
+ * GUI thread, and a contact chooses what art arrives. So the few stickers in
+ * play keep where they were -- the APNG's canvas as frame `shown` left it,
+ * or the WebP reader at its frame -- and a later frame goes on from there:
+ * one decode a frame, a loop's restart beginning again at frame 0. Held by
+ * the art's bytes, compared whole; GUI thread only, as every caller is. */
+#define PLAYS_KEPT 4u
+
+struct play {
+	QByteArray art; /* the bytes, a deep copy: what a later ask is compared with */
+	bool is_apng = false;
+	apng a;
+	QImage canvas, saved; /* frame `shown` laid on; what lay under it, for dispose 2 */
+	long shown = -1;
+	QByteArray raw;  /* the WebP reader's bytes */
+	std::unique_ptr<QBuffer> buffer;
+	std::unique_ptr<QImageReader> reader;
+	QImage frame; /* the reader's frame `at` */
+	int at = -1;
+};
+
+static std::vector<std::unique_ptr<play>> plays; /* newest first */
+
+static play *play_of(const uint8_t *art, size_t len) {
+	for (size_t i = 0; i < plays.size(); i++)
+		if ((size_t)plays[i]->art.size() == len && memcmp(plays[i]->art.constData(), art, len) == 0) {
+			std::rotate(plays.begin(), plays.begin() + (long)i, plays.begin() + (long)i + 1);
+			return plays[0].get();
 		}
-		if (i == index)
-			break;
-		/* THEN ITS DISPOSAL, before the next is laid on: cleared, or what
-		 * lay under it put back. */
-		if (f.dispose == 1u || (f.dispose == 2u && saved.isNull())) {
-			QPainter p(&canvas);
-			p.setCompositionMode(QPainter::CompositionMode_Source);
-			p.fillRect((int)f.x, (int)f.y, (int)f.w, (int)f.h, Qt::transparent);
-		} else if (f.dispose == 2u) {
-			QPainter p(&canvas);
-			p.setCompositionMode(QPainter::CompositionMode_Source);
-			p.drawImage((int)f.x, (int)f.y, saved);
-		}
+	std::unique_ptr<play> p(new play);
+	p->art = QByteArray((const char *)art, (int)len);
+	p->is_apng = apng_read(art, len, p->a);
+	plays.insert(plays.begin(), std::move(p));
+	if (plays.size() > PLAYS_KEPT)
+		plays.pop_back();
+	return plays[0].get();
+}
+
+/* FRAME `index` of a playing APNG, composed onto its canvas from where the
+ * last ask left it -- from frame 0 again when `index` is behind it. A null
+ * image where a frame does not decode. */
+static QImage apng_draw(play &p, size_t index) {
+	const apng &a = p.a;
+
+	if (p.shown < 0 || (size_t)p.shown > index) {
+		p.canvas = QImage((int)a.width, (int)a.height, QImage::Format_ARGB32_Premultiplied);
+		p.canvas.fill(Qt::transparent);
+		p.saved = QImage();
+		p.shown = -1;
 	}
-	return canvas;
+	while (p.shown < (long)index && (size_t)(p.shown + 1) < a.frames.size()) {
+		/* THE SHOWN FRAME'S DISPOSAL first, before the next is laid on:
+		 * cleared, or what lay under it put back. */
+		if (p.shown >= 0) {
+			const apng_frame &d = a.frames[(size_t)p.shown];
+			QPainter q(&p.canvas);
+			q.setCompositionMode(QPainter::CompositionMode_Source);
+			if (d.dispose == 1u || (d.dispose == 2u && p.saved.isNull()))
+				q.fillRect((int)d.x, (int)d.y, (int)d.w, (int)d.h, Qt::transparent);
+			else if (d.dispose == 2u)
+				q.drawImage((int)d.x, (int)d.y, p.saved);
+		}
+		const apng_frame &f = a.frames[(size_t)(p.shown + 1)];
+		const QImage part = apng_part(a, f);
+		if (part.isNull()) {
+			p.shown = -1;
+			return QImage();
+		}
+		/* DISPOSE_OP_PREVIOUS keeps what lay under it, to put back. */
+		p.saved = f.dispose == 2u ? p.canvas.copy((int)f.x, (int)f.y, (int)f.w, (int)f.h) : QImage();
+		{
+			QPainter q(&p.canvas);
+			q.setCompositionMode(f.blend == 0u ? QPainter::CompositionMode_Source
+			                                  : QPainter::CompositionMode_SourceOver);
+			q.drawImage((int)f.x, (int)f.y, part);
+		}
+		p.shown++;
+	}
+	return p.canvas;
+}
+
+/* FRAME `index` of a playing animation Qt's reader reads (an animated WebP),
+ * read on from the reader's last frame, or from the first again. */
+static QImage reader_draw(play &p, int index) {
+	if (!p.reader || p.at > index) {
+		p.raw = p.art;
+		p.buffer.reset(new QBuffer(&p.raw));
+		p.reader.reset(new QImageReader(p.buffer.get()));
+		p.frame = QImage();
+		p.at = -1;
+	}
+	while (p.at < index) {
+		if (!p.reader->read(&p.frame)) {
+			p.reader.reset();
+			return p.at >= 0 ? p.frame : QImage();
+		}
+		p.at++;
+	}
+	return p.frame;
+}
+
+/* A RASTER'S CANVAS FROM ITS HEADER, before anything is decoded (sec 1446):
+ * 1 when Qt's reader cannot say, or says at most APNG_SIDE_MAX a side. 256
+ * KiB of PNG holds a flat 8000-pixel canvas, which decoded took 540 ms and
+ * half a gigabyte for one sticker in a contact's pack. */
+static bool raster_side_ok(const uint8_t *bytes, size_t len) {
+	QByteArray raw = QByteArray::fromRawData((const char *)bytes, (int)len);
+	QBuffer buf(&raw);
+	QImageReader reader(&buf);
+	const QSize s = reader.size();
+	return !s.isValid() || ((unsigned)s.width() <= APNG_SIDE_MAX && (unsigned)s.height() <= APNG_SIDE_MAX);
 }
 
 int fzn_sticker_render_frames(const uint8_t *art, size_t art_len, uint8_t format) {
@@ -308,6 +403,8 @@ int fzn_sticker_render_frames(const uint8_t *art, size_t art_len, uint8_t format
 	}
 	if (apng_read(art, art_len, a))
 		return (int)a.frames.size();
+	if (!raster_side_ok(art, art_len))
+		return 0;
 	QByteArray bytes = QByteArray::fromRawData((const char *)art, (int)art_len);
 	QBuffer buf(&bytes);
 	QImageReader reader(&buf);
@@ -320,25 +417,36 @@ static fzn_sticker_render_result render_raster(const uint8_t *bytes, size_t len,
                                                const QSize &target, float progress) {
 	fzn_sticker_render_result r;
 	QImage img;
-	apng a;
 
+	if (!raster_side_ok(bytes, len)) {
+		r.unavailable_reason = QStringLiteral("this sticker's image is too large to draw");
+		return r;
+	}
 	/* ANIMATED, sec 1322: an APNG composed here, any other the frame Qt's
-	 * reader reaches -- an animated WebP's. A still is drawn as it always
-	 * was, its frame 0. */
-	if (apng_read(bytes, len, a)) {
-		const size_t at = std::min(a.frames.size() - 1u,
-		                           (size_t)(qBound(0.0f, progress, 1.0f) * (float)a.frames.size()));
-		img = apng_draw(a, at);
-	} else if (progress > 0.0f) {
+	 * reader reaches -- an animated WebP's -- each played on from its last
+	 * frame (sec 1445). A still is drawn as it always was, its frame 0. */
+	if (len >= 8 && !memcmp(bytes, "\x89PNG", 4) && progress <= 0.0f) {
+		/* FRAME 0, as a log paints every sticker it shows: composed alone,
+		 * and kept out of the few in play. */
+		play still;
+		if ((still.is_apng = apng_read(bytes, len, still.a)))
+			img = apng_draw(still, 0);
+	} else if (len >= 8 && !memcmp(bytes, "\x89PNG", 4)) {
+		play *p = play_of(bytes, len);
+		if (p->is_apng) {
+			const size_t at = std::min(p->a.frames.size() - 1u,
+			                           (size_t)(qBound(0.0f, progress, 1.0f) * (float)p->a.frames.size()));
+			img = apng_draw(*p, at);
+		}
+	}
+	if (img.isNull() && progress > 0.0f) {
 		QByteArray raw = QByteArray::fromRawData((const char *)bytes, (int)len);
 		QBuffer buf(&raw);
-		QImageReader reader(&buf);
-		const int count = reader.supportsAnimation() ? reader.imageCount() : 0;
+		QImageReader probe(&buf);
+		const int count = probe.supportsAnimation() ? probe.imageCount() : 0;
 		if (count > 1) {
 			const int at = std::min(count - 1, (int)(qBound(0.0f, progress, 1.0f) * (float)count));
-			for (int i = 0; i <= at; i++)
-				if (!reader.read(&img))
-					break;
+			img = reader_draw(*play_of(bytes, len), at);
 		}
 	}
 	if (!img.isNull()) {
