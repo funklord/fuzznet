@@ -35,6 +35,7 @@
 
 #include "bearer.h"
 #include "udp.h"
+#include "../version/version.h"
 
 /* DEVICES PART WAY AT ONCE. One radio carries one transmission at a time, so
  * this only has to outlast a frame's pieces being interleaved. */
@@ -93,9 +94,18 @@ static int make_raw(int fd)
 	return tcsetattr(fd, TCSANOW, &t) == 0;
 }
 
-static void usage(const char *prog)
+/* `out` is stdout for --help, which exits 0, and stderr for a mistaken
+ * command line, which exits 2 (sec 1443). */
+static void usage(FILE *out, const char *prog)
 {
-	fprintf(stderr, "usage: %s --unit=N --udp=HOST:PORT [--serial=PATH]\n", prog);
+	fprintf(out,
+	        "usage: %s --unit=N --udp=HOST:PORT [--serial=PATH]\n"
+	        "carries a host's frames to devices with no IP, over a byte stream\n"
+	        "  --unit=N          the bearer's unit size in bytes, %u to %u\n"
+	        "  --udp=HOST:PORT   the host's UDP port, IPv4\n"
+	        "  --serial=PATH     the serial line, raw 8-bit; stdin and stdout when absent\n"
+	        "  --help, -h        this text; --version, the version\n",
+	        prog, (unsigned)FZN_BEARER_UNIT_MIN, (unsigned)FZN_BEARER_UNIT_MAX);
 }
 
 int main(int argc, char **argv)
@@ -113,29 +123,42 @@ int main(int argc, char **argv)
 	unsigned long unit = 0, port = 0;
 	uint16_t link_id = 0;
 	int in_fd = 0, udp_fd = -1, i;
-	char *colon;
+	char *colon, *end = NULL;
 
 	for (i = 1; i < argc; i++) {
-		if (!strncmp(argv[i], "--unit=", 7))
-			unit = strtoul(argv[i] + 7, NULL, 10);
-		else if (!strncmp(argv[i], "--udp=", 6))
+		if (!strncmp(argv[i], "--unit=", 7)) {
+			/* WHOLE, sec 1444: "64x" is no unit; 0 is refused below. */
+			unit = strtoul(argv[i] + 7, &end, 10);
+			if (end == argv[i] + 7 || *end)
+				unit = 0;
+		} else if (!strncmp(argv[i], "--udp=", 6))
 			udp = argv[i] + 6;
 		else if (!strncmp(argv[i], "--serial=", 9))
 			serial = argv[i] + 9;
-		else {
-			usage(argv[0]);
+		else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+			usage(stdout, argv[0]);
+			return fflush(stdout) == 0 ? 0 : 1;
+		} else if (!strcmp(argv[i], "--version")) {
+			printf("fuzznet-bridge (fuzznet) %s\n%s\n", fzn_version_string(),
+			       fzn_copyright());
+			return fflush(stdout) == 0 ? 0 : 1;
+		} else {
+			usage(stderr, argv[0]);
 			return 2;
 		}
 	}
 	if (!udp || unit < FZN_BEARER_UNIT_MIN || unit > FZN_BEARER_UNIT_MAX
 	    || strlen(udp) >= sizeof(host) || !(colon = strrchr(strcpy(host, udp), ':'))) {
-		usage(argv[0]);
+		usage(stderr, argv[0]);
 		return 2;
 	}
 	*colon = '\0';
-	port = strtoul(colon + 1, NULL, 10);
-	if (port == 0u || port > 65535u
-	    || fzn_udp_resolve(AF_INET, host, (uint16_t)port, &to) != FZN_UDP_OK
+	port = strtoul(colon + 1, &end, 10);
+	if (end == colon + 1 || *end || port == 0u || port > 65535u) {
+		usage(stderr, argv[0]);
+		return 2;
+	}
+	if (fzn_udp_resolve(AF_INET, host, (uint16_t)port, &to) != FZN_UDP_OK
 	    || fzn_udp_bind(AF_INET, NULL, 0, &udp_fd) != FZN_UDP_OK) {
 		fprintf(stderr, "fuzznet-bridge: could not reach for %s\n", udp);
 		return 1;

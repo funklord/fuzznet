@@ -100,6 +100,7 @@
 #include "log_buckets.h"
 #include "piece_buckets.h"
 #include "../chunk/erasure.h"
+#include "../version/version.h"
 #include "pieces.h"
 #endif
 #include "reconcile.h"
@@ -182,6 +183,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <signal.h>
 #include <sys/un.h>
 #include <stdarg.h>
@@ -11488,6 +11490,54 @@ static int permit_hears(void *ctx, const fzn_peer_t *peer)
 
 /* AN EXTENSION'S OPTION, `arg` as typed: 1 taken, 0 not one of its, -1
  * refused, said. */
+/* A PORT ON THE COMMAND LINE, sec 1444: 1 to 65535 in decimal, all of
+ * it, or -1. `strtol` with no end check read "abc" as 0 and "80x" as 80,
+ * so a typo became a port nobody named. */
+static long cli_port(const char *text)
+{
+	char *end = NULL;
+	long v;
+
+	errno = 0;
+	v = strtol(text, &end, 10);
+	if (errno || end == text || *end || v < 1 || v > 65535)
+		return -1;
+	return v;
+}
+
+/* `--group`'S VALUE, sec 1444: a group's name, or its id in decimal, all
+ * of it; -1 for neither. A name that read as 0 made the root group the
+ * service group, letting its members in as local callers. */
+static long cli_group(const char *text)
+{
+	struct group gr, *found = NULL;
+	static char buf[16384];
+	char *end = NULL;
+	unsigned long long v;
+
+	if (!*text)
+		return -1;
+	if (*text >= '0' && *text <= '9') {
+		errno = 0;
+		v = strtoull(text, &end, 10);
+		return errno || *end || v >= 0xffffffffull ? -1 : (long)v;
+	}
+	if (getgrnam_r(text, &gr, buf, sizeof(buf), &found) != 0 || !found)
+		return -1;
+	return (long)found->gr_gid;
+}
+
+/* 1 when the calling daemon declares an option of exactly `name`. */
+static int ext_declares(const char *name)
+{
+	size_t i;
+
+	for (i = 0; daemon_ext && i < daemon_ext->n_options; i++)
+		if (daemon_ext->options[i].name && !strcmp(daemon_ext->options[i].name, name))
+			return 1;
+	return 0;
+}
+
 static int ext_option(const char *arg)
 {
 	size_t i;
@@ -22038,16 +22088,25 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		static uint8_t media[FZN_SESSION_FRAME_PAYLOAD_MAX];
 		unsigned long v[5];
 
+		/* EACH NUMBER WHOLE AND WITHIN ITS FIELD, sec 1444: a stream of 257
+		 * was stream 1 on the wire, a piece of 65536 piece 0. */
+		static const unsigned long field_max[5] = {0xffu, 0xffffffffu, 0xffffffffu, 0xffffu,
+		                                           0xffffu};
+
 		memset(&lw, 0, sizeof(lw));
 		for (i = 0; i < 5u; i++) {
-			char num[24];
+			char num[24], *end = NULL;
 
 			if (!next_word(&at, &left, &w, &w_len) || w_len >= sizeof(num))
 				return (size_t)snprintf(reply, cap, "malformed add frame ID STREAM SEQ AT "
 				                                    "PIECE PIECES HEX\n");
 			memcpy(num, w, w_len);
 			num[w_len] = '\0';
-			v[i] = strtoul(num, NULL, 10);
+			errno = 0;
+			v[i] = strtoul(num, &end, 10);
+			if (errno || end == num || *end || num[0] == '-' || v[i] > field_max[i])
+				return (size_t)snprintf(reply, cap, "malformed add frame ID STREAM SEQ AT "
+				                                    "PIECE PIECES HEX\n");
 		}
 		if (!next_word(&at, &left, &w, &w_len) || w_len % 2u
 		    || w_len / 2u > sizeof(media) - FZN_LIVE_FRAME_HEAD_LEN
@@ -24512,10 +24571,12 @@ static int texts_waiting(void)
 #endif
 }
 
-static void usage(const char *prog)
+/* `out` is stdout for --help, which asked for it and exits 0, and stderr
+ * for a mistaken command line, which exits 2 (sec 1443). */
+static void usage(FILE *out, const char *prog)
 {
-	fprintf(stderr,
-	        "usage: %s --socket=PATH [--group GID] [--udp-port=PORT]"
+	fprintf(out,
+	        "usage: %s --socket=PATH [--group GROUP] [--udp-port=PORT]"
 	        " [--udp6] [--identity HEX] [--root HEX]"
 	        " [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --pair=PREKEY_HEX [--delegable] [fuzznet options]\n"
@@ -24549,15 +24610,16 @@ static void usage(const char *prog)
 	        "              [--pull-from NODE_HEX HOST PORT]...  print hosts' log lines,\n"
 	        "              merged by time; --gather-ring prints their flight recorders,\n"
 	        "              and --short shortens what repeats from line to line\n"
+	        "--help, -h prints this on stdout; --version, the version and copyright\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 	/* AND WHAT THE DAEMON CALLING THIS TAKES BESIDE, sec 673. */
 	if (daemon_ext && daemon_ext->n_options) {
 		size_t i;
 
-		fprintf(stderr, "this daemon's own options:\n");
+		fprintf(out, "this daemon's own options:\n");
 		for (i = 0; i < daemon_ext->n_options; i++)
-			fprintf(stderr, "  %s%s  %s\n", daemon_ext->options[i].name,
+			fprintf(out, "  %s%s  %s\n", daemon_ext->options[i].name,
 			        daemon_ext->options[i].takes_value ? "=VALUE" : "",
 			        daemon_ext->options[i].help ? daemon_ext->options[i].help : "");
 	}
@@ -25693,8 +25755,27 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	fzn_cli_init(&cli);
 
 	for (i = 1; i < argc; i++) {
+		/* --help AND --version, sec 1443: what a manual page generator
+		 * reads, on stdout and status 0. A calling daemon that declares
+		 * either option answers it itself. */
+		if ((!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
+		    && !ext_declares("--help")) {
+			usage(stdout, argv[0]);
+			return fflush(stdout) == 0 ? 0 : 1;
+		}
+		if (!strcmp(argv[i], "--version") && !ext_declares("--version")) {
+			const char *slash = strrchr(argv[0], '/');
+
+			printf("%s (fuzznet) %s\n%s\n", slash ? slash + 1 : argv[0],
+			       fzn_version_string(), fzn_copyright());
+			return fflush(stdout) == 0 ? 0 : 1;
+		}
 		if (!strcmp(argv[i], "--group") && i + 1 < argc) {
-			group = strtol(argv[++i], NULL, 10);
+			group = cli_group(argv[++i]);
+			if (group < 0) {
+				fprintf(stderr, "fuzznetd: --group: %s is no group here\n", argv[i]);
+				return 2;
+			}
 		} else if (!strcmp(argv[i], "--identity") && i + 1 < argc) {
 			identity_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--root") && i + 1 < argc) {
@@ -25726,7 +25807,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				return 2;
 			}
 			pulls[npulls].host = argv[++i];
-			pulls[npulls].port = strtol(argv[++i], NULL, 10);
+			pulls[npulls].port = cli_port(argv[++i]);
+			if (pulls[npulls].port < 0) {
+				fprintf(stderr, "fuzznetd: --root-at: %s is not a port, 1 to 65535\n",
+				        argv[i]);
+				return 2;
+			}
 			pulls[npulls].is_root_at = 1;
 			npulls++;
 		} else if (!strcmp(argv[i], "--pull-from") && i + 3 < argc) {
@@ -25740,7 +25826,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				return 2;
 			}
 			pulls[npulls].host = argv[++i];
-			pulls[npulls].port = strtol(argv[++i], NULL, 10);
+			pulls[npulls].port = cli_port(argv[++i]);
+			if (pulls[npulls].port < 0) {
+				fprintf(stderr, "fuzznetd: --pull-from: %s is not a port, 1 to 65535\n",
+				        argv[i]);
+				return 2;
+			}
 			pulls[npulls].is_root_at = 0;
 			npulls++;
 		} else if (!strncmp(argv[i], "--log-dir=", 10u)) {
@@ -25887,7 +25978,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			dlog.n_rules++;
 		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
 			to_host = argv[++i];
-			to_port = strtol(argv[++i], NULL, 10);
+			to_port = cli_port(argv[++i]);
+			if (to_port < 0) {
+				fprintf(stderr, "fuzznetd: --to: %s is not a port, 1 to 65535\n", argv[i]);
+				return 2;
+			}
 		} else {
 			/* FUZZNET'S OWN OPTIONS ARE FUZZNET'S PARSER'S, so this
 			 * daemon, the config dialog and every consumer refuse the
@@ -25910,7 +26005,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				claimed = took;
 			}
 			if (!claimed) {
-				usage(argv[0]);
+				usage(stderr, argv[0]);
 				return 2;
 			}
 		}
@@ -25950,7 +26045,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	if (!sock_path && !pair_hex && !show_prekey && !device_image && !new_root && !accept_text
 	    && !ask_line && !gather_program && !gather_ring && !check_log
 	    && !set_admin && !replaying && udp_port < 0 && !cli.dir) {
-		usage(argv[0]);
+		usage(stderr, argv[0]);
 		return 2;
 	}
 	/* THE DEFAULT SOCKET, sec 663, the holder's of 2026-10-20: a daemon that

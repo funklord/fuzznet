@@ -108,10 +108,11 @@ listener port spans (`150e3106`).
   their numbers kept.
 - **No sticker store** until there is an always-on host (sec 1312): the
   holder's, settled.
-- **The holder's, to answer after a reboot** (sec 1442): why is there
-  no `make deb`, and does fuzznet not also offer a statically linked
-  version? With fuzzypickles' ask that fuzznetd's `--help` go to stdout
-  with status 0, for the manual pages Debian wants.
+- **The holder's packaging questions, answered** (sec 1443, from sec
+  1442): no `make deb` because nothing installs fuzznet -- consumers
+  vendor it and fuzznetd is a test peer (sec 902); static is the only
+  way fuzznet is offered, no shared library on purpose. fuzznetd's
+  `--help` and `--version` are on stdout with 0, for help2man.
 - **Assumptions the holder may move**: discovery port 6290 and the
   spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
 
@@ -78112,3 +78113,87 @@ fuzzypickles does for its own programs; `--version` would let help2man
 work on it unaided. Measured there: 50 lines to stderr, status 2, at
 1770bfb3. A mistaken option keeps stderr and 2.
 
+**Answered in sec 1443.**
+
+## 1443. The packaging questions answered, and `--help` on stdout, 2026-11-25
+
+**fuzznetd's `--help` and `-h` print the usage on stdout and exit 0, and
+`--version` prints `fuzznetd (fuzznet) 0.1.0` and the copyright line**,
+fuzzypickles' ask of sec 1442, so help2man can make a manual page from
+either. A mistaken option keeps the usage on stderr and status 2. A
+calling daemon (`fzn_daemon_main`, sec 673) that declares `--help` or
+`--version` among its own options answers it itself, so fzpd can print
+its own version; one that does not gets fuzznet's, under its own
+program name. **`fuzznet-bridge` the same** (sec 912), its usage
+grown into a line per option for the page. `tool/live_help.py`, in
+`livecheck`, fails all three ways against either program before the
+change.
+
+**Why there is no `make deb`.** Nothing installs fuzznet as a package.
+It is a library each consumer vendors at its root and compiles into its
+own programs (the leaf rule, `harmonization.md`), and the consumers
+package those programs: fuzzypickles, netcfgd and raidcfgd carry
+`debian/`. fuzznetd is not something a consumer installs either -- the
+holder in sec 902: it is "primarily used by fuzznet-based software to
+test concurrency with their own daemon", and fuzzypickles does not ship
+it. A fuzznet package would carry a test peer and headers nobody builds
+against from `/usr/include`. What would change that: fuzznetd run as a
+host in its own right -- the always-on host the sticker store waits for
+(sec 1312) -- or a consumer that wants an installed library rather than
+a vendored one, which the leaf rule turns away. Should the holder want
+one anyway, its shape is `libfuzznet-dev` (the headers `make install`
+already installs, `libfuzznetd.a`, `libfuzznet-client.a`) and
+`fuzznetd` with a help2man page, built as the `debian-packaging` skill
+says. Two things it would meet: the fuzznetd link line reads no
+`$(LDFLAGS)`, so dpkg's hardening (relro, now) would not reach it; and
+`debian/copyright` asks for terms this tree does not state.
+
+**Whether a statically linked version is offered: yes, and it is the
+only way fuzznet is offered.** Every consumer compiles the sources into
+its own binaries; `make daemon-lib` (sec 907) and `make client-lib`
+(sec 1418) hand over the two archives with their flags and a link check
+each. **There is no shared library, on purpose**: at 0.x the structs grow
+and the wire changes when that buys something (sec 924), so one
+`libfuzznet.so` on a host would be one version for every consumer, where
+the leaf rule gives each the version it pinned. fuzznetd itself links
+fuzznet statically and only libc and libzstd dynamically. **A fully
+static fuzznetd links** -- measured here by hand with `-static` on
+glibc: 10 MB, `--version` runs -- with glibc's warning that three calls
+still need its shared NSS libraries at run time: `getpwnam_r` and
+`getgrnam_r` (a permit naming a user or group, `node/permit.c`) and
+`getaddrinfo` (gpsd's host, `location/gpsd.c`). Against musl those read
+`/etc/passwd`, `/etc/group` and DNS themselves. No target builds it; one
+is a line when somebody needs it (an embedded or Alpine host).
+
+## 1444. fuzznetd's own option values parsed whole, 2026-11-25
+
+Found answering sec 1443, by the lens it had: what fuzznetd's own command
+line does with a value it was not meant to take. **`--group` read its
+value with `strtol` and no end check**, so `--group fuzznet` -- a
+group's name, the natural spelling in a service unit -- was gid 0: the
+root group became the service group and its members were let in as
+local callers (`node/node.c`, `has_service_gid`), and `--group 100x` was
+100. The ports of `--to`, `--root-at` and `--pull-from` the same: "abc"
+was port 0 and "80x" port 80.
+
+**Now**: `--group` takes a group's name or its id in decimal, whole,
+and refuses anything else with status 2 (`cli_group`, through
+`getgrnam_r` as a permit's group names already are, sec 1443's NSS
+note); each port is 1 to 65535 in decimal, whole, or the run stops with
+status 2 (`cli_port`). The options fuzznet's parser owns (`fzn_cli`, sec
+421) were already strict; these were this main's own. The usage says
+`--group GROUP`. `tool/live_help.py` runs the old daemon into each case
+in a scratch XDG home: it starts serving on the first three and answers
+the last two with an unrelated refusal, so all five fail there.
+
+**`fuzznet-bridge` the same**: `--unit=64x` was 64 and `--udp=HOST:9x`
+port 9; both are refused now with the usage and status 2 (a port that
+is no port was "could not reach", status 1, beside a real failure to
+resolve). Against the old bridge the three cases ran and exited 0, or 1.
+
+**And the local `add frame` verb** (sec 1022's text form): its five
+numbers were `strtoul` with no end check, narrowed into a u8 stream,
+u32 sequence and time, and u16 piece and pieces, so a stream of 257
+went out as stream 1 and a piece of 65536 as piece 0. Each is now
+whole, unsigned and within its field, or the verb answers `malformed`.
+`tool/live_call.py` step d1 sends five such frames.

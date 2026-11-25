@@ -5975,7 +5975,7 @@ device-check:
 	@echo "device-check: $(words $(DEVICE_BOARD_SRCS)) sources build with no system header"
 
 $(BUILD_DIR)/fuzznet-bridge: $(BUILD_DIR)/net/bridge.o $(BUILD_DIR)/net/bearer.o \
-                             $(BUILD_DIR)/net/udp.o
+                             $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@
 
@@ -8275,6 +8275,7 @@ endif
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
 	@timeout 1160 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
+	@timeout 60 python3 tool/live_help.py $(FUZZNETD) $(BRIDGE)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 170 python3 tool/live_location.py $(FUZZNETD)

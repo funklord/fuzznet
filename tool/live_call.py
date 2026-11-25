@@ -239,6 +239,15 @@ def main(argv):
 				print("livecheck: %s: %s sent a frame, and %s read it back the same"
 				      % ("c" if frm == "a" else "d", frm.upper(), to.upper()))
 
+			# d1: NUMBERS PAST THEIR FIELDS REFUSED, sec 1444: a stream of 257 was
+			# stream 1 on the wire, a piece of 65536 piece 0, "7x" was 7.
+			for bad in ("257 1 1234 0 1", "1 1 1234 65536 65537", "1 7x 1234 0 1",
+			            "1 4294967296 1234 0 1", "1 -1 1234 0 1"):
+				said = ask(socks["a"], "add frame %s %s ab" % (call, bad))
+				if not said.startswith("malformed add frame"):
+					raise failed("d1: add frame %s answered %r" % (bad, said))
+			print("livecheck: d1: A refused five frames whose numbers overrun their fields")
+
 			# e: QUALITY, sec 1021: A sends video frames 1, 2, 4 and 5; B measures four
 			# received and one lost, and reports it, which A reads as what it sent.
 			for seq in (1, 2, 4, 5):
