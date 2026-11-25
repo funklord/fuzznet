@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-22
 
-The newest work is at the end of this file. **Read secs 1287 to 1441
+The newest work is at the end of this file. **Read secs 1287 to 1442
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -108,6 +108,10 @@ listener port spans (`150e3106`).
   their numbers kept.
 - **No sticker store** until there is an always-on host (sec 1312): the
   holder's, settled.
+- **The holder's, to answer after a reboot** (sec 1442): why is there
+  no `make deb`, and does fuzznet not also offer a statically linked
+  version? With fuzzypickles' ask that fuzznetd's `--help` go to stdout
+  with status 0, for the manual pages Debian wants.
 - **Assumptions the holder may move**: discovery port 6290 and the
   spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
 
@@ -78083,4 +78087,28 @@ values each step -- up to 20 names, so past the 16, at, below and past 32
 characters, repeated, upper case and stray bytes -- and requires the same
 answer word for word: two million values, no difference. Sabotage:
 `group-list-situ-trailing-space`.
+
+## 1442. Packaging questions, written down to answer after a reboot, 2026-11-25
+
+**The holder, 2026-11-25**: "why is there no make deb? Do we not also
+offer a statically linked version? Anyway, produce answers to these after
+a reboot, write them down for now." Not answered yet (the session stopped
+at 98 per cent of the week's budget).
+
+**What stands, measured before stopping**: no `debian/` directory and no
+`deb` target in the Makefile; `make install` installs headers (line
+`install: $(HDRS)`). Static archives exist but are not offered as a
+distribution: `libfuzznetd.a` (the daemon library, linked into
+fuzznetd) and `make client-lib`'s `libfuzznet-client.a` (sec 1418). The
+answers start from the `debian-packaging` skill (what a package must
+carry, `DEB_DIR` under `$(BUILD_DIR)/deb`) and the consumers' own
+packages, which vendor fuzznet and link it statically today.
+
+**Asked by fuzzypickles** (inbox 20261124T2258Z), for the same Debian
+work: `fuzznetd --help` and `-h` print usage to stdout and exit 0 -- today
+it falls through to `usage()` on stderr, status 2 (`node/daemon.c`,
+`usage` and its calls) -- so a manual page can be generated from it, as
+fuzzypickles does for its own programs; `--version` would let help2man
+work on it unaided. Measured there: 50 lines to stderr, status 2, at
+1770bfb3. A mistaken option keeps stderr and 2.
 
