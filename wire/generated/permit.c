@@ -51,6 +51,11 @@ situ_err_t fzn_permit_numeric_check(situ_view_t view, uint32_t *which)
 			return e;
 		}
 	}
+	/* numeric.id [max = 4294967294] */
+	if (fzn_permit_numeric_id_value(view) > 4294967294) {
+		*which = FZN_PERMIT_NUMERIC_ID_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
 	return SITU_OK;
 }
 

@@ -91,6 +91,13 @@ int main(void)
 	ok(!allows("user:#2002=rw group:#78=rw", &p, FZN_PERMIT_READ),
 	   "a grant to somebody else was taken as this caller's");
 	ok(allows("user:#9=r group:#77=rw", &p, FZN_PERMIT_CHANGE), "a later grant was not read");
+	/* AN ID PAST 32 BITS, sec 1444: 4294969297 is 2^32 + 2001, and wrapped
+	 * into a uid_t it let in uid 2001; the all-ones id is no user. */
+	ok(!allows("user:#4294969297=r", &p, FZN_PERMIT_READ)
+	           && !allows("local:@#4294967373=r", &p, FZN_PERMIT_READ)
+	           && check("user:#4294967295=r") && check("group:#9999999999=r")
+	           && check("user:#4294967294=r") == NULL,
+	   "an id past what a uid or gid holds was taken, wrapped");
 	ok(allows("user:#2001=x", &p, FZN_PERMIT_RRPC) && !allows("user:#2001=x", &p, FZN_PERMIT_READ)
 	           && !allows("user:#2001=rw", &p, FZN_PERMIT_RRPC),
 	   "a call grant was not a call alone");

@@ -61,6 +61,12 @@ static int target_of(situ_view_t t, struct grant *g)
 
 		if (fzn_permit_target_body_id_view(t, &b) != SITU_OK || fzn_permit_numeric_id_get(b, &id) != SITU_OK)
 			return 0;
+		/* AN ID A USER OR GROUP CAN HAVE, sec 1444: the schema refuses
+		 * past it, and this guards the narrowing below where the schema's
+		 * reading is not in view -- ten digits once wrapped into a uid_t,
+		 * `#4294968296` letting in uid 1000. */
+		if (id > FZN_PERMIT_NUMERIC_ID_VALUE_MAX)
+			return 0;
 		g->numeric = 1;
 		/* ITS DIGITS AS WRITTEN UP TO TEN, read back by `strtoul` where a
 		 * caller is matched, as the hand parser kept them. */

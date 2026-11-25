@@ -68,6 +68,11 @@ static inline int ref_parse_grant(const char *w, size_t n, struct ref_grant *g)
 		for (i = 0; i < name_len; i++)
 			if (name[i] < '0' || name[i] > '9')
 				return 0;
+		/* AND ONE A USER OR GROUP CAN HAVE, sec 1444: the hand parser
+		 * took ten digits and the match wrapped them into a uid_t; both
+		 * sides refuse past 4294967294 now. */
+		if (name_len == 10u && memcmp(name, "4294967294", 10) > 0)
+			return 0;
 	} else {
 		if (name_len == 0u || name_len >= sizeof(g->name))
 			return 0;

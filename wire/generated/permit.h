@@ -178,6 +178,8 @@ static inline void fzn_permit_numeric_hash_set(situ_view_t view, uint8_t value)
 	(situ_base(view))[0u] = (uint8_t)value;
 }
 
+#define FZN_PERMIT_NUMERIC_ID_VALUE_MAX 4294967294u
+
 /* numeric.id : u64  at AbsoluteStatic(0x01)
  * size=Bounded(1, 11) align=Aligned(1) repr=TextConverted atomic=NonAtomic mutate=Shifting
  */
@@ -640,6 +642,8 @@ static inline situ_err_t fzn_permit_target_body_id_view(situ_view_t view, situ_v
 #define FZN_PERMIT_TARGET_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_TARGET_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_TARGET_BODY_ID_ID_VALUE_MAX 4294967294u
+
 /* target.body.text, present when the discriminant selects `default`.
  *
  * Reading another arm's bytes as this one's stays inside the view
@@ -864,6 +868,8 @@ static inline situ_err_t fzn_permit_group_target_who_view(situ_view_t view, situ
 #define FZN_PERMIT_GROUP_TARGET_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GROUP_TARGET_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_GROUP_TARGET_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 /** How many bytes one `group_target` occupies at this view's base.
  *
  * A run of these is walked rather than indexed, and the walk needs
@@ -1036,6 +1042,8 @@ static inline situ_err_t fzn_permit_local_target_body_group_view(situ_view_t vie
 #define FZN_PERMIT_LOCAL_TARGET_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_LOCAL_TARGET_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_LOCAL_TARGET_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 /* local_target.body.user, present when the discriminant selects `default`.
  *
  * Reading another arm's bytes as this one's stays inside the view
@@ -1070,6 +1078,8 @@ static inline situ_err_t fzn_permit_local_target_body_user_view(situ_view_t view
 
 #define FZN_PERMIT_LOCAL_TARGET_BODY_USER_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_LOCAL_TARGET_BODY_USER_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_LOCAL_TARGET_BODY_USER_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** How many bytes one `local_target` occupies at this view's base.
  *
@@ -1258,8 +1268,12 @@ static inline situ_err_t fzn_permit_local_grant_who_view(situ_view_t view, situ_
 #define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 #define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_USER_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_USER_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_LOCAL_GRANT_WHO_BODY_USER_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** local_grant.rights : rights_word  at Dynamic
  * size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
@@ -1547,6 +1561,8 @@ static inline situ_err_t fzn_permit_group_grant_who_view(situ_view_t view, situ_
 #define FZN_PERMIT_GROUP_GRANT_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GROUP_GRANT_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_GROUP_GRANT_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 /** group_grant.rights : rights_word  at Dynamic
  * size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
@@ -1832,6 +1848,8 @@ static inline situ_err_t fzn_permit_user_grant_who_view(situ_view_t view, situ_v
 
 #define FZN_PERMIT_USER_GRANT_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_USER_GRANT_WHO_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_USER_GRANT_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** user_grant.rights : rights_word  at Dynamic
  * size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
@@ -2255,8 +2273,12 @@ static inline situ_err_t fzn_permit_grant_body_local_view(situ_view_t view, situ
 #define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 #define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_USER_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_USER_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_GRANT_BODY_LOCAL_WHO_BODY_USER_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** grant.body.group, present when the discriminant selects `'g'`.
  *
@@ -2301,6 +2323,8 @@ static inline situ_err_t fzn_permit_grant_body_group_view(situ_view_t view, situ
 #define FZN_PERMIT_GRANT_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GRANT_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_GRANT_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 /** grant.body.user, present when the discriminant selects `'u'`.
  *
  * Reading another arm's bytes as this one's stays inside the view
@@ -2343,6 +2367,8 @@ static inline situ_err_t fzn_permit_grant_body_user_view(situ_view_t view, situ_
 
 #define FZN_PERMIT_GRANT_BODY_USER_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_GRANT_BODY_USER_WHO_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_GRANT_BODY_USER_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** How many bytes one `grant` occupies at this view's base.
  *
@@ -2585,14 +2611,22 @@ static inline uint32_t fzn_permit_permit_grants_span(situ_view_t view)
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_USER_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_USER_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_PERMIT_GRANTS_BODY_LOCAL_WHO_BODY_USER_BODY_ID_ID_VALUE_MAX 4294967294u
 
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_GROUP_WHO_BODY_ID_HASH_VALUE_MAX 35u
 
+#define FZN_PERMIT_PERMIT_GRANTS_BODY_GROUP_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
+
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_USER_WHO_BODY_ID_HASH_VALUE_MIN 35u
 #define FZN_PERMIT_PERMIT_GRANTS_BODY_USER_WHO_BODY_ID_HASH_VALUE_MAX 35u
+
+#define FZN_PERMIT_PERMIT_GRANTS_BODY_USER_WHO_BODY_ID_ID_VALUE_MAX 4294967294u
 
 /** How many bytes a whole `permit` needs, given `have` of them.
  *

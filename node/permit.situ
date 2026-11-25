@@ -19,10 +19,12 @@ whitespace ' ';
 tokens rights_word { r = "r", rw = "rw", rx = "rx", rwx = "rwx", x = "x", default = error, }
 tokens anyone_word { x = "any=x", r = "any=r", default = error, }
 
-// A NAME: 1 to 63 of a-z A-Z 0-9 - _ ., or `#` and 1 to 10 digits.
+// A NAME: 1 to 63 of a-z A-Z 0-9 - _ ., or `#` and 1 to 10 digits, no more
+// than 4294967294: an id a user or group can have (sec 1444), where a match
+// narrowing into a uid_t once wrapped.
 struct numeric {
 	u8           hash [must_eq = '#'];
-	decimal u64  id until "=" max 11;
+	decimal u64  id until "=" max 11 [max = 4294967294];
 }
 struct text_name {
 	u8   text[] until "=" max 64 [chars = "a-zA-Z0-9_.-"];

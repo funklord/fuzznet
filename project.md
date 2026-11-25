@@ -78197,3 +78197,19 @@ u32 sequence and time, and u16 piece and pieces, so a stream of 257
 went out as stream 1 and a piece of 65536 as piece 0. Each is now
 whole, unsigned and within its field, or the verb answers `malformed`.
 `tool/live_call.py` step d1 sends five such frames.
+
+**And a local permit's `#ID`** (sec 1415): the grammar takes one to ten
+digits, and a caller was matched by `strtoul` narrowed into a `uid_t`
+or `gid_t`, so an id past 32 bits wrapped -- `user:#4294968296=rwx`
+let in uid 1000, `#4294967296` root. An id past 4294967294 is refused
+now, and the whole value with it (the all-ones id is `(uid_t)-1`, no
+user): **the bound is the schema's**, `node/permit.situ`'s `id ... [max
+= 4294967294]`, regenerated at situ `67770bf2` (one check in
+`wire/generated/permit.c`, the `_VALUE_MAX` constants, the bound on
+one line of `node/permit.situ.wire`; the map unchanged). situc calls
+it compatible, warning that a newer receiver may refuse what an older
+sender wrote -- which is the point); `target_of` keeps a guard on the
+generated constant beside the narrowing. The hand oracle
+`node/test/permit_ref.h` refuses the same, so `permit_agree_fuzz` still
+holds the two to one verdict. permit_test asks a wrapped user and group
+and the bound.

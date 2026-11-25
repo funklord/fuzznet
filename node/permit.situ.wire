@@ -100,7 +100,7 @@ struct local_target size=1..65
 
 struct numeric size=2..12
   @0x0000   1         u8         hash  must_eq=35
-  @0x0001   until:3d  u64        id  radix=10 cap=11
+  @0x0001   until:3d  u64        id  radix=10 cap=11 max=4294967294
 
 struct permit size=0..
   @0x0000   0..       grant      grants  while=1 while-or-end
