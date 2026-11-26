@@ -14,7 +14,9 @@
  * tune's length, and nothing else, with the client key its user registered
  * at acoustid.org -- never without one, so nothing is sent unasked -- over
  * FFmpeg's https, the certificate checked. The answer's best result: the
- * AcoustID and the first MusicBrainz recording it names.
+ * AcoustID and the first MusicBrainz recording it names, with that
+ * recording's title and artists (sec 1463), UTF-8 with no control
+ * character, cut at a character's edge.
  */
 #ifndef FZN_MEDIA_FINGERPRINT_H
 #define FZN_MEDIA_FINGERPRINT_H
@@ -24,6 +26,7 @@
 
 #define FZN_MEDIA_PRINT_SECONDS 120u
 #define FZN_MEDIA_ID_MAX 36u /* a UUID's text */
+#define FZN_MEDIA_NAME_MAX 255u /* a catalogue value's most */
 
 typedef struct fzn_media_print fzn_media_print_t;
 
@@ -49,6 +52,8 @@ double fzn_media_print_distance(const uint32_t *a, size_t a_n, const uint32_t *b
 typedef struct fzn_media_identity {
 	char acoustid[FZN_MEDIA_ID_MAX + 1u];  /* the AcoustID, empty for none */
 	char recording[FZN_MEDIA_ID_MAX + 1u]; /* the MusicBrainz recording, empty for none */
+	char title[FZN_MEDIA_NAME_MAX + 1u];   /* its title, empty for none */
+	char artist[FZN_MEDIA_NAME_MAX + 1u];  /* its artists' names, joined by ", " */
 	double score;                          /* 0 to 1 */
 } fzn_media_identity_t;
 

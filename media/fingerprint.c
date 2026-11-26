@@ -28,8 +28,86 @@ static void json_space(struct json *j)
 		j->at++;
 }
 
-/* A string, its raw bytes (escapes kept, which no id holds) into `out` of
- * `cap` where `out` is not NULL: 1, or 0 where it does not read. */
+/* Four hex digits at `p`: their value, or -1. */
+static long json_hex4(const char *p)
+{
+	long v = 0;
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		const char c = p[i];
+
+		v <<= 4;
+		if (c >= '0' && c <= '9')
+			v |= c - '0';
+		else if (c >= 'a' && c <= 'f')
+			v |= c - 'a' + 10;
+		else if (c >= 'A' && c <= 'F')
+			v |= c - 'A' + 10;
+		else
+			return -1;
+	}
+	return v;
+}
+
+/* `c` as UTF-8 into `out`, at `*n` of `cap` -- whole or not at all, so a
+ * value is cut at a character's edge; a control character, a lone half of
+ * a surrogate pair or nothing at all is left out. */
+static void json_put(char *out, size_t cap, size_t *n, unsigned long c)
+{
+	unsigned char b[4];
+	size_t k = 0, i;
+
+	if (!out || c < 0x20u || c == 0x7fu || (c >= 0xd800u && c <= 0xdfffu) || c > 0x10ffffu)
+		return;
+	if (c < 0x80u) {
+		b[k++] = (unsigned char)c;
+	} else if (c < 0x800u) {
+		b[k++] = (unsigned char)(0xc0u | (c >> 6));
+		b[k++] = (unsigned char)(0x80u | (c & 0x3fu));
+	} else if (c < 0x10000u) {
+		b[k++] = (unsigned char)(0xe0u | (c >> 12));
+		b[k++] = (unsigned char)(0x80u | ((c >> 6) & 0x3fu));
+		b[k++] = (unsigned char)(0x80u | (c & 0x3fu));
+	} else {
+		b[k++] = (unsigned char)(0xf0u | (c >> 18));
+		b[k++] = (unsigned char)(0x80u | ((c >> 12) & 0x3fu));
+		b[k++] = (unsigned char)(0x80u | ((c >> 6) & 0x3fu));
+		b[k++] = (unsigned char)(0x80u | (c & 0x3fu));
+	}
+	if (*n + k + 1u > cap)
+		return;
+	for (i = 0; i < k; i++)
+		out[(*n)++] = (char)b[i];
+}
+
+/* The UTF-8 sequence at `p` of `left` bytes: its character and length, or
+ * 0 for none that is well formed. */
+static size_t utf8_one(const unsigned char *p, size_t left, unsigned long *c)
+{
+	size_t k, i;
+
+	if (p[0] < 0x80u) {
+		*c = p[0];
+		return 1;
+	}
+	k = p[0] >= 0xf0u && p[0] < 0xf5u ? 4u : p[0] >= 0xe0u ? 3u : p[0] >= 0xc2u && p[0] < 0xe0u ? 2u : 0u;
+	if (!k || k > left)
+		return 0;
+	*c = p[0] & (0xffu >> (k + 1u));
+	for (i = 1; i < k; i++) {
+		if ((p[i] & 0xc0u) != 0x80u)
+			return 0;
+		*c = (*c << 6) | (p[i] & 0x3fu);
+	}
+	if ((k == 3u && *c < 0x800u) || (k == 4u && (*c < 0x10000u || *c > 0x10ffffu)))
+		return 0;
+	return k;
+}
+
+/* A string into `out` of `cap` where `out` is not NULL, its escapes read --
+ * `\uXXXX`, a surrogate pair among them, into UTF-8 -- and anything ill
+ * formed or a control left out: 1, or 0 where it does not read. */
 static int json_string(struct json *j, char *out, size_t cap)
 {
 	size_t n = 0;
@@ -39,13 +117,43 @@ static int json_string(struct json *j, char *out, size_t cap)
 		return 0;
 	j->at++;
 	while (j->at < j->end && *j->at != '"') {
+		unsigned long c;
+		size_t k;
+
 		if (*j->at == '\\') {
 			if (++j->at >= j->end)
 				return 0;
+			switch (*j->at) {
+			case 'u': {
+				long hi, lo;
+
+				if (j->end - j->at < 5 || (hi = json_hex4(j->at + 1)) < 0)
+					return 0;
+				j->at += 5;
+				c = (unsigned long)hi;
+				if (hi >= 0xd800 && hi < 0xdc00 && j->end - j->at >= 6 && j->at[0] == '\\' && j->at[1] == 'u'
+				    && (lo = json_hex4(j->at + 2)) >= 0xdc00 && lo < 0xe000) {
+					c = 0x10000u + (((unsigned long)hi - 0xd800u) << 10) + ((unsigned long)lo - 0xdc00u);
+					j->at += 6;
+				}
+				json_put(out, cap, &n, c);
+				continue;
+			}
+			case 'n': case 't': case 'r': case 'b': case 'f':
+				j->at++; /* a control, left out */
+				continue;
+			default:
+				json_put(out, cap, &n, (unsigned char)*j->at); /* " \ / as themselves */
+				j->at++;
+				continue;
+			}
 		}
-		if (out && n + 1u < cap)
-			out[n++] = *j->at;
-		j->at++;
+		if (!(k = utf8_one((const unsigned char *)j->at, (size_t)(j->end - j->at), &c))) {
+			j->at++; /* a byte that is no UTF-8, left out */
+			continue;
+		}
+		json_put(out, cap, &n, c);
+		j->at += k;
 	}
 	if (j->at >= j->end)
 		return 0;
@@ -180,18 +288,52 @@ struct reading {
 	char status[16];
 	/* the result being read, and the best so far */
 	char id[FZN_MEDIA_ID_MAX + 1u], recording[FZN_MEDIA_ID_MAX + 1u];
+	char title[FZN_MEDIA_NAME_MAX + 1u], artist[FZN_MEDIA_NAME_MAX + 1u];
+	char name[FZN_MEDIA_NAME_MAX + 1u];
 	double score;
 	int recordings_seen;
 	fzn_media_identity_t best;
 	int found;
 };
 
+/* An artist of the first recording: its name, joined to those before. */
+static int artist_member(struct json *j, const char *key, void *ctx)
+{
+	struct reading *r = ctx;
+
+	if (!strcmp(key, "name"))
+		return json_string(j, r->name, sizeof(r->name));
+	return json_skip(j, 4);
+}
+
+static int artist_done(void *ctx)
+{
+	struct reading *r = ctx;
+	size_t have = strlen(r->artist), add = strlen(r->name);
+
+	if (add && have + (have ? 2u : 0u) + add < sizeof(r->artist)) {
+		if (have) {
+			memcpy(r->artist + have, ", ", 2u);
+			have += 2u;
+		}
+		memcpy(r->artist + have, r->name, add + 1u);
+	}
+	r->name[0] = '\0';
+	return 1;
+}
+
 static int recording_member(struct json *j, const char *key, void *ctx)
 {
 	struct reading *r = ctx;
 
-	if (!strcmp(key, "id") && !r->recordings_seen)
+	if (r->recordings_seen)
+		return json_skip(j, 3);
+	if (!strcmp(key, "id"))
 		return json_string(j, r->recording, sizeof(r->recording));
+	if (!strcmp(key, "title"))
+		return json_string(j, r->title, sizeof(r->title));
+	if (!strcmp(key, "artists"))
+		return json_objects(j, artist_member, artist_done, r);
 	return json_skip(j, 3);
 }
 
@@ -222,10 +364,12 @@ static int result_done(void *ctx)
 	if (r->id[0] && (!r->found || r->score > r->best.score)) {
 		snprintf(r->best.acoustid, sizeof(r->best.acoustid), "%s", r->id);
 		snprintf(r->best.recording, sizeof(r->best.recording), "%s", r->recording);
+		memcpy(r->best.title, r->title, sizeof(r->best.title));
+		memcpy(r->best.artist, r->artist, sizeof(r->best.artist));
 		r->best.score = r->score;
 		r->found = 1;
 	}
-	r->id[0] = r->recording[0] = '\0';
+	r->id[0] = r->recording[0] = r->title[0] = r->artist[0] = '\0';
 	r->score = 0;
 	r->recordings_seen = 0;
 	return 1;
@@ -266,7 +410,7 @@ fzn_media_lookup_result_t fzn_media_acoustid_read(const char *json, size_t len, 
 	if (!r.found || !id_ok(r.best.acoustid))
 		return FZN_MEDIA_LOOKUP_UNKNOWN;
 	if (r.best.recording[0] && !id_ok(r.best.recording))
-		r.best.recording[0] = '\0';
+		r.best.recording[0] = r.best.title[0] = r.best.artist[0] = '\0';
 	if (!(r.best.score >= 0.0 && r.best.score <= 1.0))
 		r.best.score = 0.0;
 	*out = r.best;
@@ -494,7 +638,7 @@ fzn_media_lookup_result_t fzn_media_acoustid_lookup(const char *url, const char 
 	if (!(print_q = malloc(3u * strlen(print) + 1u)) || !(form = malloc(form_cap)) || !(answer = malloc(ANSWER_MAX + 1u))
 	    || !url_escape(print, print_q, 3u * strlen(print) + 1u))
 		goto done;
-	n = snprintf(form, form_cap, "format=json&meta=recordingids&client=%s&duration=%u&fingerprint=%s", key_q, seconds,
+	n = snprintf(form, form_cap, "format=json&meta=recordings&client=%s&duration=%u&fingerprint=%s", key_q, seconds,
 	             print_q);
 	if (n < 0 || (size_t)n >= form_cap || !(form_hex = malloc(2u * (size_t)n + 1u)))
 		goto done;

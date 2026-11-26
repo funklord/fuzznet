@@ -17806,8 +17806,9 @@ static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char
  * AND WHICH RECORDING IT IS, sec 1459: where the user has set `media/acoustid`
  * -- the client key AcoustID registered to them -- the child prints the
  * tune's first two minutes (media/fingerprint.h) and asks AcoustID, and
- * the host asserts the `acoustid` and `musicbrainz_recording` it names, and
- * `identified` once AcoustID has answered, found or not. With no key set
+ * the host asserts the `acoustid` and `musicbrainz_recording` it names --
+ * and the recording's `title` and `artist` where nothing names the tune yet
+ * (sec 1463) -- and `identified` once AcoustID has answered, found or not. With no key set
  * nothing leaves the host; one set later has the tunes heard before asked
  * again.
  *
@@ -18082,9 +18083,18 @@ static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const struct sound_
 		SOUND_PUT("peak", value, n);
 	}
 	if (f && f->looked && f->id.acoustid[0]) {
+		char said[FZN_MEDIA_NAME_MAX + 1u];
+
 		SOUND_PUT("acoustid", f->id.acoustid, strlen(f->id.acoustid));
 		if (f->id.recording[0])
 			SOUND_PUT("musicbrainz_recording", f->id.recording, strlen(f->id.recording));
+		/* AN UNTAGGED TUNE NAMED, sec 1463: the recording's title and
+		 * artists, this host's labels, where nothing names it yet -- a
+		 * file's own tags, or a person's word, stand. */
+		if (f->id.title[0] && !catalog_first(root, "title", said, sizeof(said)))
+			SOUND_PUT("title", f->id.title, strlen(f->id.title));
+		if (f->id.artist[0] && !catalog_first(root, "artist", said, sizeof(said)))
+			SOUND_PUT("artist", f->id.artist, strlen(f->id.artist));
 	}
 	if (f && f->looked)
 		SOUND_PUT("identified", "1", 1u);

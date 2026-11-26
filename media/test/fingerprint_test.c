@@ -39,7 +39,9 @@ static const char ANSWER[] =
         "{\"id\": \"0b1cf1a2-1111-4b4b-8c8c-000000000001\", \"score\": 0.41,"
         " \"recordings\": [{\"id\": \"aaaaaaaa-0000-4000-8000-000000000001\"}]},"
         "{\"score\": 0.97, \"id\": \"0b1cf1a2-2222-4b4b-8c8c-000000000002\","
-        " \"recordings\": [{\"id\": \"bbbbbbbb-0000-4000-8000-000000000002\", \"sources\": [1, 2.5e1, true, null]},"
+        " \"recordings\": [{\"id\": \"bbbbbbbb-0000-4000-8000-000000000002\", \"sources\": [1, 2.5e1, true, null],"
+        " \"title\": \"Waltz for \\\"Debby\\\" \\u00e9 \\ud83d\\ude00\\n\\ud800!\","
+        " \"artists\": [{\"id\": \"x\", \"name\": \"Bill Evans\"}, {\"name\": \"Scott La\xc3\xa9" "faro\\u0007\"}]},"
         " {\"id\": \"cccccccc-0000-4000-8000-000000000003\"}], \"extra\": {\"a\": [[], {}], \"b\": \"x\\\"y\"}}]}";
 
 static void reading(void)
@@ -52,6 +54,30 @@ static void reading(void)
 	              && !strcmp(id.acoustid, "0b1cf1a2-2222-4b4b-8c8c-000000000002")
 	              && !strcmp(id.recording, "bbbbbbbb-0000-4000-8000-000000000002") && fabs(id.score - 0.97) < 1e-9,
 	      "the best result was not read: %s %s %.2f", id.acoustid, id.recording, id.score);
+	/* ITS RECORDING'S NAME, sec 1463: escapes read into UTF-8 -- a quote, an
+	 * e acute, a surrogate pair into one character -- and a control, a lone
+	 * surrogate's half left out; the artists joined. */
+	CHECK(!strcmp(id.title, "Waltz for \"Debby\" \xc3\xa9 \xf0\x9f\x98\x80!")
+	              && !strcmp(id.artist, "Bill Evans, Scott La\xc3\xa9" "faro"),
+	      "the recording's name was not read: [%s] [%s]", id.title, id.artist);
+	{
+		/* A TITLE LONGER THAN A VALUE, of two-byte characters: cut whole,
+		 * at a character's edge, and a byte that is no UTF-8 left out. */
+		char json[1200];
+		size_t n = 0, k;
+
+		n += (size_t)snprintf(json, sizeof(json), "{\"status\":\"ok\",\"results\":[{\"id\":\"%s\",\"score\":1,"
+		                      "\"recordings\":[{\"id\":\"%s\",\"title\":\"\xff",
+		                      "0b1cf1a2-3333-4b4b-8c8c-000000000003", "cccccccc-0000-4000-8000-000000000003");
+		for (k = 0; k < 200u; k++) {
+			json[n++] = '\xc3';
+			json[n++] = '\xa9';
+		}
+		n += (size_t)snprintf(json + n, sizeof(json) - n, "\"}]}]}");
+		CHECK(fzn_media_acoustid_read(json, n, &id) == FZN_MEDIA_LOOKUP_FOUND && strlen(id.title) == 254u
+		              && (unsigned char)id.title[0] == 0xc3u,
+		      "a long title was not cut whole at a character's edge: %zu bytes", strlen(id.title));
+	}
 	{
 		static const char error[] = "{\"status\": \"error\", \"error\": {\"code\": 4, \"message\": \"invalid API key\"}}";
 		static const char empty[] = "{\"status\": \"ok\", \"results\": []}";

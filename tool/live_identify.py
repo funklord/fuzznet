@@ -15,6 +15,9 @@ into the store as a library does:
     c  asked again, nothing is queued and the server is asked nothing more
     d  a server answering an error (a bad key) leaves the tune unidentified,
        to be asked again: no `identified`, no `acoustid`
+    e  the untagged tune of b is named by the recording, its `title` and
+       `artist` (sec 1463); a tune that names itself keeps its own title and
+       is given no second one
 
 Against a daemon that sends with no key, phase a counts a request; against one
 that never asks again once heard, phase b times out.
@@ -56,7 +59,8 @@ class acoustid(http.server.BaseHTTPRequestHandler):
 		if acoustid.refuse:
 			out = b'{"status": "error", "error": {"code": 4, "message": "invalid API key"}}'
 		else:
-			out = ('{"status": "ok", "results": [{"id": "%s", "score": 0.93, "recordings": [{"id": "%s"}]}]}'
+			out = ('{"status": "ok", "results": [{"id": "%s", "score": 0.93, "recordings": [{"id": "%s", '
+			       '"title": "Night Drive \\u2014 Live", "artists": [{"name": "Svalbard Echo"}, {"name": "Mira"}]}]}]}'
 			       % (ACOUSTID, RECORDING)).encode()
 		self.send_response(200)
 		self.send_header("Content-Type", "application/json")
@@ -176,6 +180,26 @@ def main(argv):
 			if ask(sock, "add sound " + other).split()[:2] != ["ok", "1"]:
 				raise failed("d: a tune refused was not queued again")
 			print("livecheck: d: an error from AcoustID left the tune to be asked again")
+
+			# e: named where nothing names it; a title of its own stands.
+			got = listed(tune)
+			if got.get("title") != "Night Drive \u2014 Live" or got.get("artist") != "Svalbard Echo, Mira":
+				raise failed("e: the untagged tune lists %r" % got)
+			acoustid.refuse = False
+			own_path = os.path.join(scratch, "own.wav")
+			with open(tune_path, "rb") as src, open(own_path, "wb") as dst:
+				dst.write(src.read() + b"\0" * 32)
+			reply = ask(sock, "put file " + own_path)
+			own = reply.split()[1][:64]
+			expect(sock, "e", "add catalog %s kind audio/wav" % own, "ok")
+			expect(sock, "e", "add catalog %s title Mine" % own, "ok")
+			ask(sock, "add sound " + own)
+			got = until(own, "e: the identity", lambda g: g.get("identified") == "1")
+			rows = ask(sock, "list catalog %s 0" % own).split()[3:]
+			titles = [r.split(",")[2] for r in rows if r.split(",")[1] == "title"]
+			if titles != ["Mine"] or got.get("acoustid") != ACOUSTID:
+				raise failed("e: a tune naming itself has titles %r and lists %r" % (titles, got))
+			print("livecheck: e: an untagged tune named by its recording, one naming itself left its own")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

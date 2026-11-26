@@ -78896,3 +78896,31 @@ loudness, peak and AcoustID, and a recording past 36 bytes is none.
 its row, asked in binary. Sabotage `library-binary-heard-unbounded` and
 `library-binary-beat-not-carried`, each caught; the track-total entry
 follows its line.
+
+## 1463. An untagged tune named by the recording AcoustID says it is, 2026-11-26
+
+A music library is full of files that say nothing of themselves -- a rip,
+a recording saved from a stream, a download named `track03.mp3` -- and the
+music view shows them by their file's name, which search cannot find by
+artist. Where the user has set an AcoustID key (sec 1459), the lookup now
+asks for the recordings themselves (`meta=recordings`, as snurra does)
+rather than their ids alone, and the best result's first recording gives
+its **title** and its **artists**, joined by ", ". The host asserts them as
+its own labels **only where nothing names the tune yet** -- no `title`, or
+no `artist`, from anybody -- so a file's own tags, or a person's word,
+always stand, and a tune is never given a second title to choose between.
+snurra's rule holds: nothing is written into the file or its name.
+
+The names are a stranger's text: the JSON reader now reads `\uXXXX`
+escapes, a surrogate pair among them, into UTF-8; leaves out controls, a
+lone half of a pair and any byte that is no UTF-8; and cuts a value at a
+character's edge within the catalogue's 255 bytes.
+
+**Tests:** `fingerprint_test` (15), clean under ASan and UBSan: a title
+read through a quote, an e acute and a surrogate pair, a control and a
+lone surrogate left out, the artists joined; a 400-byte title cut whole at
+254 bytes, a byte that is no UTF-8 dropped. `live_identify` phase e: the
+untagged tune is named "Night Drive -- Live" by "Svalbard Echo, Mira"; a
+tune titled "Mine" keeps that title alone. Sabotage
+`media-fingerprint-control-kept` and `media-fingerprint-artists-not-joined`,
+each caught.

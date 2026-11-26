@@ -19487,6 +19487,20 @@ SABOTAGES = [
 		"a player reading the catalogue has a tempo and no first beat, and no grid -- sec 1462",
 	),
 	(
+		"media-fingerprint-control-kept",
+		"media/fingerprint.c",
+		"\tif (!out || c < 0x20u || c == 0x7fu || (c >= 0xd800u && c <= 0xdfffu) || c > 0x10ffffu)\n",
+		"\tif (!out || (c >= 0xd800u && c <= 0xdfffu) || c > 0x10ffffu)\n",
+		"a stranger's control character reaches a title the catalogue shows -- sec 1463",
+	),
+	(
+		"media-fingerprint-artists-not-joined",
+		"media/fingerprint.c",
+		"\t\tif (have) {\n\t\t\tmemcpy(r->artist + have, \", \", 2u);\n\t\t\thave += 2u;\n\t\t}\n",
+		"\t\thave = 0;\n",
+		"a recording's artists past the first are lost, each written over the last -- sec 1463",
+	),
+	(
 		"ulaw-without-bias",
 		"media/ulaw.c",
 		"\ts += BIAS;\n",
