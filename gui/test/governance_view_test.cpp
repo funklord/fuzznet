@@ -17,6 +17,25 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <QAbstractItemView>
+#include <functional>
+
+/* A ROW CHOSEN STAYS CHOSEN ACROSS A REFRESH (sec 1488): the list named
+ * `name`, its row `row` chosen, `again` run as a host's poll would, and
+ * the same row's text still the one chosen. */
+static bool kept_row(QWidget *v, const QString &name, int row, const std::function<bool()> &again)
+{
+	for (QAbstractItemView *w : v->findChildren<QAbstractItemView *>())
+		if (w->accessibleName() == name) {
+			const QModelIndex at = w->model()->index(row, 0);
+			const QString was = at.data().toString();
+			w->setCurrentIndex(at);
+			if (was.isEmpty() || !again())
+				return false;
+			return w->currentIndex().isValid() && w->currentIndex().data().toString() == was;
+		}
+	return false;
+}
 
 static int checks, failures;
 
@@ -197,6 +216,11 @@ int main(int argc, char **argv)
 	              && view.preset_choices() == QStringList({ QStringLiteral("userd"),
 	                                                        QStringLiteral("vault") }),
 	      "the profile in force and the choices were not shown");
+	CHECK(kept_row(&view, "Votes against a key", 1, [&]() {
+		      view.refresh();
+		      return true;
+	      }),
+	      "a chosen vote was dropped by a refresh");
 
 	/* ---- A SETTING'S VOTES, each voter's newest, across both pages: one value,
 	 * two voters, and joined with what the listing showed. sec 1029. */

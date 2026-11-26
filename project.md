@@ -77730,3 +77730,25 @@ view says which row is chosen, for its test.
 Tests: `music_view_test` -- an album chosen, a refresh, and Play plays it
 in its track order; `photo_view_test` -- a month chosen and still
 chosen after a refresh. Sabotage: one entry each, caught.
+
+## 1488. Four more views keep the row chosen across a refresh, 2026-11-26
+
+The lens from sec 1487: a host polls the page shown -- fuzzypickles every
+two seconds -- and a view that clears its list and refills it without
+`fzn_keep_place` (sec 1225) drops the person's choice at every poll, and
+with it whatever the choice enables. Twelve views kept it; measured over
+the rest by which clear a list and act on a chosen row: **retention**
+(the rule to remove), **settings** (the setting being edited, under its
+heading), **forks** (the subject to settle) and **governance** (the
+roots, the votes -- "Vote for this value too" --, the successions and
+the staged changes) dropped it. Each now keeps it, by the row's text.
+
+**The search view was measured and left alone**: its table is refilled
+in place as hits arrive, and a later page appends after the rows shown,
+so a choice survives the poll that brings one -- `search_view_test` now
+holds that. Only a hit arriving above the chosen one would move it, which
+no fixture here produces; changed when one does.
+
+Tests: `retention_view_test`, `settings_view_test`, `forks_view_test`,
+`governance_view_test` -- a row chosen, a refresh, the same row chosen.
+Sabotage: four entries, each caught.

@@ -1,5 +1,6 @@
 /* What this user's hosts decided apart, as a widget: gui/forks_view.h, sec 1127. */
 #include "forks_view.h"
+#include "keep_place.h"
 #include "choose_accessible.h"
 
 #include "rpc_ask.h"
@@ -88,6 +89,8 @@ bool fzn_forks_view::refresh()
 		free(sides);
 		return m_rpc->c.answered;
 	}
+	fzn_keep_place kept(m_tree);
+
 	m_tree->clear();
 	/* A SUBJECT'S ROWS TOGETHER, as the node lists them. */
 	for (i = 0; i < count; i++) {

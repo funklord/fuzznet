@@ -1,5 +1,6 @@
 /* The node's settings as a widget: gui/settings_view.h, sec 1103. */
 #include "settings_view.h"
+#include "keep_place.h"
 #include "choose_accessible.h"
 #include "combo.h"
 
@@ -123,6 +124,8 @@ bool fzn_settings_view::refresh()
 /* THE LISTED ROWS: every setting, an advanced one only when asked for. */
 bool fzn_settings_view::fill()
 {
+	fzn_keep_place kept(m_list);
+
 	m_list->blockSignals(true);
 	m_list->clear();
 	m_shown_count = 0;

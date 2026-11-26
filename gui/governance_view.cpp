@@ -1,6 +1,7 @@
 /* See governance_view.h. */
 
 #include "governance_view.h"
+#include "keep_place.h"
 #include "combo.h"
 #include "rpc_ask.h"
 
@@ -214,6 +215,8 @@ bool fzn_governance_view::fill_roots()
 	auto *got = new fzn_rpc_roots_t;
 	size_t i;
 
+	fzn_keep_place kept(m_roots);
+
 	m_roots->clear();
 	if (fzn_rpc_roots(&m_rpc->c, got) != FZN_RPC_OK) {
 		delete got;
@@ -241,6 +244,8 @@ bool fzn_governance_view::fill_votes()
 	QStringList against;
 	int k;
 	size_t i;
+
+	fzn_keep_place kept(m_votes);
 
 	m_votes->clear();
 	if (fzn_rpc_votes(&m_rpc->c, got) != FZN_RPC_OK) {
@@ -302,6 +307,8 @@ bool fzn_governance_view::fill_setting_votes()
 	QStringList order;
 	int i;
 
+	fzn_keep_place kept(m_setting_votes);
+
 	m_setting_votes->clear();
 	{
 		auto *got = new fzn_rpc_setting_votes_t;
@@ -360,6 +367,8 @@ bool fzn_governance_view::fill_successions()
 	auto *got = new fzn_rpc_successions_t;
 	size_t i;
 
+	fzn_keep_place kept(m_successions);
+
 	m_successions->clear();
 	if (fzn_rpc_successions(&m_rpc->c, got) != FZN_RPC_OK) {
 		delete got;
@@ -386,6 +395,8 @@ bool fzn_governance_view::fill_staged()
 {
 	auto *got = new fzn_rpc_staged_t;
 	size_t i;
+
+	fzn_keep_place kept(m_staged);
 
 	m_staged->clear();
 	if (fzn_rpc_staged(&m_rpc->c, got) != FZN_RPC_OK) {

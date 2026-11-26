@@ -13,6 +13,25 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <QAbstractItemView>
+#include <functional>
+
+/* A ROW CHOSEN STAYS CHOSEN ACROSS A REFRESH (sec 1488): the list named
+ * `name`, its row `row` chosen, `again` run as a host's poll would, and
+ * the same row's text still the one chosen. */
+static bool kept_row(QWidget *v, const QString &name, int row, const std::function<bool()> &again)
+{
+	for (QAbstractItemView *w : v->findChildren<QAbstractItemView *>())
+		if (w->accessibleName() == name) {
+			const QModelIndex at = w->model()->index(row, 0);
+			const QString was = at.data().toString();
+			w->setCurrentIndex(at);
+			if (was.isEmpty() || !again())
+				return false;
+			return w->currentIndex().isValid() && w->currentIndex().data().toString() == was;
+		}
+	return false;
+}
 
 static int checks, failures;
 
@@ -82,9 +101,14 @@ int main(int argc, char **argv)
 	CHECK(view.rows().size() == 1 && view.rows()[0].startsWith(QStringLiteral("a heron | a note"))
 	              && !view.settled() && view.status().contains(QStringLiteral("1 of 2")),
 	      "the first host's hit was not shown, or the page was said whole");
-	CHECK(view.poll() && view.settled() && view.rows().size() == 2
-	              && view.rows()[1].startsWith(QStringLiteral("heron, flying | a conversation")),
-	      "the second host's hit did not join the page");
+	/* THE FIRST HIT CHOSEN while the second host has yet to answer: the
+	 * poll that joins its hit refills the table, and the choice stays
+	 * (sec 1488). */
+	CHECK(kept_row(&view, "What the search found", 0, [&]() {
+		      return view.poll() && view.settled() && view.rows().size() == 2
+		             && view.rows()[1].startsWith(QStringLiteral("heron, flying | a conversation"));
+	      }),
+	      "the second host's hit did not join the page, or the hit chosen was dropped by it");
 	CHECK(!view.status().contains(QStringLiteral("answered")), "a page every host answered was said partial");
 	CHECK(!view.status().contains(QStringLiteral("newest")), "a page searched whole was said to be the newest only");
 	CHECK(view.more() && !strcmp(last, "fetch search after lines," LINE ",100,2000 heron"),

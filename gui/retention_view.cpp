@@ -1,6 +1,7 @@
 /* See retention_view.h. */
 
 #include "retention_view.h"
+#include "keep_place.h"
 #include "rpc_ask.h"
 
 #include <QHBoxLayout>
@@ -92,6 +93,8 @@ bool fzn_retention_view::fill(bool estate)
 	QLabel *status = estate ? m_estate_status : m_status;
 	auto *rules = new fzn_rpc_rules_t;
 	size_t i;
+
+	fzn_keep_place kept(list);
 
 	list->clear();
 	if (fzn_rpc_rules(&m_rpc->c, estate ? 1 : 0, rules) != FZN_RPC_OK) {

@@ -14,6 +14,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <QAbstractItemView>
+#include <functional>
+
+/* A ROW CHOSEN STAYS CHOSEN ACROSS A REFRESH (sec 1488): the list named
+ * `name`, its row `row` chosen, `again` run as a host's poll would, and
+ * the same row's text still the one chosen. */
+static bool kept_row(QWidget *v, const QString &name, int row, const std::function<bool()> &again)
+{
+	for (QAbstractItemView *w : v->findChildren<QAbstractItemView *>())
+		if (w->accessibleName() == name) {
+			const QModelIndex at = w->model()->index(row, 0);
+			const QString was = at.data().toString();
+			w->setCurrentIndex(at);
+			if (was.isEmpty() || !again())
+				return false;
+			return w->currentIndex().isValid() && w->currentIndex().data().toString() == was;
+		}
+	return false;
+}
 
 static int checks, failures;
 
@@ -66,6 +85,8 @@ int main(int argc, char **argv)
 	                                          "relay/enabled", "  on -- 0a0a000000000000, 2023-11-14 22:15",
 	                                          "  o^[ff -- 0b0b000000000000, 2023-11-14 22:16" }),
 	      "the sides were not grouped by subject, dated, and shown in caret form");
+	CHECK(kept_row(&v, "What was decided apart", 1, [&]() { return v.refresh(); }),
+	      "a chosen subject was dropped by a refresh");
 
 	last[0] = '\0';
 	CHECK(!v.keep() && !last[0], "a side was kept with none chosen");

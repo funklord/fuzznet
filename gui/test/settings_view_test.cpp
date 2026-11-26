@@ -15,6 +15,25 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <QAbstractItemView>
+#include <functional>
+
+/* A ROW CHOSEN STAYS CHOSEN ACROSS A REFRESH (sec 1488): the list named
+ * `name`, its row `row` chosen, `again` run as a host's poll would, and
+ * the same row's text still the one chosen. */
+static bool kept_row(QWidget *v, const QString &name, int row, const std::function<bool()> &again)
+{
+	for (QAbstractItemView *w : v->findChildren<QAbstractItemView *>())
+		if (w->accessibleName() == name) {
+			const QModelIndex at = w->model()->index(row, 0);
+			const QString was = at.data().toString();
+			w->setCurrentIndex(at);
+			if (was.isEmpty() || !again())
+				return false;
+			return w->currentIndex().isValid() && w->currentIndex().data().toString() == was;
+		}
+	return false;
+}
 
 static int checks, failures;
 
@@ -87,6 +106,17 @@ int main(int argc, char **argv)
 
 	CHECK(v.refresh() && v.keys() == QStringList({ "net.gps", "net.token", "call.ring" }),
 	      "the settings were not listed");
+	/* A SETTING CHOSEN, under its heading, kept by a refresh (sec 1488). */
+	{
+		QAbstractItemView *list = nullptr;
+		for (QAbstractItemView *w : v.findChildren<QAbstractItemView *>())
+			if (w->accessibleName() == "Settings")
+				list = w;
+		CHECK(list && v.select(1), "fixture: a setting chosen");
+		const QString was = list ? list->currentIndex().data().toString() : QString();
+		CHECK(!was.isEmpty() && v.refresh() && list->currentIndex().data().toString() == was,
+		      "a chosen setting was dropped by a refresh");
+	}
 
 	/* A FLAG: the default first, saying what it is, then on and off. */
 	CHECK(v.select(0) && v.offered() == QStringList({ "Default (off)", "on", "off" })
