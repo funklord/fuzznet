@@ -18469,8 +18469,16 @@ static unsigned keep_class_of(const uint8_t root[FZN_PUBKEY_LEN])
 	size_t name_len, kind_len;
 	char word[8];
 
+	size_t stem;
+	const char *role;
+
 	(void)name_and_kind(root, &name, &name_len, &kind, &kind_len);
 	if (kind_len > 6u && !memcmp(kind, "audio/", 6u))
+		return KEEP_MUSIC;
+	/* NAMED AS A TUNE'S LYRICS, TRACKLIST OR BEATMAP is named (sec 1478):
+	 * music, so a music node fetches it before anything has linked it. */
+	if (name && (role = companion_role(name, name_len, kind, kind_len, &stem)) != NULL && *role
+	    && strcmp(role, "video") != 0)
 		return KEEP_MUSIC;
 	if (kind_len > 6u && !memcmp(kind, "video/", 6u))
 		return KEEP_VIDEO;
@@ -18827,8 +18835,19 @@ static void keep_tick(void)
 	}
 	/* ONE AT A TIME: the one begun, while it moves. */
 	if (kept_copies.fetching) {
-		if (fzn_node_files_status(&files, kept_copies.root, &st) != FZN_NODE_FILES_OK || st.whole) {
+		const int known = fzn_node_files_status(&files, kept_copies.root, &st) == FZN_NODE_FILES_OK;
+
+		if (!known || st.whole) {
 			kept_copies.fetching = 0;
+			/* ARRIVED WHOLE: linked to its tune or its companions, as a
+			 * file read here is (sec 1478) -- the two may have been put on
+			 * hosts that never held both. */
+			if (known && link_companions(kept_copies.root) > 0) {
+				catalog_hushed = 1;
+				index_catalog();
+				catalog_hushed = 0;
+				journal_pushed = 1;
+			}
 		} else if (st.held != kept_copies.held) {
 			kept_copies.held = st.held;
 			kept_copies.since = now;

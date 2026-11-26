@@ -18,6 +18,9 @@ pulling from A.
        is a host asking to keep a copy
     f  the tune, of a class B keeps, removed by hand is not fetched back
        (sec 1476), across rounds and restarts; asked for plainly, it is
+    g  a second tune and its lyrics A never linked (sec 1478): B keeping
+       music fetches both -- the lyrics by their name -- and links them on
+       their arrival
 
 Needs the faults build, `make fuzznetd-faults`: phase d shortens the idle
 time a streamed copy is kept to two seconds (FZN_TEST_STREAM_IDLE_S).
@@ -113,6 +116,9 @@ def main(argv):
 				       "ok")
 
 			tune = put("tune.mp3", "audio/mpeg", os.urandom(6000))
+			# g's: put and never read at A, so A never links them.
+			song2 = put("other.ogg", "audio/ogg", os.urandom(5000))
+			words2 = put("other.lrc", None, b"[00:02.00]another line\n")
 			lyrics = put("tune.lrc", None, b"[00:01.00]a line to sing\n")
 			film = put("tune.webm", "video/webm", os.urandom(9000))
 			photo = put("photo.jpg", "image/jpeg", os.urandom(3000))
@@ -179,6 +185,11 @@ def main(argv):
 			expect(socks["b"], "f", "fetch file " + tune, "ok")
 			until(lambda: whole("b", tune), "f-again")
 			print("livecheck: f: a kept tune let go by hand stayed gone, and came back when asked for")
+
+			# g: linked where both arrived.
+			until(lambda: whole("b", song2) and whole("b", words2)
+			      and words2 in ask(socks["b"], "list catalog " + song2), "g")
+			print("livecheck: g: a tune and its lyrics put apart were fetched by B and linked on arrival")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

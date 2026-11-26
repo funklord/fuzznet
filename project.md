@@ -77477,3 +77477,22 @@ host keeping `video` keeps it (sec 1473).
 Tests: `library_binary_test` -- the film, named as the song's video,
 leaves the photo listing and the photograph stays. Sabotage: one entry,
 caught.
+
+## 1478. A tune and its lyrics put on different hosts are linked where both arrive, 2026-11-26
+
+Sec 1472 links a tune and its companions where one host holds both and
+reads either's tags. Put the tune on one host and its lyrics on another
+and **no host ever linked them** -- and a music node (sec 1473) did not
+even fetch the lyrics, a kindless `.lrc` being no music until linked.
+
+Two changes close it. **A file named as a tune's lyrics, tracklist or
+beatmap** (sec 1472's endings) **is music to `library/keep`**, so a host
+keeping music fetches it by its name before anything links it. And **a
+kept copy arriving whole is linked** as a file read here is: the tick
+that sees its fetch finish runs the same name-stem link, so the music
+node, the first host to hold both, names the lyrics on the tune for the
+whole estate.
+
+Tests: `live_keep` g -- A puts a second tune and its lyrics and reads
+neither, so A links nothing; B, keeping music, fetches both and lists
+the lyrics on the tune. Sabotage: two entries, each caught.

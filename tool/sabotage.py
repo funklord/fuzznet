@@ -899,6 +899,20 @@ SABOTAGES = [
 		"a tune's music video is the music's, not listed among the photographs -- sec 1477",
 	),
 	(
+		"keep-companion-not-music",
+		"node/daemon.c",
+		"\tif (name && (role = companion_role(name, name_len, kind, kind_len, &stem)) != NULL && *role\n",
+		"\tif (0 && name && (role = companion_role(name, name_len, kind, kind_len, &stem)) != NULL && *role\n",
+		"a file named as a tune's lyrics is music to a music node before anything links it; live_keep g -- sec 1478",
+	),
+	(
+		"keep-arrival-not-linked",
+		"node/daemon.c",
+		"\t\t\tif (known && link_companions(kept_copies.root) > 0) {\n",
+		"\t\t\tif (0 && known && link_companions(kept_copies.root) > 0) {\n",
+		"a kept copy arriving whole is linked to its tune; live_keep g -- sec 1478",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",
