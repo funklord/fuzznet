@@ -1426,6 +1426,31 @@ static void test_import_parsing(void)
 		}
 		CHECK(imported == 0u, "a Keep note cut short was imported, or not refused");
 	}
+	/* EVERY BYTE MANGLED, three ways, sec 1471: read or refused, never
+	 * past the file -- the sanitized suite is what sees a read past it --
+	 * and a note taken only with a title or a text. */
+	{
+		static const char whole[] = "{\"title\":\"shop \\u00e9\",\"labels\":[{\"name\":\"home\"}],"
+		                            "\"listContent\":[{\"text\":\"eggs\",\"isChecked\":true}],"
+		                            "\"createdTimestampUsec\":1700000000123456}";
+		static const char with[3] = { '{', '"', '\0' };
+		size_t at, bad = 0;
+		int k;
+
+		for (at = 0; at < sizeof(whole) - 1u; at++)
+			for (k = 0; k < 3; k++) {
+				uint8_t m[sizeof(whole) - 1u];
+
+				memcpy(m, whole, sizeof(whole) - 1u);
+				m[at] = (uint8_t)with[k];
+				reset_collect();
+				if (fzn_notes_import_keep(m, sizeof(whole) - 1u, collect, NULL, note_refusal, NULL)
+				            != FZN_NOTES_OK
+				    || got_count + refusal_count != 1u || (got_count && !got[0].title_len && !got[0].text_len))
+					bad++;
+			}
+		CHECK(bad == 0u, "a mangled Keep note was neither one note nor one refusal");
+	}
 	reset_collect();
 	CHECK(keep("{\"color\":\"RED\"}") == FZN_NOTES_OK && got_count == 0u
 	              && refusal_count == 1u,
