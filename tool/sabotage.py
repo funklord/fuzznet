@@ -773,6 +773,13 @@ SABOTAGES = [
 		"a hit carries the labels its filter names before its others, or `where label=` misses a note's fourth -- sec 1468",
 	),
 	(
+		"acoustid-members-first-only",
+		"media/fingerprint.c",
+		"\t\tif (fzn_json_member_sep_get(member) != ',')\n",
+		"\t\tif (1)\n",
+		"every member of an answer's object is read, the run walked to its end -- sec 1469",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

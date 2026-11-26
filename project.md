@@ -97,7 +97,8 @@ listener port spans (`150e3106`).
   nine hand-only grammars are its token cells (sec 1414), and the local
   permit's grammar is situ's (sec 1415), the remote permit's too (sec
   1440), and the group list's (sec 1441); the manifest's order is the
-  schema's (sec 1438). The erasure shape stays hand-written for the
+  schema's (sec 1438); AcoustID's answer is read by situ's JSON (sec
+  1469). The erasure shape stays hand-written for the
   reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
@@ -76881,14 +76882,11 @@ held to a UUID's letters before it is asserted, as this host's labels;
 error -- a bad key -- or no answer leaves the tune to be asked again,
 and a key set later has every tune heard before asked again by the next
 `add sound` -- every one that may be asked after: an `audio/` or one of no
-kind, never a `video/` (sec 1464). The answer is a stranger's, read by a JSON reader of the
-file's own, bounded in depth (32) and length (256 KiB), taking four
-fields and stepping over the rest. **Not yet situ's**, which is to own
-every layout and takes weak text formats in scope: its `example/json`
-was measured against AcoustID's answers (2026-11-26, situ `268f20a8`) and
-refuses an empty array and an empty object -- `"results": []` is the
-answer for a recording AcoustID does not know -- so moving onto it waits
-on situ (its inbox, 20261126T0642Z). Rejected: libcurl, a second library
+kind, never a `video/` (sec 1464). The answer is a stranger's, bounded in length (256 KiB) and
+taking a few fields. **Read by situ's JSON since sec 1469**; until then a
+reader of the file's own, as situ's `example/json` refused an empty array
+and an empty object -- `"results": []` is the answer for a recording
+AcoustID does not know. Rejected: libcurl, a second library
 where FFmpeg's https already is; asking without a key, which AcoustID
 refuses and which would send a fingerprint unasked; carrying the
 fingerprint in the catalogue, whose values are 255 bytes and whose
@@ -77175,3 +77173,37 @@ keeps it, and a span (`bpm` 120 to 130) is facet's RANGE, whose
 collation two hosts must agree on (F7, F20) -- the music view's
 `120-130 bpm` (sec 1467) is the way to it until a consumer needs it
 across hosts.
+
+## 1469. AcoustID's answer read by situ's JSON, 2026-11-26
+
+Situ's `example/json` refused `[]` and `{}`, so the AcoustID reader stayed
+hand-written (sec 1459). **Situ answered** (its 57fb9305, inbox
+20261126T1200Z): an object and an array peek the byte after the brace
+and choose an empty arm, `closed`, or their run, now its own struct
+(`members`, `elements`). AcoustID's answers conform, empty ones included.
+
+**Moved onto it.** `media/json.situ` is that schema at situ f35abaaa,
+whole but for its closing asserts, which state what framing text costs
+situ and fail by design; generated as `fzn_json` with the media schemas
+and pinned by `make schema` like them. `fzn_media_acoustid_read` frames
+the one value (`fzn_json_value_required`), validates it -- depth bounded
+by the schema's `[depth = 64]`, sixteen levels of braces -- and walks
+members and elements through the generated views: each run once, each
+entry measured where it begins rather than counted from the first, as
+`_entries_at` does, which would be quadratic in a hostile answer. The
+hand-written tokenizer, skipper and depth count are gone (178 lines out,
+149 in).
+
+**What stays the file's own**: reading a string's escapes -- `\uXXXX`
+and surrogate pairs into UTF-8, controls and ill-formed bytes left out
+(sec 1463) -- since situ frames a string and does not say what it
+spells; and a key compared as framed, AcoustID's keys holding no escape
+(the schema's key has no `[escape]`). A score is the number's scaled
+integer and power; `2.5e1`, which no field read here holds, frames and
+validates.
+
+Tests: `fingerprint_test`'s fifteen checks unchanged and passing --
+the best of three results, the names' escapes, a title cut at a
+character's edge, an error, an empty answer, an id that is no UUID,
+every cut of the answer never read whole, every byte mangled three ways,
+an answer ten thousand deep refused.

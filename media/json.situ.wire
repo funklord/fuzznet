@@ -1,0 +1,89 @@
+# situ wire signature v3
+# schema: json.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct array size=2..
+  @0x0000   1         u8         open
+  ~         1         u8         next  peek skip=20090d0a
+  ~         1..       variant    body
+  body switch: next
+  body case 93: as_empty closed
+  body case default: as_elements elements
+
+struct closed size=1
+  @0x0000   1         u8         close
+
+struct element size=1..
+  @0x0000   0..       value      held
+  ~         1         u8         sep  skip=20090d0a
+
+struct elements size=1..
+  @0x0000   1..       element    entries  while=sep==44
+
+struct member size=4..
+  ~         1         u8         open  skip=20090d0a
+  ~         until:22  u8         key
+  ~         1         u8         colon  skip=20090d0a
+  ~         0..       value      held
+  ~         1         u8         sep  skip=20090d0a
+
+struct members size=4..
+  @0x0000   4..       member     entries  big while=sep==44
+
+struct no size=5
+  @0x0000   5         u8         word  big must_eq="false"
+
+struct nothing size=4
+  @0x0000   4         u8         word  big must_eq="null"
+
+struct number size=0..
+  @0x0000   before:2c|5d|7d i64        value  radix=10 scaled trim=20090d0a
+
+struct object size=2..
+  @0x0000   1         u8         open
+  ~         1         u8         next  peek skip=20090d0a
+  ~         1..       variant    body
+  body switch: next
+  body case 125: as_empty closed
+  body case default: as_members members
+
+struct text size=2..
+  @0x0000   1         u8         open
+  @0x0001   until:22  u8         chars  escape=0x5c
+
+struct value size=0..
+  ~         1         u8         kind  peek skip=20090d0a
+  ~         0..       variant    body
+  body switch: kind
+  body case 34: as_string text
+  body case 91: as_array array
+  body case 102: as_false no
+  body case 110: as_null nothing
+  body case 116: as_true yes
+  body case 123: as_object object
+  body case default: as_number number
+  body switch: next
+  body case 125: as_empty
+  body case default: as_members
+  body switch: next
+  body case 93: as_empty
+  body case default: as_elements
+
+struct yes size=4
+  @0x0000   4         u8         word  big must_eq="true"

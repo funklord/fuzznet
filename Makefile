@@ -491,7 +491,7 @@ CORE_SRCS := $(SRCS)
 SRCS      += location/geo.c
 # AND A TUNE HEARD, sec 1457, for the same reason: the detector is
 # arithmetic, and its decoder links FFmpeg where the build has one.
-SRCS      += media/analysis.c media/decode.c media/fingerprint.c
+SRCS      += media/analysis.c media/decode.c media/fingerprint.c wire/generated/json.c
 
 # The primitive names installcheck looks for, spelled once because the probe
 # and the control that proves the probe works must not be able to drift
@@ -3878,19 +3878,21 @@ $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_T
 # WHAT A TUNE SOUNDS LIKE, sec 1457: its tempo, key and loudness, held to
 # snurra's measurements of the detector it carries here; and the sound
 # decoded through FFmpeg where the build has it (FZN_MEDIA_DECODE).
-MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o
+MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o \
+                    $(BUILD_DIR)/wire/generated/json.o
 MEDIA_SOUND_LIBS = $(MEDIA_DECODE_LIBS) -lm
 $(BUILD_DIR)/media/decode.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
 $(BUILD_DIR)/media/fingerprint.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
 # WHICH RECORDING A TUNE IS, sec 1459: AcoustID's answer read, and with
 # FFmpeg's Chromaprint a tune printed near itself and far from another.
-$(BUILD_DIR)/media/test/fingerprint_test: $(BUILD_DIR)/media/test/fingerprint_test.o $(BUILD_DIR)/media/fingerprint.o
+$(BUILD_DIR)/media/test/fingerprint_test: $(BUILD_DIR)/media/test/fingerprint_test.o $(BUILD_DIR)/media/fingerprint.o \
+                                         $(BUILD_DIR)/wire/generated/json.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
 $(BUILD_DIR)/media/test/analysis_test: $(BUILD_DIR)/media/test/analysis_test.o $(BUILD_DIR)/media/analysis.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -lm -o $@
-$(BUILD_DIR)/media/test/decode_test: $(BUILD_DIR)/media/test/decode_test.o $(MEDIA_SOUND_OBJS)
+$(BUILD_DIR)/media/test/decode_test: $(BUILD_DIR)/media/test/decode_test.o $(MEDIA_SOUND_OBJS) $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
 
@@ -8187,7 +8189,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               node/heard_row.situ node/routing_record.situ node/contact_devices_wire.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
               node/settings_registry.situ node/group_line_wire.situ location/fix_row.situ sticker/pack.situ node/objects.situ node/rrpc_local.situ node/permit.situ \
-              media/exif.situ media/id3.situ media/flac.situ media/ogg.situ media/mp4.situ media/mpeg.situ \
+              media/exif.situ media/id3.situ media/flac.situ media/ogg.situ media/mp4.situ media/mpeg.situ media/json.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
@@ -9111,7 +9113,7 @@ schema:
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_permit \
 	         --out $(BUILD_DIR)/.gen.new node/permit.situ >/dev/null 2>&1
 	@# AND WHAT A FILE SAYS OF ITSELF, sec 1447.
-	@for m in exif id3 flac ogg mp4 mpeg; do \
+	@for m in exif id3 flac ogg mp4 mpeg json; do \
 		$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_$$m \
 		         --out $(BUILD_DIR)/.gen.new media/$$m.situ >/dev/null 2>&1 || exit 1; \
 	done
@@ -9171,7 +9173,7 @@ schema:
 	          address_vectors.c \
 	          objects.c objects.h objects_edit.h objects_build.h objects_vectors.c \
 	          rrpc_local.c rrpc_local.h rrpc_local_edit.h rrpc_local_build.h rrpc_local_vectors.c \
-	          permit.c permit.h exif.c exif.h id3.c id3.h flac.c flac.h ogg.c ogg.h mp4.c mp4.h mpeg.c mpeg.h \
+	          permit.c permit.h exif.c exif.h id3.c id3.h flac.c flac.h ogg.c ogg.h mp4.c mp4.h mpeg.c mpeg.h json.c json.h \
 	          messages_local.c messages_local.h messages_local_edit.h messages_local_build.h \
 	          messages_local_vectors.c contacts_local.c contacts_local.h contacts_local_edit.h \
 	          contacts_local_build.h contacts_local_vectors.c groups_local.c groups_local.h \

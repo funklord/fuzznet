@@ -1,0 +1,381 @@
+// AcoustID's answer, and any JSON a host reads: situ's example/json at situ
+// f35abaaa, whole but for its closing asserts, which state what framing text
+// costs situ and fail by design. project.md sec 1469.
+//
+// JSON (RFC 8259), as far as a layout language reaches.
+//
+// Here for the construct that makes it possible at all. A value contains an
+// object, an object contains members, and a member contains a value: that is
+// a mutual cycle, and situ refused every one of them until decision 0054 was
+// amended. It is also the first schema in this directory whose recursion runs
+// through a *variant arm* -- `case 0x7B: object` is how a tagged tree is
+// written, and how every format with a "kind" byte reaches its children.
+//
+// It is here for the boundary as much as for the construct. JSON is a
+// GRAMMAR and situ describes LAYOUTS, and the two disagree in exactly two
+// places. Both are written down below rather than papered over, because a
+// schema that quietly describes a subset is worse than one that says which
+// subset it describes.
+
+target buffer;
+endian big;
+
+// What a character literal in this file is worth. Three encodings rather
+// than one, because JSON's own answer is UTF-8 (RFC 8259 section 8.1) and
+// what arrives on a socket is frequently ASCII and occasionally Latin-1 --
+// and every structural byte this schema switches on is the same value in
+// all three. Declaring the three is what makes that a checked fact rather
+// than an assumption: a literal these encodings disagree about is refused
+// with the disagreement named.
+encoding ascii | utf8 | latin1;
+
+// And what may stand between two tokens. RFC 8259 section 2 says exactly
+// these four bytes, which is why the set is written down rather than assumed:
+// HTTP's optional whitespace is two of them, XML's is these four plus
+// nothing, and a compiler that picked one would be wrong about the others.
+//
+// Declared once and reached by a bare `skip` on the members that permit it.
+// Seven of them do, which is the whole of what JSON's whitespace rule comes to
+// in a layout: a run of these bytes may precede a token, and it belongs to the
+// token it precedes -- because a struct's members partition its bytes exactly,
+// and the member before it is finished.
+whitespace ' ' | '\t' | '\r' | '\n';
+
+// The first byte says which kind of value this is, and it belongs to the
+// ARM: `peek` reads it and does not spend it (0057), so the arm begins where
+// the discriminant began and owns the byte it was chosen by. That is why
+// `object`, `array` and `text` each open with their own brace, bracket or
+// quote, why the literals are `true` rather than `rue`, and why `number`
+// can be a number at all.
+//
+// It was `u8 kind skip` until 0057 existed, and every arm below started one
+// byte late. The cost was not cosmetic and is recorded under `number`: the
+// `number` struct was handed `2.5` of `{"a":12.5}`, so a `scaled i64` there
+// would have answered 25 and -1 for a document whose number is 12.5.
+//
+// Written as characters and not as numbers, which is the difference between
+// a schema that asserts an agreement and one that checks it. `0x7B` says
+// that number and stays silent about which encoding made it that; `'{'` says
+// the character, and the `encoding` line above turns "these three agree" into
+// something the compiler refuses to let drift.
+//
+// `[depth]` bounds the recursion and every struct in the cycle states the
+// same one -- which is the rule rather than a repetition: a walk entering at
+// `member` spends `member`'s number, so two numbers for one cycle would be
+// an ambiguity (17.0). It counts nested STRUCTS, not turns: one level of
+// JSON nesting is value -> object -> members -> member -> value, four
+// structs, so 64 here is sixteen levels of braces.
+//
+// `default:` is the number, and that is the arm this file waited two
+// language changes for. See `number` below.
+struct value [depth = 64] {
+	peek u8  kind  skip;
+	variant body switch (kind) {
+		case '{':  object   as_object;
+		case '[':  array    as_array;
+		case '"':  text     as_string;
+		case 't':  yes      as_true;
+		case 'f':  no       as_false;
+		case 'n':  nothing  as_null;
+		default:   number   as_number;
+	}
+}
+
+// An object is members until one does not end in a comma.
+//
+// `while (sep == 0x2C)` rather than `until "}"`, and the difference is the
+// whole reason this construct exists: `until` asks whether the terminator
+// stands where the NEXT element would start, and JSON separates members with
+// a comma while terminating the object with a brace. A `while` asks about the
+// element just read, so the member that ends in `}` is the one that ends the
+// run -- and it is part of it, which is what makes the brace accounted for.
+//
+// `open` is the `{` the variant chose this arm by, handed back by `peek`
+// (0057). `array` has the same member for the same reason.
+//
+// AND IT MAY BE EMPTY, which a `while` run may not: its first element is
+// read before its condition is asked (8.6), so `{}` was a member that
+// needed five bytes and had one, and `[]` a value whose kind sat past the
+// frame. Both were refused -- and `{"results":[]}` is how AcoustID answers
+// a recording it does not know, which is what fuzznet met (2026-11-26).
+// 8.6 says whether a run is there at all is `variant`'s question, so the
+// byte after the brace is peeked, whitespace and all, and a closing brace
+// is the empty arm. The run moved into `members` because an arm is a
+// struct; that is one more struct per level of nesting, and the depth
+// note above is counted with it.
+struct object [depth = 64] {
+	u8       open;
+	peek u8  next  skip;
+	variant body switch (next) {
+		case '}':  closed   as_empty;
+		default:   members  as_members;
+	}
+}
+
+struct members [depth = 64] {
+	member  entries[] while (sep == ',');
+}
+
+// One member: `"key":value` and the byte that follows it.
+//
+// `open` is the key's opening quote and `sep` is the comma or the closing
+// brace. Neither is decoration: a member has to account for every byte
+// between where it starts and where the next one does, or the run walks into
+// the middle of itself.
+struct member [depth = 64] {
+	u8     open   skip;
+	u8     key[]  until "\"";
+	u8     colon  skip;
+	value  held;
+	u8     sep    skip;
+}
+
+// Three of the five leads are here, and the two that are not are as
+// interesting. `key` has none because nothing may stand between a quote and
+// the string it opens -- the whitespace rule is about the space BETWEEN
+// tokens, and a string's opening quote and its content are one token. `held`
+// has none because it does not need one: a value's own first member is
+// `kind`, which skips, so whitespace before a value is already accounted for
+// by the value. A lead there as well would be a second answer to one
+// question, and the run would walk into the middle of itself.
+//
+// A peeked member keeps its lead, which is the half of 0057 worth stating
+// here rather than leaving to be inferred. `peek` takes the member's OWN
+// byte out of what the struct spends and leaves the whitespace in front of
+// it in -- so `kind` still eats the run before a value and hands on only
+// the discriminant. Taking both out would have left the lead for the arm to
+// skip, and no arm here skips: `{` is not whitespace. Measured --
+// `{ "a" : 1 }` is eleven bytes and this schema frames eleven.
+
+// An array is the same shape with no keys.
+struct array [depth = 64] {
+	u8       open;
+	peek u8  next  skip;
+	variant body switch (next) {
+		case ']':  closed    as_empty;
+		default:   elements  as_elements;
+	}
+}
+
+struct elements [depth = 64] {
+	element  entries[] while (sep == ',');
+}
+
+// The closing brace or bracket of an empty container. Whitespace between
+// it and the opening one belongs to the container's `next`, which skips.
+struct closed { u8  close; }
+
+struct element [depth = 64] {
+	value  held;
+	u8     sep  skip;
+}
+
+// A string: its opening quote, its content, and its closing one.
+//
+// `open` is the quote the variant chose this arm by. It is a member rather
+// than an absence because `peek` handed it back, and `chars` scans from
+// after it -- so the extent of an `as_string` arm is the whole string and
+// not the string minus its first byte.
+//
+// `[escape = "\\"]` is what makes that true of real JSON. Without it a `\"`
+// inside the content ends the scan, and this file said so for a while --
+// "the one thing that is a genuine gap rather than a language boundary" --
+// while the construct that closes it sat one attribute away, named in the
+// same sentence. It was not a gap in situ; it was a gap in this schema.
+//
+// The measurement, because a short extent with no complaint is the answer
+// this repository rates worst and it was being produced here:
+//
+//     {"a":"say \"hi\""}    18 bytes    extent 13    before
+//     {"a":"say \"hi\""}    18 bytes    extent 18    now
+//     ["a\"b"]               8 bytes    extent  6    before
+//
+// The rule is the byte AFTER the escape is content, whatever it is --
+// itself included -- so `"back\\slash"` ends at its own closing quote
+// rather than at the one a naive reader would find two bytes later. That
+// case framed correctly before and still does, which is the half worth
+// checking: a fix to the failing case that breaks the passing one is not a
+// fix.
+//
+// `canonical` is weakened here and the map says so, which is right, and the
+// escape weakens it a second way: two spellings of one string, since `a`
+// and `\u0061` are the same character. Situ frames the span and
+// does not decode it -- what an escape MEANS is the reader's, and what this
+// says is only where the string ends.
+struct text {
+	u8  open;
+	u8  chars[]  until "\"" [escape = "\\"];
+}
+
+// A number, from its first byte to whatever ends it.
+//
+// `before` and not `until`, and that distinction is the whole of why this
+// arm exists. A JSON number ends at a comma, a bracket or a brace, and the
+// byte that ends it belongs to the OBJECT rather than to the number: a
+// member that swallowed the comma would leave the byte after it as the
+// separator its run reads. `until` is a terminator -- a CRLF belongs to the
+// line it ends -- and this is a separator, which belongs to neither side.
+//
+// The `default` arm rather than eleven cases. A number begins with `-` or a
+// digit, and a variant would need one case each; `default` says the same
+// thing, and every other kind of value has taken its own byte above. What
+// it costs is that a document beginning with a byte no JSON value can begin
+// with is read as a number of length zero rather than refused -- which
+// `[digits_valid]` would catch if situ had a check for "these bytes are a
+// JSON number", and which is a grammar rather than a layout.
+// `[trim]` is the trailing half, and it does not quite reach. A number's
+// scan runs to whichever delimiter comes first, so the whitespace AFTER the
+// digits is inside the member rather than in front of the separator that
+// follows -- the scan gets there before the separator's lead does, and one
+// of them has to own those bytes. `[trim]` takes them out of the VALUE,
+// which is what a caller reads.
+//
+// It takes out all four of them now. This said `[trim]` was HTTP's optional
+// whitespace, space and horizontal tab, and that widening it to a declared
+// set was "a change to an attribute five schemas here use, which is not
+// this construct's to make" -- and the change was made, so `[trim]` removes
+// whatever the file's own `whitespace` declares. For this file that is
+// RFC 8259 section 2's four bytes, so `{"a": 1\n}` frames correctly AND its
+// number reads back without the newline. The signature says which bytes:
+// `trim=20090d0a` on this member, `trim=2009` on HTTP's header value.
+//
+// AND IT IS A `scaled` NUMBER, which is 0056's construct meeting its only
+// asker. The two arrived a language change apart and the second is what
+// made the first usable here.
+//
+// It was a byte run for as long as dispatch consumed. The variant switches
+// on `kind`, a discriminant was a FIELD, and a field occupies its byte, so
+// the arm began one byte late -- measured rather than reasoned, and the
+// measurement is why this stayed prose for two commits:
+//
+//     {"a":12.5}    the `number` struct saw    2.5     before `peek`
+//     {"a":12.5}    value 125  power -1                now
+//     {"a":-3.25e2} value -325 power 0                 now
+//     {"a":12}      value 12   power 0                 now
+//
+// A `scaled i64` on the old spelling would have reported 25 and -1 for a
+// document whose number is 12.5 -- confidently, and wrongly, which is the
+// trade this repository rates worst. 26.253 had written the blocker down as
+// "dispatch consumes; a text grammar needs it to keep", from an argv
+// evaluation that hit the same wall; `peek` is the answer and 0057 is the
+// record.
+//
+// An exact decimal and never a float: a significand and a power of ten, so
+// `-3.25e2` reads back as -325 and 0 rather than as a double that is nearly
+// -325. What situ does not do is DECIDE -- a caller that wants a `double`
+// multiplies, and one that wants the money keeps the pair.
+//
+// `canonical` is refused here, and the map says so. `10`, `1e1` and `1.0e1`
+// are one value with three spellings, and `[minimal]` cannot buy it back:
+// on a byte run that attribute means "no leading zeroes", and on a number
+// with an exponent there is no single shortest spelling to demand.
+// (verified 2026-10-22)
+//
+// 0063 settles that it stays refused rather than waiting on a rule. This
+// member is the construct's only asker, and JSON is the format whose
+// canonicalisation is published: RFC 8785 section 3.2.2.3 defines it
+// through an IEEE-754 double, which a `scaled` number deliberately does
+// not have, and appendix D requires a JSON string above 2^53 -- so 99 per
+// cent of this `i64` significand's range has no canonical JSON NUMBER
+// form at all. `Canonical` here would be a claim wrong for most of what
+// the member can read.
+struct number {
+	scaled i64  value  before ',' | ']' | '}' [trim];
+}
+
+struct yes     { u8  word[4]  [must_eq = "true"]; }
+struct no      { u8  word[5]  [must_eq = "false"]; }
+struct nothing { u8  word[4]  [must_eq = "null"]; }
+
+// ---------------------------------------------------------------------------
+// The bill, and what is left of it is one thing that is not a gap.
+//
+// WHITESPACE IS ACCOUNTED FOR NOW, by the five `skip` clauses above. It used
+// to be the last line of this bill, and the entry said skipping it was "a
+// grammar's job rather than a layout's" because "a member whose start depends
+// on how many spaces preceded it has no offset anybody can compute". The
+// first half of that was wrong and the second half was right, which is what
+// made it convincing.
+//
+// The line 8.6 draws is not that every offset is arithmetic -- half this
+// schema's offsets are not. It is that every byte belongs to exactly one
+// member. Whitespace keeps that: the run in front of a token is the token's
+// own, because the member before it is finished and a struct's members
+// partition its bytes exactly. What it costs is the offset, which drops to
+// Scanned -- and that is a price this schema was already paying for every
+// member after the first delimiter.
+//
+// WHAT IT COSTS HERE, exactly, is the requirement that used to be at the
+// foot of this file:
+//
+//     require absolute_static(value.kind);
+//
+// It said a document starts at offset zero because nothing precedes it. That
+// stopped being true the moment whitespace could: ` {"a":1}` is a JSON
+// document, and its first token is at offset one. So the claim is an `assert`
+// below, where it reads as the measurement it now is rather than as a demand
+// the schema cannot meet. Permitting leading whitespace and knowing where the
+// first byte is are the same question asked twice, and JSON's answer is the
+// first.
+//
+// AND A NUMBER IS A NUMBER NOW, which was the last language question this
+// file was holding open. `peek` gives the arm its discriminant back, so
+// `number` reads a significand and a power of ten instead of a span of
+// bytes -- the entry above it has the measurement. What it cost is that
+// every OTHER arm had to grow the byte it was chosen by, which is the
+// better shape anyway: `true` is pinned as a word rather than as `rue`, and
+// an `as_string` arm's extent is the whole string rather than the string
+// minus its quote.
+//
+// AND ESCAPES ARE FRAMED, which was the other line of this bill and was
+// never a language boundary: `[escape = "\\"]` on `text.chars` is the whole
+// of it, and the entry above `text` records what the schema measured while
+// it went unused. What situ still does not do is DECODE one -- `\\u0061` is
+// framed as six bytes and means `a` to a reader, which is the same division
+// of labour every other member here follows.
+//
+// TRAILING whitespace belongs to nobody, and that is the honest remaining
+// edge. `{"a":1} ` is eight bytes and this schema measures seven of them: a
+// lead belongs to the member that FOLLOWS it, and after the last token there
+// is no member to follow. That is not a wrong measurement -- the document is
+// seven bytes and the eighth is not part of it -- but a caller framing a
+// stream has to know it, because the extent will not step over it.
+//
+// It used to be three lines. A NUMBER could not be framed at all, for two
+// reasons that arrived a commit apart. `until` took one delimiter and a
+// number ends at whichever of several comes first; and `until` is a
+// TERMINATOR, whose delimiter belongs to the member, where a separator
+// belongs to neither side. `until ',' | ']' | '}'` fixed the first and
+// `before` the second, and `number` above is what they buy together.
+//
+// The measurements that recorded each cost are worth keeping, because they
+// are what a wrong answer looked like:
+//
+//     {"a":12}      8 bytes     extent 7    validate ok   (before `before`)
+//     {"a":12}      8 bytes     extent 8    validate ok
+//     { "a" : 12 }  12 bytes    extent 8    validate ok   (before `skip`)
+//     { "a" : 12 }  12 bytes    extent 12   validate ok
+//
+// The seven came from two rules that were each correct and neither of which
+// mentioned the other: a value whose discriminant matched no arm has an
+// extent of zero, and `validate` does not descend into the elements of a
+// run. A short measurement and no complaint is the answer this repository
+// rates worst, and it took a language change rather than a fix.
+//
+// The eight is the same shape one construct along. Every member measured its
+// own bytes correctly and the whitespace between them belonged to no member
+// at all, so the sum was short by exactly the bytes nobody had claimed --
+// and `validate` was content, because every constraint it knows about held.
+//
+// AND THE WALKERS FOLLOW LESS OF IT THAN THE GENERATED CODE, on purpose.
+// `[depth = 64]` is the format's number; a walker spends its own, because it
+// reads a schema it was handed at run time and the stack is the program's.
+// Both refuse by name rather than measuring short -- so
+// `{"a":["b",{"c":"d"}]}` is fourteen structs from `value` to the innermost
+// `text`, which a default `situ-walk` build declines and `-DWALK_DEPTH_MAX=64` measures at twenty-one bytes. Summing
+// the largest frame of every function in that walker's recursion cycle,
+// `-Os` on x86-64, one level costs at most 2800 bytes, which is why the
+// default is small and why it is overridable.
+//
+// None of this is a gap in the schema. It is what this format asks of situ,
+// which is what an example is for.
