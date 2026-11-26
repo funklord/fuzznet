@@ -87,6 +87,7 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	m_find->setPlaceholderText(tr("Find a sticker"));
 	m_find->setAccessibleName(tr("Find a sticker by its words"));
 	m_find->setClearButtonEnabled(true);
+	fzn_name_clear_button(m_find);
 	m_found = new QListWidget(this);
 	m_found->setViewMode(QListView::IconMode);
 	m_found->setIconSize(QSize(64, 64));

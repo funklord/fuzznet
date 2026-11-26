@@ -21,9 +21,11 @@
 #include <QAbstractItemView>
 #include <QGuiApplication>
 #include <QItemSelectionModel>
+#include <QLineEdit>
 #include <QMetaObject>
 #include <QModelIndex>
 #include <QPersistentModelIndex>
+#include <QToolButton>
 
 #include <functional>
 #include <memory>
@@ -134,6 +136,18 @@ inline void fzn_select_rows_through_cells(QAbstractItemView *view)
 		if (!rows.isEmpty())
 			now->select(rows, QItemSelectionModel::Select);
 	});
+}
+
+/* A FIND BOX'S CLEAR BUTTON, NAMED: Qt's own (`setClearButtonEnabled`) is a
+ * button with no text and no name, so two find boxes in one window read to a
+ * screen reader as two buttons saying nothing -- qtty_render_test found two
+ * in conversation_view, its own and its sticker picker's. Named for the box
+ * it clears, "Clear: Find a sticker". Call after turning the button on and
+ * naming the box. */
+inline void fzn_name_clear_button(QLineEdit *edit)
+{
+	for (QToolButton *b : edit->findChildren<QToolButton *>())
+		b->setAccessibleName(QObject::tr("Clear: %1").arg(edit->accessibleName()));
 }
 
 #endif /* FZN_GUI_CHOOSE_ACCESSIBLE_H */

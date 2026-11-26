@@ -8585,7 +8585,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/persist_print.o \
                     $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/socket.o \
                     $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer_linux.o \
-                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
+                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o $(BUILD_DIR)/wire/generated/root_act_record.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                     $(BUILD_DIR)/local/vocabulary.o \
                     $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
                     $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \

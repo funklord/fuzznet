@@ -71,6 +71,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_find->setPlaceholderText(tr("Find a file"));
 	m_find->setAccessibleName(tr("Find a file by its name or kind"));
 	m_find->setClearButtonEnabled(true);
+	fzn_name_clear_button(m_find);
 	m_kind = new fzn_combo_box(this);
 	m_kind->setAccessibleName(tr("Show one kind of file"));
 	m_kind->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);

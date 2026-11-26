@@ -78505,3 +78505,22 @@ and 262 KB asked. All ten fixtures are mangled 40,000 ways through both
 readers, clean under ASan and UBSan. `live_tags` phase h stores an M4A
 and reads it at the node. Sabotage: `media-tags-mp4-moov-in-the-head`,
 `media-tags-mp4-meta-full-box`.
+
+## 1453. The terminal render linked again, and the find boxes' clear buttons named, 2026-11-26
+
+Found adding the music and photo views to `qtty_render_test` (`make
+qtty`, which `qttycheck` runs in `check`): **the target did not link at
+HEAD** -- `provision_record.o`'s generated card check calls into
+`root_act_record`, which `QTTY_RENDER_OBJS` did not name -- so no widget
+had been rendered onto a character grid since that dependency arrived.
+Built in a worktree at fabf5000 to be sure it was not this work's: the
+same undefined reference. `root_act_record.o` joins the list.
+
+Linked, the test found what it had been missing: **`conversation_view`
+spoke two buttons alike** -- Qt's own clear buttons (`QLineEditIconButton`)
+in its find box and its sticker picker's, which have no text and no
+name, so a screen reader hears two buttons saying nothing.
+`fzn_name_clear_button` (`gui/choose_accessible.h`) names each for the
+box it clears, "Clear: Find a sticker by its words", at every find box
+that turns one on -- the library's, the search's, the sticker picker's,
+and the music and photo views'. With it the render passes, 296 checks.

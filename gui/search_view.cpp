@@ -64,6 +64,7 @@ fzn_search_view::fzn_search_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWi
 	m_find->setPlaceholderText(tr("Search everything"));
 	m_find->setAccessibleName(tr("Words to search for"));
 	m_find->setClearButtonEnabled(true);
+	fzn_name_clear_button(m_find);
 	/* WHOM WITH: this user's own hosts, or one contact -- who is then told
 	 * the words, and nobody else is (sec 1292). No wider than eight
 	 * letters, so the row fits 320 px. */
