@@ -8,6 +8,10 @@
 #include "rpc_ask.h"
 
 extern "C" {
+#include "../media/tags.h"
+}
+
+extern "C" {
 #include "../local/rpc_encoding.h"
 }
 
@@ -15,6 +19,7 @@ extern "C" {
 #include <QDate>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QImageReader>
 #include <QLabel>
 #include <QLineEdit>
@@ -22,6 +27,8 @@ extern "C" {
 #include <QMap>
 #include <QPixmap>
 #include <QPushButton>
+#include <QTimer>
+#include <QTransform>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -33,6 +40,12 @@ extern "C" {
 #define ROLE_ROOT (Qt::UserRole)
 #define ROLE_HERE (Qt::UserRole + 1)
 #define ROLE_FIND (Qt::UserRole + 2)
+#define ROLE_TURN (Qt::UserRole + 3)
+
+/* A THUMBNAIL is read from this much of a photograph's start: EXIF's APP1,
+ * which holds it, is at most 64 KiB. */
+#define THUMB_HEAD (64u * 1024u)
+#define THUMB_SIDE 48
 
 /* THE MOST A PHOTOGRAPH SHOWN MAY BE: its bytes read whole, a camera's
  * largest raw JPEG well within it; and its canvas as its header says it,
@@ -109,6 +122,13 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
 	m_fetch->setEnabled(false);
+	m_tree->setIconSize(QSize(THUMB_SIDE, THUMB_SIDE));
+	m_thumb_timer = new QTimer(this);
+	m_thumb_timer->setInterval(30);
+	connect(m_thumb_timer, &QTimer::timeout, [this]() {
+		if (!read_thumbnails(1))
+			m_thumb_timer->stop();
+	});
 }
 
 fzn_photo_view::~fzn_photo_view() { delete m_rpc; }
@@ -145,6 +165,7 @@ bool fzn_photo_view::refresh()
 	});
 	const QByteArray kept = chosen() && chosen()->parent() ? chosen()->data(0, ROLE_ROOT).toByteArray() : QByteArray();
 	m_tree->clear();
+	m_thumbs_wanted.clear();
 	QTreeWidgetItem *month = nullptr, *again = nullptr;
 	QString month_key;
 	for (const fzn_rpc_photo_entry_t *e : order) {
@@ -168,6 +189,9 @@ bool fzn_photo_view::refresh()
 		                         : tr("nowhere seen"));
 		p->setData(0, ROLE_ROOT, QByteArray((const char *)e->root, 32));
 		p->setData(0, ROLE_HERE, (bool)e->held_here);
+		p->setData(0, ROLE_TURN, (int)e->orientation);
+		if (e->held_here)
+			m_thumbs_wanted << p->data(0, ROLE_ROOT).toByteArray();
 		p->setData(0, ROLE_FIND, QStringList({ p->text(0), p->text(1), words(e->name), month->text(0) }).join(QLatin1Char('\n')));
 		p->setData(0, Qt::AccessibleTextRole,
 		           tr("A photograph, %1").arg(taken.isEmpty() ? words(e->name) : p->text(0)));
@@ -177,6 +201,8 @@ bool fzn_photo_view::refresh()
 	for (int m = 0; m < m_tree->topLevelItemCount(); m++)
 		m_tree->topLevelItem(m)->setText(1, QString::number(m_tree->topLevelItem(m)->childCount()));
 	m_tree->expandAll();
+	if (!m_thumbs_wanted.isEmpty())
+		m_thumb_timer->start();
 	m_status->setText(all.count ? tr("%n photograph(s).", nullptr, (int)all.count)
 	                            : tr("No photograph is catalogued yet."));
 	fzn_rpc_photo_list_release(&all);
@@ -281,6 +307,74 @@ void fzn_photo_view::show_chosen()
 		return;
 	}
 	m_picture->setPixmap(QPixmap::fromImage(m_shown));
+}
+
+/* A PICTURE TURNED AS EXIF'S ORIENTATION SAYS: 1 as it is; 2 and 4 mirrored;
+ * 3 a half turn; 6 a quarter clockwise, 8 anticlockwise; 5 and 7 those,
+ * mirrored. */
+static QImage turned(const QImage &img, int orientation)
+{
+	QTransform t;
+	bool mirror = orientation == 2 || orientation == 4 || orientation == 5 || orientation == 7;
+
+	if (orientation == 3 || orientation == 4)
+		t.rotate(180);
+	else if (orientation == 6 || orientation == 5)
+		t.rotate(90);
+	else if (orientation == 8 || orientation == 7)
+		t.rotate(270);
+	QImage out = t.isIdentity() ? img : img.transformed(t);
+	return mirror ? out.mirrored(true, false) : out;
+}
+
+int fzn_photo_view::read_thumbnails(int n)
+{
+	int read = 0;
+	fzn_rpc_library_play_resp_t *slice = (fzn_rpc_library_play_resp_t *)malloc(sizeof(*slice));
+
+	if (!slice)
+		return 0;
+	while (read < n && !m_thumbs_wanted.isEmpty()) {
+		const QByteArray root = m_thumbs_wanted.takeFirst();
+		QByteArray head;
+		uint64_t at = 0;
+
+		/* THE FIRST 64 KiB, or the file where it is shorter. */
+		while (head.size() < (int)THUMB_HEAD) {
+			if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), at,
+			                         FZN_RPC_LIBRARY_PLAY_MAX_SLICE, slice)
+			            != FZN_RPC_OK
+			    || slice->underrun || !slice->data_len)
+				break;
+			head.append((const char *)slice->data, (int)slice->data_len);
+			at += slice->data_len;
+			if (at >= slice->size)
+				break;
+		}
+		read++;
+		size_t off = 0, len = 0;
+		QImage img;
+		if (!fzn_media_exif_thumbnail((const uint8_t *)head.constData(), (size_t)head.size(), &off, &len)
+		    || !img.loadFromData((const uchar *)head.constData() + off, (int)len, "JPG"))
+			continue;
+		for (int m = 0; m < m_tree->topLevelItemCount(); m++)
+			for (int i = 0; i < m_tree->topLevelItem(m)->childCount(); i++) {
+				QTreeWidgetItem *p = m_tree->topLevelItem(m)->child(i);
+				if (p->data(0, ROLE_ROOT).toByteArray() == root)
+					p->setIcon(0, QIcon(QPixmap::fromImage(
+					                      turned(img, p->data(0, ROLE_TURN).toInt())
+					                              .scaled(THUMB_SIDE, THUMB_SIDE, Qt::KeepAspectRatio,
+					                                      Qt::SmoothTransformation))));
+			}
+	}
+	free(slice);
+	return read;
+}
+
+bool fzn_photo_view::has_thumbnail(int row) const
+{
+	const QList<QTreeWidgetItem *> rows = shown();
+	return row >= 0 && row < rows.size() && !rows[row]->icon(0).isNull();
 }
 
 void fzn_photo_view::set_find(const QString &text) { m_find->setText(text); }

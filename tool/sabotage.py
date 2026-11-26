@@ -801,6 +801,20 @@ SABOTAGES = [
 		"music is found by its artist -- sec 1454",
 	),
 	(
+		"media-tags-thumbnail-offset-for-length",
+		"media/tags.c",
+		"\t\tif (fzn_exif_ifd_entry_tag_get(e, t.order) == 0x0201u)\n",
+		"\t\tif (fzn_exif_ifd_entry_tag_get(e, t.order) == 0x0202u)\n",
+		"IFD1's 0x0201 is the thumbnail's offset, 0x0202 its length -- sec 1455",
+	),
+	(
+		"photo-view-no-thumbnails-wanted",
+		"gui/photo_view.cpp",
+		"\t\tif (e->held_here)\n\t\t\tm_thumbs_wanted",
+		"\t\tif (0)\n\t\t\tm_thumbs_wanted",
+		"a photograph held here shows the camera's own thumbnail -- sec 1455",
+	),
+	(
 		"sticker-raster-any-canvas",
 		"gui/sticker_render.cpp",
 		"\treturn !s.isValid() || ((unsigned)s.width() <= APNG_SIDE_MAX && (unsigned)s.height() <= APNG_SIDE_MAX);\n",

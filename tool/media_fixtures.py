@@ -2,14 +2,20 @@
 """Write media/test/fixture/: small files whose tags media/test/tags_test.c
 reads back, project.md sec 1447.
 
-WRITTEN BY OTHER HANDS than the reader they test: ffmpeg for the MP3s, the
-Ogg Vorbis and Opus files, the M4As, and the FLAC's audio, mutagen for an ID3v2.3 tag, metaflac for the Vorbis
-comments, Pillow for the JPEG and its EXIF. A reader agreeing with what
-those wrote is evidence; one agreeing with bytes this tree built for itself
-would be a reader checked against its own reading. Run again after changing
-it; it writes only media/test/fixture/ and a scratch directory it removes.
+WRITTEN BY OTHER HANDS than the reader they test: ffmpeg for the MP3s,
+the Ogg Vorbis and Opus files, the M4As, and the FLAC's audio, mutagen
+for an ID3v2.3 tag, metaflac for the Vorbis comments, Pillow for the
+JPEG and its EXIF, jhead for an EXIF thumbnail. A reader agreeing with
+what those wrote is evidence; one agreeing with bytes this tree built
+for itself would be a reader checked against its own reading. Run again
+after changing it; it writes only media/test/fixture/ and a scratch
+directory it removes.
 
-BOUNDED: ten files, each from one tool run with a timeout; nothing loops.
+NOT BYTE FOR BYTE AGAIN: an Ogg stream's serial is drawn at random, so
+song.ogg and memo.opus differ at each run; keep the committed ones
+unless they are meant to change.
+
+BOUNDED: twelve files, each from one tool run with a timeout; nothing loops.
 """
 
 import os
@@ -127,6 +133,19 @@ def main():
 		gps[3] = "W"
 		gps[4] = (70.0, 39.0, 0.0)
 		img.save(os.path.join(OUT, "photo_le.jpg"), exif=exif, quality=50)
+
+		# A THUMBNAIL IN EXIF, by jhead: a minimal EXIF header, then its
+		# thumbnail generated (through ImageMagick), and jhead's own copy of
+		# it extracted beside, for the reader to be compared against.
+		img = Image.new("RGB", (640, 480), (40, 120, 200))
+		for x in range(0, 640, 40):
+			for y in range(480):
+				img.putpixel((x, y), (250, 250, 0))
+		thumbed = os.path.join(OUT, "photo_thumb.jpg")
+		img.save(thumbed, quality=60)
+		run("jhead", "-mkexif", thumbed)
+		run("jhead", "-rgt", thumbed)
+		run("jhead", "-st", os.path.join(OUT, "photo_thumb.thumb"), thumbed)
 
 		# And one with no EXIF at all, for its frame's size.
 		Image.new("RGB", (17, 9), (0, 0, 0)).save(os.path.join(OUT, "plain.jpg"), quality=50)

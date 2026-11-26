@@ -4072,7 +4072,7 @@ $(BUILD_DIR)/gui/test/music_view_test: $(BUILD_DIR)/gui/test/music_view_test.o \
 $(BUILD_DIR)/gui/test/photo_view_test: $(BUILD_DIR)/gui/test/photo_view_test.o \
                                     $(BUILD_DIR)/gui/photo_view.o $(BUILD_DIR)/node/library_binary.o \
                                     $(BUILD_DIR)/node/catalog.o $(BUILD_DIR)/catalog/catalog.o \
-                                    $(BUILD_DIR)/wire/generated/attribute_row.o $(RPC_LINK_OBJS)
+                                    $(BUILD_DIR)/wire/generated/attribute_row.o $(MEDIA_TAGS_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # THE ONE SEARCH, sec 1293.
@@ -8590,6 +8590,7 @@ QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/conta
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
                  $(BUILD_DIR)/location/geo.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
+                    $(filter-out $(BUILD_DIR)/wire/generated/situ.o,$(MEDIA_TAGS_OBJS)) \
                     $(BUILD_DIR)/cli/manifest_print.o \
                     $(BUILD_DIR)/cli/ledger_print.o $(BUILD_DIR)/record/ledger.o \
                     $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \

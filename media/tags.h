@@ -67,6 +67,11 @@ size_t fzn_media_tags_read(const uint8_t *head, size_t len, fzn_media_tags_t *ou
 typedef size_t (*fzn_media_read_t)(void *ctx, uint64_t offset, uint8_t *buf, size_t len);
 size_t fzn_media_tags_read_file(fzn_media_read_t read, void *ctx, uint64_t file_len, fzn_media_tags_t *out);
 
+/* A PHOTOGRAPH'S OWN THUMBNAIL, sec 1455: the small JPEG a camera writes
+ * into EXIF (IFD1), where `head` holds it whole -- 1 with its place in
+ * `head`, 0 for none. A list shows it without decoding the photograph. */
+int fzn_media_exif_thumbnail(const uint8_t *head, size_t len, size_t *offset, size_t *thumb_len);
+
 /* The value read for `name`, or NULL. */
 const fzn_media_tag_t *fzn_media_tag_find(const fzn_media_tags_t *tags, const char *name);
 

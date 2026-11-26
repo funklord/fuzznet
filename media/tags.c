@@ -410,6 +410,80 @@ static void exif_read(const uint8_t *tiff_bytes, uint32_t len, fzn_media_tags_t 
 	}
 }
 
+/* THE CAMERA'S OWN THUMBNAIL, sec 1455: IFD0's next directory, IFD1, names
+ * a JPEG by its offset (0x0201) and length (0x0202), counted from the TIFF
+ * header. Where it lies wholly within the APP1 segment: 1 with its place in
+ * `tiff_bytes`. */
+static int exif_thumbnail(const uint8_t *tiff_bytes, uint32_t len, uint32_t *at, uint32_t *n)
+{
+	struct tiff t;
+	situ_view_t head, ifd0, ifd1, e;
+	uint32_t i, count, offset = 0, length = 0, v;
+
+	t.base = tiff_bytes;
+	t.len = len;
+	situ_msg_init(&t.msg, (uint8_t *)(uintptr_t)tiff_bytes, len);
+	if (fzn_exif_tiff_header_view(&t.msg, 0, &head) != SITU_OK || fzn_exif_tiff_header_validate(head) != SITU_OK)
+		return 0;
+	t.order = (uint16_t)fzn_exif_tiff_header_byte_order_get(head);
+	if (!tiff_ifd(&t, fzn_exif_tiff_header_ifd_offset_get(head), &ifd0)
+	    || !tiff_ifd(&t, fzn_exif_ifd_next_get(ifd0, t.order), &ifd1))
+		return 0;
+	count = fzn_exif_ifd_entries_count(ifd1, t.order);
+	for (i = 0; i < count; i++) {
+		if (fzn_exif_ifd_entries_at(ifd1, i, &e, t.order) != SITU_OK || !tiff_number(&t, e, &v))
+			continue;
+		if (fzn_exif_ifd_entry_tag_get(e, t.order) == 0x0201u)
+			offset = v;
+		else if (fzn_exif_ifd_entry_tag_get(e, t.order) == 0x0202u)
+			length = v;
+	}
+	if (!offset || length < 4u || offset > len || length > len - offset || tiff_bytes[offset] != 0xFFu
+	    || tiff_bytes[offset + 1u] != 0xD8u)
+		return 0;
+	*at = offset;
+	*n = length;
+	return 1;
+}
+
+int fzn_media_exif_thumbnail(const uint8_t *head, size_t len, size_t *offset, size_t *thumb_len)
+{
+	situ_msg_t msg;
+	uint32_t at = 2, have = len > UINT32_MAX ? UINT32_MAX : (uint32_t)len, need;
+
+	if (!head || len < 4u || head[0] != 0xFFu || head[1] != 0xD8u || !offset || !thumb_len)
+		return 0;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)head, have);
+	while (at + 4u <= have) {
+		situ_view_t seg, v;
+		situ_msg_t app;
+		uint32_t body_len, t_at = 0, t_n = 0;
+		const uint8_t *body;
+
+		if (head[at] == 0xFFu && head[at + 1u] == 0xFFu) {
+			at++;
+			continue;
+		}
+		need = 0;
+		if (fzn_exif_jpeg_segment_required(head + at, have - at, &need) != SITU_OK
+		    || fzn_exif_jpeg_segment_view(&msg, at, need, &seg) != SITU_OK
+		    || fzn_exif_jpeg_segment_validate(seg) != SITU_OK || fzn_exif_jpeg_segment_marker_get(seg) == 0xDAu)
+			return 0;
+		body = fzn_exif_jpeg_segment_body_ptr(seg);
+		body_len = fzn_exif_jpeg_segment_body_len(seg);
+		situ_msg_init(&app, (uint8_t *)(uintptr_t)body, body_len);
+		if (fzn_exif_jpeg_segment_marker_get(seg) == 0xE1u && body_len > 6u + 8u
+		    && fzn_exif_exif_app1_view(&app, 0, &v) == SITU_OK && fzn_exif_exif_app1_validate(v) == SITU_OK
+		    && exif_thumbnail(body + 6, body_len - 6u, &t_at, &t_n)) {
+			*offset = (size_t)(body + 6 + t_at - head);
+			*thumb_len = t_n;
+			return 1;
+		}
+		at += need;
+	}
+	return 0;
+}
+
 /* B.1.1.3: from after SOI, segment by segment to the scan. */
 static void jpeg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 {

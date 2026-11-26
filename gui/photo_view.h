@@ -7,6 +7,11 @@
  * no time said come last, under "When unknown". What a photograph says of
  * itself is read where its bytes are (sec 1447).
  *
+ * THUMBNAILS, sec 1455: each photograph held here shows the camera's own
+ * thumbnail (EXIF's), read from its first 64 KiB through the play slices,
+ * a few at a time on a timer, so opening a library of thousands waits for
+ * none of them; one without a thumbnail shows none.
+ *
  * THE ONE CHOSEN IS SHOWN: its bytes read through the library's play
  * slices -- from this host, or arriving from another -- decoded at the
  * preview's size, and turned as the camera's orientation says. Only the
@@ -57,6 +62,10 @@ public:
 	void select(int row);
 	bool fetch();
 	void set_find(const QString &text);
+	/* THUMBNAILS still to read, up to `n` of them now: how many were read.
+	 * The timer calls it; a test does. Whether row `row` shows one. */
+	int read_thumbnails(int n);
+	bool has_thumbnail(int row) const;
 
 	/* WHAT IS ON SCREEN: each row shown, a month as "MONTH YEAR | N" and its
 	 * photographs beneath as "  TIME | CAMERA | SIZE | PLACE | WHERE"; the
@@ -77,6 +86,8 @@ private:
 	QTreeWidget *m_tree;
 	QLabel *m_picture;
 	QImage m_shown;
+	QList<QByteArray> m_thumbs_wanted; /* roots, in the order shown */
+	class QTimer *m_thumb_timer;
 	QPushButton *m_fetch;
 	QPushButton *m_refresh;
 	QLabel *m_status;

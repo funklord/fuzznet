@@ -78478,11 +78478,8 @@ its canvas read from its header before anything is decoded (at most
 size, and turned as its EXIF orientation says (Qt's reader does it when
 asked to). Only the chosen one is read, so opening a library of
 thousands reads none. One not held here says so and is asked for with
-"Get it". **Not yet: a grid of thumbnails.** Each would need a file's
-bytes read on opening; EXIF's own thumbnail (IFD1) is the cheap source,
-and no tool here writes one -- Pillow and ffmpeg do not -- so a fixture
-for it would be bytes this tree built for its own reader. It waits for
-an independent writer.
+"Get it". **Thumbnails came in sec 1455**, EXIF's own, once jhead was
+found to write and extract them for an independent fixture.
 
 **Tests:** `photo_view_test` (9), answered by the node's own
 `library_binary.c` and the fixture `photo.jpg` read range by range:
@@ -78492,8 +78489,7 @@ by 12, orientation 6), one not here asked for and not read, found by
 its camera, a silent node, 320 px. Sabotage `photo-view-orientation-ignored`
 and `photo-view-oldest-first` each fail it.
 
-**What the catalogues still want**: a thumbnail grid (above), and
-snurra asserting the BPM, key and identities it finds under the names
+**What the catalogues still want**: snurra asserting the BPM, key and identities it finds under the names
 of sec 1447 -- told to snurra (its inbox) with this section. Ogg and
 MP4 came next (secs 1451, 1452).
 
@@ -78577,3 +78573,28 @@ root and shown by its name. Numbers, sizes, places and times stay facets:
 **Tests:** `node_catalog_test` finds a song by its artist, once, shown
 by its name, and no year as a word; with `artist` left out of the words
 it fails (sabotage `catalog-search-artist-unread`).
+
+## 1455. The camera's own thumbnail beside each photograph, 2026-11-26
+
+Sec 1450 left the photo view without thumbnails, waiting for a tool that
+writes EXIF's own (IFD1) to test a reader against. **jhead is installed
+here** and does: `-mkexif` then `-rgt` writes one, `-st` extracts it. So
+`tool/media_fixtures.py` makes `photo_thumb.jpg` that way and keeps
+jhead's extraction beside it, and `fzn_media_exif_thumbnail` must find
+exactly those bytes -- IFD0's next directory, its 0x0201 offset and
+0x0202 length counted from the TIFF header, the JPEG wholly inside the
+APP1 segment and opening with its SOI.
+
+**`photo_view` shows it** as each held photograph's icon, turned by the
+photograph's orientation: its first 64 KiB read through the play slices
+(APP1 is at most 64 KiB), one photograph a 30 ms tick, so a library of
+thousands opens at once and fills in. One with no thumbnail -- Pillow
+writes none -- shows none rather than being decoded whole; one not held
+here waits until it is.
+
+**Tests:** `tags_test` (17) finds jhead's thumbnail byte for byte and
+none in the photographs without one; the mangled files ask for it too.
+`photo_view_test` (10) shows it for jhead's photograph and not for
+Pillow's or one held elsewhere. Sabotage
+`media-tags-thumbnail-offset-for-length` and
+`photo-view-no-thumbnails-wanted`.

@@ -137,6 +137,12 @@ static unsigned mangle(const uint8_t *whole, size_t len, uint64_t *rng, unsigned
 		(void)fzn_media_tags_read(b, len, &t);
 		bad += !well_formed(&t);
 		bad += by_ranges(b, len);
+		{
+			size_t th_at = 0, th_n = 0;
+
+			if (fzn_media_exif_thumbnail(b, len, &th_at, &th_n) && (th_at > len || th_n > len - th_at))
+				bad++;
+		}
 		free(b);
 	}
 	return bad;
@@ -314,6 +320,22 @@ int main(void)
 		(void)fzn_media_tags_read_file(serve, &f, len[1], &t);
 		CHECK(t.format == FZN_MEDIA_ID3 && is(&t, "artist", "Bj\xc3\xb6rk") && f.reads == 1u,
 		      "a file read by ranges that is no MP4 was not read by its head alone");
+	}
+
+	/* THE CAMERA'S OWN THUMBNAIL, sec 1455: jhead's, found where jhead's
+	 * own -st extracts it, byte for byte; a photograph without one has none. */
+	{
+		size_t thumb_len = 0, with_len = 0, at = 0, n = 0;
+		uint8_t *with = slurp("media/test/fixture/photo_thumb.jpg", &with_len);
+		uint8_t *thumb = slurp("media/test/fixture/photo_thumb.thumb", &thumb_len);
+
+		CHECK(with && thumb && fzn_media_exif_thumbnail(with, with_len, &at, &n) && n == thumb_len
+		              && !memcmp(with + at, thumb, n),
+		      "an EXIF thumbnail was not found as jhead extracts it");
+		CHECK(!fzn_media_exif_thumbnail(b[3], len[3], &at, &n) && !fzn_media_exif_thumbnail(b[1], len[1], &at, &n),
+		      "a thumbnail was found where none was written");
+		free(with);
+		free(thumb);
 	}
 
 	/* A HEAD CUT SHORT still reads what is whole in it: the ID3v2.4 tag's
