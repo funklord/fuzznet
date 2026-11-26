@@ -68,6 +68,8 @@
 #include "catalog.h"
 #include "file_refs.h"
 #include "../media/tags.h"
+#include "../media/analysis.h"
+#include "../media/decode.h"
 #include "../claim/claim.h"
 #include "../local/client.h"
 #include "../local/escape.h"
@@ -198,6 +200,7 @@
 #endif
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -573,6 +576,9 @@ static size_t node_local(const fzn_request_t *request, char *reply, size_t cap)
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
+static size_t sound_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
+static void sound_tick(void);
+static void sound_stop(void);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 /* `add call`, `set call`, `list call`, `add frame`, `list frame`: sec 1020. */
@@ -735,6 +741,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = catalog_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = tags_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = sound_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = calls_local(origin, request, reply, reply_cap);
 	if (n) {
@@ -12753,6 +12761,8 @@ static int start_again(int lfd, const char *sock_path)
 	char word[24];
 	int keep;
 
+	/* A TUNE BEING HEARD is let go: the new image knows nothing of it. */
+	sound_stop();
 	/* A TERM FROM HERE ON STAYS PENDING, for the new image to take once its
 	 * handler is in (`term_unblock`): a handler's flag set here would be lost
 	 * with this image, and a TERM sent while a node started again in place
@@ -17610,17 +17620,22 @@ static int catalog_says(const uint8_t root[FZN_PUBKEY_LEN], const char *name, co
 }
 
 /* `name` = `value` of `root`, this host's, onto its catalogue stream. A
- * size or a length is a carried fact (C3, sec 652's duration); the rest are
- * labels. 1 when the journal took it. */
+ * size or a length is a carried fact (C3, sec 652's duration), and so is
+ * what a host measured hearing a tune (sec 1457); the rest are labels. 1
+ * when the journal took it. */
 static int catalog_put(const uint8_t root[FZN_PUBKEY_LEN], const char *name, const char *value,
                        size_t value_len)
 {
 	static uint8_t body[FZN_RECORD_MAX_LEN];
 	fzn_catalog_assertion_t a;
 	size_t len = 0;
-	int fact = !strcmp(name, "duration") || !strcmp(name, "width") || !strcmp(name, "height")
-	           || !strcmp(name, "orientation");
+	static const char *const facts[] = { "duration", "width", "height", "orientation", "bpm",
+		                             "beat", "key", "loudness", "peak", "heard" };
+	int fact = 0;
+	size_t i;
 
+	for (i = 0; i < sizeof(facts) / sizeof(facts[0]); i++)
+		fact |= !strcmp(name, facts[i]);
 	memset(&a, 0, sizeof(a));
 	a.name = (const uint8_t *)name;
 	a.name_len = strlen(name);
@@ -17763,6 +17778,347 @@ static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char
 }
 #else
 static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	(void)origin;
+	(void)request;
+	(void)reply;
+	(void)cap;
+	return 0;
+}
+#endif
+
+/* ---- what a held tune sounds like, sec 1457 --------------------------------------
+ *
+ *     add sound ROOT     a tune this host holds queued to be heard: its
+ *                        tempo and first beat, its key, its loudness and
+ *                        highest sample (media/analysis.h): `ok QUEUED WAITING`
+ *     add sound from N   the held tunes from the Nth, as `add tags from N`,
+ *                        SOUND_PER_CALL a call: `ok NEXT TOTAL QUEUED WAITING`
+ *
+ * HEARD WHERE THE BYTES ARE, once, for the whole estate (the holder,
+ * 2026-11-26: "the music catalog is about finding all these values and
+ * storing the metadata for sorting and searching"): what is found is this
+ * host's assertion of `bpm`, `beat`, `key`, `loudness` and `peak`, and
+ * `heard` says which analysis heard it -- asserted when nothing was found
+ * too, so a tune is not heard twice.
+ *
+ * A TUNE AT A TIME, IN A PROCESS OF ITS OWN: a minute of sound takes about a
+ * second to hear, which the loop cannot wait for, and the bytes are
+ * anybody's, read by FFmpeg's demuxers -- a fault there ends the child and
+ * not the host. The child writes the file whole into this host's scratch,
+ * decodes and hears it, writes what it found down a pipe and removes the
+ * file; the loop reads the pipe once the child has ended, and ends one
+ * that runs past SOUND_SECONDS_MAX. A tune is one the catalogue calls
+ * `audio/` or `video/`, or one of no kind it gives a length -- never a
+ * file of another kind, which a decoder has no reason to read. */
+#if defined(FZN_CATALOG_ON) && defined(FZN_FILES_ON)
+#define SOUND_PER_CALL 256u
+#define SOUND_SECONDS_MAX 900
+#define SOUND_ANALYSIS "1"
+
+static uint8_t (*sound_line)[FZN_PUBKEY_LEN];
+static size_t sound_waiting, sound_cap;
+static pid_t sound_pid = -1;
+static int sound_fd = -1;
+static time_t sound_began;
+static uint8_t sound_root[FZN_PUBKEY_LEN];
+static char sound_path[FZN_NODE_SHELF_DIR_MAX + 16u];
+
+/* The first live value of `name` of `root`, anybody's: its length, 0 for
+ * none. */
+static size_t catalog_first(const uint8_t root[FZN_PUBKEY_LEN], const char *name, char *out, size_t cap)
+{
+	static fzn_catalog_assertion_t *set;
+	static size_t set_cap;
+	size_t n = fzn_node_catalog_count_of(&node_catalog, root), i, name_len = strlen(name);
+
+	if (n > set_cap) {
+		fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
+
+		if (!more)
+			return 0;
+		set = more;
+		set_cap = n;
+	}
+	n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+	for (i = 0; i < n && i < set_cap; i++)
+		if (set[i].live && set[i].name_len == name_len && memcmp(set[i].name, name, name_len) == 0
+		    && set[i].value_len && set[i].value_len < cap) {
+			memcpy(out, set[i].value, set[i].value_len);
+			out[set[i].value_len] = '\0';
+			return set[i].value_len;
+		}
+	return 0;
+}
+
+/* 1 when `root` is a tune held whole here that this host has not heard,
+ * and is not waiting or being heard. */
+static int sound_wanted(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	fzn_node_file_status_t st;
+	char kind[64], length[32];
+	size_t i;
+
+	if (fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || !st.whole || !st.length
+	    || catalog_says(root, "heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u))
+		return 0;
+	if (catalog_first(root, "kind", kind, sizeof(kind))) {
+		if (strncmp(kind, "audio/", 6u) != 0 && strncmp(kind, "video/", 6u) != 0)
+			return 0;
+	} else if (!catalog_first(root, "duration", length, sizeof(length))) {
+		return 0;
+	}
+	if (sound_pid > 0 && memcmp(sound_root, root, FZN_PUBKEY_LEN) == 0)
+		return 0;
+	for (i = 0; i < sound_waiting; i++)
+		if (memcmp(sound_line[i], root, FZN_PUBKEY_LEN) == 0)
+			return 0;
+	return 1;
+}
+
+static int sound_queue(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	if (!sound_wanted(root))
+		return 0;
+	if (sound_waiting == sound_cap) {
+		size_t cap = sound_cap ? sound_cap * 2u : 64u;
+		uint8_t (*more)[FZN_PUBKEY_LEN] = realloc(sound_line, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		sound_line = more;
+		sound_cap = cap;
+	}
+	memcpy(sound_line[sound_waiting++], root, FZN_PUBKEY_LEN);
+	return 1;
+}
+
+static int sound_heard(void *ctx, const float *stereo, size_t frames)
+{
+	return fzn_media_analysis_add(ctx, stereo, frames);
+}
+
+/* THE CHILD: the file written out, decoded, heard, told down `fd`. */
+static void sound_child(int fd, const fzn_node_file_ref_t *ref)
+{
+	fzn_media_sound_t found;
+	fzn_media_analysis_t *a = fzn_media_analysis_open();
+	int whole = 0;
+	ssize_t wrote;
+
+	(void)signal(SIGTERM, SIG_DFL);
+	(void)signal(SIGINT, SIG_DFL);
+	(void)signal(SIGPIPE, SIG_DFL);
+	memset(&found, 0, sizeof(found));
+	found.key = -1;
+	if (a && fzn_node_files_read_range(&files, ref, 0, ref->length, sound_path, &whole) == FZN_NODE_FILES_OK
+	    && fzn_media_decode(sound_path, 0, sound_heard, a, NULL) == FZN_MEDIA_DECODE_OK) {
+		(void)fzn_media_analysis_finish(a, &found, NULL);
+		a = NULL;
+	}
+	fzn_media_analysis_free(a);
+	(void)unlink(sound_path);
+	wrote = write(fd, &found, sizeof(found));
+	_exit(wrote == (ssize_t)sizeof(found) ? 0 : 1);
+}
+
+/* The next tune waiting, heard in a child. */
+static void sound_start(void)
+{
+	uint8_t ref_bytes[FZN_NODE_FILE_REF_LEN];
+	fzn_node_file_ref_t ref;
+	fzn_node_file_status_t st;
+	int pipe_fds[2], n, fd;
+
+	while (sound_waiting && sound_pid < 0) {
+		memcpy(sound_root, sound_line[0], FZN_PUBKEY_LEN);
+		memmove(sound_line[0], sound_line[1], (sound_waiting - 1u) * FZN_PUBKEY_LEN);
+		sound_waiting--;
+		if (fzn_node_files_status(&files, sound_root, &st) != FZN_NODE_FILES_OK || !st.whole
+		    || !fzn_node_file_ref_get(node_apply.store, sound_root, ref_bytes)
+		    || !fzn_node_file_ref_read(ref_bytes, &ref)) {
+			fzn_wipe(ref_bytes, sizeof(ref_bytes));
+			continue;
+		}
+		fzn_wipe(ref_bytes, sizeof(ref_bytes));
+		ref.length = st.length;
+		n = snprintf(sound_path, sizeof(sound_path), "%s/.sound-XXXXXX", tags_dir);
+		if (n < 0 || (size_t)n >= sizeof(sound_path) || (fd = mkstemp(sound_path)) < 0) {
+			fzn_wipe(&ref, sizeof(ref));
+			continue;
+		}
+		close(fd);
+		(void)unlink(sound_path); /* the name kept: the range is written where nothing is */
+		if (pipe(pipe_fds) != 0) {
+			fzn_wipe(&ref, sizeof(ref));
+			continue;
+		}
+		sound_pid = fork();
+		if (sound_pid == 0) {
+			close(pipe_fds[0]);
+			sound_child(pipe_fds[1], &ref);
+		}
+		fzn_wipe(&ref, sizeof(ref));
+		close(pipe_fds[1]);
+		if (sound_pid < 0) {
+			close(pipe_fds[0]);
+			continue;
+		}
+		sound_fd = pipe_fds[0];
+		sound_began = time(NULL);
+	}
+}
+
+/* What was found, asserted as this host's; `heard` whether or not anything
+ * was. */
+static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const fzn_media_sound_t *s)
+{
+	char value[32];
+	size_t n;
+	int put = 0;
+
+#define SOUND_PUT(name, text, len)                                                                     \
+	do {                                                                                           \
+		if (!catalog_says(root, (name), (text), (len)) && catalog_put(root, (name), (text), (len))) \
+			put++;                                                                         \
+	} while (0)
+	if (s && s->bpm > 0) {
+		n = (size_t)snprintf(value, sizeof(value), "%.2f", s->bpm);
+		SOUND_PUT("bpm", value, n);
+		n = (size_t)snprintf(value, sizeof(value), "%.3f", s->first);
+		SOUND_PUT("beat", value, n);
+	}
+	if (s && (n = fzn_media_key_name(s->key, value, sizeof(value))) != 0)
+		SOUND_PUT("key", value, n);
+	if (s && s->loudness_known) {
+		n = (size_t)snprintf(value, sizeof(value), "%.1f", s->loudness);
+		SOUND_PUT("loudness", value, n);
+		n = (size_t)snprintf(value, sizeof(value), "%.3f", s->peak);
+		SOUND_PUT("peak", value, n);
+	}
+	SOUND_PUT("heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u);
+#undef SOUND_PUT
+	if (put) {
+		catalog_hushed = 1;
+		index_catalog();
+		catalog_hushed = 0;
+		journal_pushed = 1;
+	}
+}
+
+/* Each turn of the loop: a child that has ended read and its finding
+ * asserted, one past its time ended, and the next tune started. */
+static void sound_tick(void)
+{
+	fzn_media_sound_t found;
+	int status;
+	pid_t done;
+
+	if (sound_pid > 0) {
+		done = waitpid(sound_pid, &status, WNOHANG);
+		if (done == 0 && time(NULL) - sound_began > SOUND_SECONDS_MAX) {
+			(void)kill(sound_pid, SIGKILL);
+			done = waitpid(sound_pid, &status, 0);
+			status = -1;
+		}
+		if (done == 0)
+			return;
+		if (done == sound_pid && WIFEXITED(status) && WEXITSTATUS(status) == 0
+		    && read(sound_fd, &found, sizeof(found)) == (ssize_t)sizeof(found))
+			sound_assert(sound_root, &found);
+		else
+			sound_assert(sound_root, NULL);
+		close(sound_fd);
+		sound_fd = -1;
+		sound_pid = -1;
+		(void)unlink(sound_path); /* the child's, where it ended before removing it */
+	}
+	if (sound_waiting && files_on && journal_on && contact_id)
+		sound_start();
+}
+
+/* THE HOST STOPPING: a tune being heard is let go, its child ended and its
+ * plaintext removed, so nothing of the store outlives the host. */
+static void sound_stop(void)
+{
+	int status;
+
+	if (sound_pid <= 0)
+		return;
+	(void)kill(sound_pid, SIGKILL);
+	(void)waitpid(sound_pid, &status, 0);
+	close(sound_fd);
+	sound_fd = -1;
+	sound_pid = -1;
+	(void)unlink(sound_path);
+}
+
+static size_t sound_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	static uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+	static size_t roots_cap;
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, held = 0, from = 0, i = 0, queued = 0;
+	uint8_t root[FZN_PUBKEY_LEN];
+	int one = 0;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 5u
+	    || memcmp(subject, "sound", 5u) != 0 || request->parsed != FZN_VERB_ADD)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied the catalogue needs this node's own user\n");
+	if (!journal_on || !contact_id || !files_on)
+		return (size_t)snprintf(reply, cap, "error this node keeps no catalogue of files\n");
+	if (!fzn_media_decode_available())
+		return (size_t)snprintf(reply, cap, "error this host was built with no decoder\n");
+	if (!next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed add sound ROOT|from N\n");
+	if (w_len == 4u && memcmp(w, "from", 4u) == 0) {
+		if (!next_word(&at, &left, &w, &w_len) || !catalog_from(w, w_len, &from) || left)
+			return (size_t)snprintf(reply, cap, "malformed add sound from N\n");
+		if (fzn_node_files_list(&files, NULL, 0u, &held) != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, cap, "error the files did not read\n");
+		if (held > roots_cap) {
+			uint8_t (*more)[FZN_BLOB_HASH_LEN] = realloc(roots, held * sizeof(*more));
+
+			if (!more)
+				return (size_t)snprintf(reply, cap, "error no memory\n");
+			roots = more;
+			roots_cap = held;
+		}
+		if (held && fzn_node_files_list(&files, roots, roots_cap, &held) != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, cap, "error the files did not read\n");
+		if (held > roots_cap)
+			held = roots_cap;
+		if (from > held)
+			return (size_t)snprintf(reply, cap, "malformed past the last file\n");
+		for (i = from; i < held && i < from + SOUND_PER_CALL; i++)
+			queued += (size_t)sound_queue(roots[i]);
+	} else {
+		fzn_node_file_status_t st;
+
+		if (w_len != 2u * FZN_PUBKEY_LEN || !unhex32(w, w_len, root) || left)
+			return (size_t)snprintf(reply, cap, "malformed add sound ROOT|from N\n");
+		if (fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || !st.whole)
+			return (size_t)snprintf(reply, cap, "error that file is not held whole here\n");
+		queued = (size_t)sound_queue(root);
+		one = 1;
+	}
+	sound_tick();
+	if (one)
+		return (size_t)snprintf(reply, cap, "ok %zu %zu\n", queued, sound_waiting + (sound_pid > 0));
+	return (size_t)snprintf(reply, cap, "ok %zu %zu %zu %zu\n", i, held, queued, sound_waiting + (sound_pid > 0));
+}
+#else
+static void sound_tick(void)
+{
+}
+
+static void sound_stop(void)
+{
+}
+
+static size_t sound_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
 {
 	(void)origin;
 	(void)request;
@@ -19798,6 +20154,62 @@ static int local_tags(int fd, fzn_origin_t origin, const uint8_t *msg, size_t le
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+/* A TUNE QUEUED TO BE HEARD, sec 1457: `add sound`, as the socket runs it,
+ * answered by a sound_done. */
+static int local_sound(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static char arg[16u + 2u * FZN_PUBKEY_LEN], reply[256];
+	unsigned long numbers[4] = { 0, 0, 0, 0 };
+	uint8_t row[16], out[24];
+	uint32_t row_len = 0, out_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_request_t req;
+	size_t n;
+	int one = msg[1] == FZN_FILES_LOCAL_OP_SOUND, got;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no catalogue"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+	if (one) {
+		if (fzn_files_local_message_body_sound_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		memcpy(arg, "sound ", 6u);
+		hex_of(fzn_files_local_file_root_ptr(b), FZN_PUBKEY_LEN, arg + 6);
+		n = 6u + 2u * FZN_PUBKEY_LEN;
+	} else {
+		if (fzn_files_local_message_body_sound_page_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		n = (size_t)snprintf(arg, sizeof(arg), "sound from %lu",
+		                     (unsigned long)fzn_files_local_tags_page_from_get(b));
+	}
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_ADD;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node hears no tunes"), 0;
+	reply[n] = '\0';
+	if (strncmp(reply, "ok ", 3u) != 0)
+		return verb_status(fd, reply, n);
+	got = one ? sscanf(reply + 3, "%lu %lu", &numbers[2], &numbers[3])
+	          : sscanf(reply + 3, "%lu %lu %lu %lu", &numbers[0], &numbers[1], &numbers[2], &numbers[3]);
+	if (got != (one ? 2 : 4)
+	    || fzn_files_local_sound_done_build(row, sizeof(row), (uint32_t)numbers[0], (uint32_t)numbers[1],
+	                                        (uint32_t)numbers[2], (uint32_t)numbers[3], &row_len)
+	               != SITU_OK
+	    || fzn_files_local_message_build_sound_done(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
+	                                                &out_len)
+	               != SITU_OK
+	    || !local_put(&fd, out, out_len))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the queueing's answer did not read"), 0;
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	static struct library_files lf;
@@ -19810,6 +20222,9 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 	/* A FILE READ FOR WHAT IT SAYS OF ITSELF, sec 1447. */
 	if (len >= 2u && (msg[1] == FZN_FILES_LOCAL_OP_TAGS || msg[1] == FZN_FILES_LOCAL_OP_TAGS_PAGE))
 		return local_tags(fd, origin, msg, len);
+	/* A TUNE QUEUED TO BE HEARD, sec 1457. */
+	if (len >= 2u && (msg[1] == FZN_FILES_LOCAL_OP_SOUND || msg[1] == FZN_FILES_LOCAL_OP_SOUND_PAGE))
+		return local_sound(fd, origin, msg, len);
 	/* A FILE LET GO, SHARED, OR ITS SHARES, sec 1303: files alone. */
 	if (len >= 2u
 	    && (msg[1] == FZN_FILES_LOCAL_OP_REMOVE || msg[1] == FZN_FILES_LOCAL_OP_SHARE
@@ -25122,6 +25537,7 @@ static void flush_held(void)
 
 static int stop_serving(int lfd, const char *sock_path, int ufd)
 {
+	sound_stop();
 	flush_held();
 	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
 	if (verify_memo_path[0] && verify_memo.added != verify_memo.added_saved)
@@ -28739,6 +29155,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			LOOP_TIMED("invite_tick", invite_tick());
 			LOOP_TIMED("preset_tick", preset_tick());
 			LOOP_TIMED("ext_tick", ext_tick());
+			/* A TUNE HEARD in its child, read once that has ended, sec 1457. */
+			LOOP_TIMED("sound_tick", sound_tick());
 #ifdef FZN_LOG_FILE_ON
 			LOOP_TIMED("log_settings_tick", log_settings_tick());
 #endif
@@ -28805,6 +29223,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		invite_tick();
 		preset_tick();
 		ext_tick();
+		sound_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();
 #endif
@@ -28812,6 +29231,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		(void)fzn_node_run_once(&state, logs_verifying() ? 0 : 1000);
 		loop_after_answering(&state);
 	}
+	sound_stop();
 	if (rejoin_due) {
 		const int r = start_again(lfd, sock_path);
 

@@ -296,6 +296,35 @@ situ_err_t fzn_files_local_tags_done_validate(situ_view_t view)
 	return fzn_files_local_tags_done_check(view, NULL);
 }
 
+situ_err_t fzn_files_local_sound_done_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_FILES_LOCAL_SOUND_DONE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_files_local_sound_done_validate(situ_view_t view)
+{
+	return fzn_files_local_sound_done_check(view, NULL);
+}
+
 situ_err_t fzn_files_local_music_row_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -702,12 +731,12 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_files_local_message_op_get(view) == 128u ? 0u : (fzn_files_local_message_op_get(view) == 129u ? (fzn_files_local_message_body_library_row_extent(view)) : (fzn_files_local_message_op_get(view) == 130u ? 32u : (fzn_files_local_message_op_get(view) == 131u ? 32u : (fzn_files_local_message_op_get(view) == 132u ? 31u : (fzn_files_local_message_op_get(view) == 133u ? 32u : (fzn_files_local_message_op_get(view) == 134u ? (fzn_files_local_message_body_share_extent(view)) : (fzn_files_local_message_op_get(view) == 135u ? 32u : (fzn_files_local_message_op_get(view) == 136u ? (fzn_files_local_message_body_share_row_extent(view)) : (fzn_files_local_message_op_get(view) == 137u ? (fzn_files_local_message_body_catalog_add_extent(view)) : (fzn_files_local_message_op_get(view) == 138u ? 32u : (fzn_files_local_message_op_get(view) == 139u ? 4u : (fzn_files_local_message_op_get(view) == 140u ? 12u : (fzn_files_local_message_op_get(view) == 141u ? 0u : (fzn_files_local_message_op_get(view) == 142u ? (fzn_files_local_message_body_music_row_extent(view)) : (fzn_files_local_message_op_get(view) == 143u ? 0u : (fzn_files_local_message_op_get(view) == 144u ? (fzn_files_local_message_body_photo_row_extent(view)) : 0u))))))))))))))))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_files_local_message_op_get(view) == 128u ? 0u : (fzn_files_local_message_op_get(view) == 129u ? (fzn_files_local_message_body_library_row_extent(view)) : (fzn_files_local_message_op_get(view) == 130u ? 32u : (fzn_files_local_message_op_get(view) == 131u ? 32u : (fzn_files_local_message_op_get(view) == 132u ? 31u : (fzn_files_local_message_op_get(view) == 133u ? 32u : (fzn_files_local_message_op_get(view) == 134u ? (fzn_files_local_message_body_share_extent(view)) : (fzn_files_local_message_op_get(view) == 135u ? 32u : (fzn_files_local_message_op_get(view) == 136u ? (fzn_files_local_message_body_share_row_extent(view)) : (fzn_files_local_message_op_get(view) == 137u ? (fzn_files_local_message_body_catalog_add_extent(view)) : (fzn_files_local_message_op_get(view) == 138u ? 32u : (fzn_files_local_message_op_get(view) == 139u ? 4u : (fzn_files_local_message_op_get(view) == 140u ? 12u : (fzn_files_local_message_op_get(view) == 141u ? 0u : (fzn_files_local_message_op_get(view) == 142u ? (fzn_files_local_message_body_music_row_extent(view)) : (fzn_files_local_message_op_get(view) == 143u ? 0u : (fzn_files_local_message_op_get(view) == 144u ? (fzn_files_local_message_body_photo_row_extent(view)) : (fzn_files_local_message_op_get(view) == 145u ? 32u : (fzn_files_local_message_op_get(view) == 146u ? 4u : (fzn_files_local_message_op_get(view) == 147u ? 16u : 0u)))))))))))))))))))))) {
 		*which = FZN_FILES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.library, op.library_row, op.library_file, op.file, op.file_row, op.remove, op.share, op.shares, op.share_row, op.catalog_add, op.tags, op.tags_page, op.tags_done, op.music, op.music_row, op.photos, op.photo_row, and `default: error` for the rest. */
-	if (fzn_files_local_message_op_get(view) != 128u && fzn_files_local_message_op_get(view) != 129u && fzn_files_local_message_op_get(view) != 130u && fzn_files_local_message_op_get(view) != 131u && fzn_files_local_message_op_get(view) != 132u && fzn_files_local_message_op_get(view) != 133u && fzn_files_local_message_op_get(view) != 134u && fzn_files_local_message_op_get(view) != 135u && fzn_files_local_message_op_get(view) != 136u && fzn_files_local_message_op_get(view) != 137u && fzn_files_local_message_op_get(view) != 138u && fzn_files_local_message_op_get(view) != 139u && fzn_files_local_message_op_get(view) != 140u && fzn_files_local_message_op_get(view) != 141u && fzn_files_local_message_op_get(view) != 142u && fzn_files_local_message_op_get(view) != 143u && fzn_files_local_message_op_get(view) != 144u) {
+	/* message.body: an arm for op.library, op.library_row, op.library_file, op.file, op.file_row, op.remove, op.share, op.shares, op.share_row, op.catalog_add, op.tags, op.tags_page, op.tags_done, op.music, op.music_row, op.photos, op.photo_row, op.sound, op.sound_page, op.sound_done, and `default: error` for the rest. */
+	if (fzn_files_local_message_op_get(view) != 128u && fzn_files_local_message_op_get(view) != 129u && fzn_files_local_message_op_get(view) != 130u && fzn_files_local_message_op_get(view) != 131u && fzn_files_local_message_op_get(view) != 132u && fzn_files_local_message_op_get(view) != 133u && fzn_files_local_message_op_get(view) != 134u && fzn_files_local_message_op_get(view) != 135u && fzn_files_local_message_op_get(view) != 136u && fzn_files_local_message_op_get(view) != 137u && fzn_files_local_message_op_get(view) != 138u && fzn_files_local_message_op_get(view) != 139u && fzn_files_local_message_op_get(view) != 140u && fzn_files_local_message_op_get(view) != 141u && fzn_files_local_message_op_get(view) != 142u && fzn_files_local_message_op_get(view) != 143u && fzn_files_local_message_op_get(view) != 144u && fzn_files_local_message_op_get(view) != 145u && fzn_files_local_message_op_get(view) != 146u && fzn_files_local_message_op_get(view) != 147u) {
 		*which = FZN_FILES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -1028,6 +1057,63 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_FILES_LOCAL_MESSAGE_BODY_PHOTO_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.sound: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_files_local_message_body_sound_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_files_local_file_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_FILES_LOCAL_MESSAGE_BODY_SOUND_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.sound_page: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_files_local_message_body_sound_page_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_files_local_tags_page_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_FILES_LOCAL_MESSAGE_BODY_SOUND_PAGE_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.sound_done: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_files_local_message_body_sound_done_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_files_local_sound_done_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_FILES_LOCAL_MESSAGE_BODY_SOUND_DONE_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

@@ -30,6 +30,9 @@ enum op : u8 {
 	music_row   = 142, // an answer: one piece of music
 	photos      = 143, // every file that is a photograph
 	photo_row   = 144, // an answer: one photograph
+	sound       = 145, // a held tune queued to be heard for its tempo, key and loudness, as `add sound ROOT` (sec 1457)
+	sound_page  = 146, // the held tunes from FROM queued so, as `add sound from N`
+	sound_done  = 147, // an answer: how far the queueing got, and how many wait to be heard
 	default     = error,
 }
 
@@ -97,6 +100,16 @@ struct tags_done {
 	u32  next;
 	u32  total;
 	u32  asserted;
+}
+// HOW FAR A QUEUEING GOT (sec 1457): NEXT and TOTAL as tags_done's, QUEUED
+// the tunes this request put in line, WAITING every tune still to be heard
+// here, the one being heard among them. Heard in a process of their own, a
+// tune at a time; what is found is asserted when it is.
+struct sound_done {
+	u32  next;
+	u32  total;
+	u32  queued;
+	u32  waiting;
 }
 // ONE PIECE OF MUSIC, sec 1449: ROOT the file's; DURATION_MS, HOLDERS and
 // HELD_HERE as the library row says them. TRACK and DISC with their
@@ -212,6 +225,9 @@ struct message {
 		case op.music_row:   music_row   music_row;
 		case op.photos:      nothing     photos;
 		case op.photo_row:   photo_row   photo_row;
+		case op.sound:       file        sound;
+		case op.sound_page:  tags_page   sound_page;
+		case op.sound_done:  sound_done  sound_done;
 		default: error;
 	}
 }

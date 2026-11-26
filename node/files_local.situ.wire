@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136 catalog_add=137 tags=138 tags_page=139 tags_done=140 music=141 music_row=142 photos=143 photo_row=144
+  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136 catalog_add=137 tags=138 tags_page=139 tags_done=140 music=141 music_row=142 photos=143 photo_row=144 sound=145 sound_page=146 sound_done=147
 
 struct catalog_add size=36..603
   @0x0000   32        u8         root  big
@@ -77,6 +77,9 @@ struct message size=2..1881
   body case 142: music_row music_row
   body case 143: photos nothing
   body case 144: photo_row photo_row
+  body case 145: sound file
+  body case 146: sound_page tags_page
+  body case 147: sound_done sound_done
   body case default: error
 
 struct music_row size=62..1879
@@ -139,6 +142,12 @@ struct share_row size=34..66
   @0x0001   32        u8         key  big
   @0x0021   1         u8         name_len  max=32
   @0x0022   0..32     u8         name  sized-by=name_len
+
+struct sound_done size=16
+  @0x0000   4         u32        next  big
+  @0x0004   4         u32        total  big
+  @0x0008   4         u32        queued  big
+  @0x000c   4         u32        waiting  big
 
 struct tags_done size=12
   @0x0000   4         u32        next  big

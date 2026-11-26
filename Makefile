@@ -173,6 +173,7 @@ FZN_MESSAGES ?= 0
 FZN_FILES ?= 0
 FZN_LOG_PACK ?= 0
 FZN_LOG_FILE ?= 0
+FZN_MEDIA_DECODE ?= 0
 FZN_SEARCH ?= 0
 endif
 
@@ -408,7 +409,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h media/tags.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h media/tags.h media/analysis.h media/decode.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
              local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h local/call_sound.h \
@@ -488,6 +489,9 @@ CORE_SRCS := $(SRCS)
 # So it joins SRCS after CORE_SRCS is frozen: built into the library, and a
 # program that calls it links -lm.
 SRCS      += location/geo.c
+# AND A TUNE HEARD, sec 1457, for the same reason: the detector is
+# arithmetic, and its decoder links FFmpeg where the build has one.
+SRCS      += media/analysis.c media/decode.c
 
 # The primitive names installcheck looks for, spelled once because the probe
 # and the control that proves the probe works must not be able to drift
@@ -501,7 +505,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c media/test/tags_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c media/test/tags_test.c media/test/analysis_test.c media/test/decode_test.c \
              local/test/rpc_test.c local/test/call_sound_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
@@ -644,6 +648,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/hex/test/hex_test \
              $(BUILD_DIR)/media/test/media_test \
              $(BUILD_DIR)/media/test/tags_test \
+             $(BUILD_DIR)/media/test/analysis_test \
+             $(BUILD_DIR)/media/test/decode_test \
              $(BUILD_DIR)/local/test/rpc_test \
              $(BUILD_DIR)/local/test/call_sound_test \
              $(BUILD_DIR)/location/test/geo_test \
@@ -1275,6 +1281,39 @@ LOG_PACK_SKIP := FZN_LOG_PACK=0.
 else
 $(error FZN_LOG_PACK must be auto, 1 or 0 -- got "$(FZN_LOG_PACK)")
 endif
+
+# A TUNE'S SOUND DECODED, sec 1457: libavformat, libavcodec, libavutil and
+# libswresample, for the tempo, key and loudness a host finds of the music it
+# holds (media/decode.c). auto, 1 or 0, as packing is; the probe links, and a
+# build without it still links media/decode.o, which then says it has no
+# decoder. A consumer linking libfuzznetd.a reads the libraries from
+# `make daemon-flags`.
+ifeq ($(FZN_MEDIA_DECODE),)
+FZN_MEDIA_DECODE := auto
+endif
+MEDIA_DECODE_PKGS := libavformat libavcodec libavutil libswresample
+FZN_PROBE_DECODE := $(shell pkg-config --exists $(MEDIA_DECODE_PKGS) 2>/dev/null \
+                     && printf '%s\n' '#include <libavformat/avformat.h>' '#include <libswresample/swresample.h>' \
+                        'int main(void){SwrContext*s=swr_alloc();swr_free(&s);return avformat_version()==0;}' \
+                     | $(CC) $$(pkg-config --cflags $(MEDIA_DECODE_PKGS)) -x c - -o /dev/null \
+                       $$(pkg-config --libs $(MEDIA_DECODE_PKGS)) 2>/dev/null && echo yes || echo no)
+FZN_BLAME_DECODE := no FFmpeg was found to compile and link against ($(MEDIA_DECODE_PKGS) by pkg-config).
+ifeq ($(FZN_MEDIA_DECODE),auto)
+ifeq ($(FZN_PROBE_DECODE),yes)
+MEDIA_DECODE_ON := 1
+endif
+else ifeq ($(FZN_MEDIA_DECODE),1)
+ifeq ($(FZN_PROBE_DECODE),yes)
+MEDIA_DECODE_ON := 1
+else
+$(error FZN_MEDIA_DECODE=1 was asked for and $(FZN_BLAME_DECODE) \
+        Set FZN_MEDIA_DECODE=0 to build without it)
+endif
+else ifneq ($(FZN_MEDIA_DECODE),0)
+$(error FZN_MEDIA_DECODE must be auto, 1 or 0 -- got "$(FZN_MEDIA_DECODE)")
+endif
+MEDIA_DECODE_CFLAGS := $(if $(MEDIA_DECODE_ON),-DFZN_MEDIA_DECODE_ON $(shell pkg-config --cflags $(MEDIA_DECODE_PKGS)))
+MEDIA_DECODE_LIBS := $(if $(MEDIA_DECODE_ON),$(shell pkg-config --libs $(MEDIA_DECODE_PKGS)))
 
 # THE RECORD STORE'S FILE BACKEND REUSES FZN_PROBE_PWRITE rather than adding
 # a probe of its own, and that is consistent with the rule the spool states
@@ -3834,6 +3873,19 @@ $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_T
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# WHAT A TUNE SOUNDS LIKE, sec 1457: its tempo, key and loudness, held to
+# snurra's measurements of the detector it carries here; and the sound
+# decoded through FFmpeg where the build has it (FZN_MEDIA_DECODE).
+MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o
+MEDIA_SOUND_LIBS = $(MEDIA_DECODE_LIBS) -lm
+$(BUILD_DIR)/media/decode.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
+$(BUILD_DIR)/media/test/analysis_test: $(BUILD_DIR)/media/test/analysis_test.o $(BUILD_DIR)/media/analysis.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -lm -o $@
+$(BUILD_DIR)/media/test/decode_test: $(BUILD_DIR)/media/test/decode_test.o $(MEDIA_SOUND_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
+
 $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5909,7 +5961,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
-FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o $(MEDIA_TAGS_OBJS) \
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o $(MEDIA_TAGS_OBJS) $(MEDIA_SOUND_OBJS) \
               $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
               $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
@@ -5965,7 +6017,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o $(MEDIA_
               $(MONO_OBJS) $(FLOG_OBJS)
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) $(MEDIA_SOUND_LIBS)
 
 # A DAEMON WITH AN EXTENSION, sec 673: a main of its own calling
 # fzn_daemon_main with options and verbs fuzznet does not have, as fzpd
@@ -6033,7 +6085,7 @@ daemon-lib: $(BUILD_DIR)/libfuzznetd.a
 
 daemon-flags:
 	@echo "FZN_DAEMON_CFLAGS=-I$(abspath .) -I$(abspath node) -I$(abspath wire/generated)"
-	@echo "FZN_DAEMON_LIBS=$(abspath $(BUILD_DIR)/libfuzznetd.a) $(LDFLAGS_GC) $(if $(LOG_PACK_ON),$(ZSTD_LIBS))"
+	@echo "FZN_DAEMON_LIBS=$(abspath $(BUILD_DIR)/libfuzznetd.a) $(LDFLAGS_GC) $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) $(MEDIA_SOUND_LIBS)"
 
 daemon-link-check: $(BUILD_DIR)/libfuzznetd.a
 	@tool/daemon_link_check.sh "$(CC)" "$(MAKE)"
@@ -6085,7 +6137,7 @@ client-link-check: $(BUILD_DIR)/libfuzznet-client.a
 
 $(BUILD_DIR)/node/test/ext_daemon: $(BUILD_DIR)/node/test/ext_daemon.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) $(MEDIA_SOUND_LIBS)
 
 # Provisioning the remote hop end to end under real Monocypher primitives:
 # the same crypto set remote_test links, plus provision/provision.o for the
@@ -8309,6 +8361,7 @@ endif
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 60 python3 tool/live_help.py $(FUZZNETD) $(BRIDGE)
 	@timeout 150 python3 tool/live_tags.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_sound.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 170 python3 tool/live_location.py $(FUZZNETD)
@@ -9578,6 +9631,11 @@ manifest:
 	@$(if $(QR_DECODE_ON),echo "quirc-include lib";)
 	@$(if $(QR_DECODE_ON),echo "quirc-define QUIRC_MAX_REGIONS=65534";)
 	@$(if $(QR_DECODE_ON),echo "link qr/decode.c -lm";)
+	@# A TUNE HEARD, sec 1457: the detector's arithmetic is libm's. Its
+	@# decoder, media/decode.c, compiles without FZN_MEDIA_DECODE_ON into
+	@# the form that says it has none, so a consumer building from this
+	@# manifest needs no FFmpeg unless it asks for one.
+	@echo "link media/analysis.c -lm"
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/gather.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)

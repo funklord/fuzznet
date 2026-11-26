@@ -48,6 +48,8 @@
 /location/test/geo_test
 /media/test/media_test
 /media/test/tags_test
+/media/test/analysis_test
+/media/test/decode_test
 /net/test/own_address_test
 /record/test/store_file_test
 /record/test/store_file_nopunch_test

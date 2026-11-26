@@ -78309,6 +78309,9 @@ sees them. So fuzznet's part is the estate's: the names, the reading of
 what a file says of itself where the bytes are, and the listing; what
 only a player can learn (BPM, key, a fingerprint's identity) it asserts
 onto the same file with `add catalog`, under names fixed here.
+**Superseded in that last part by sec 1457** (the holder, 2026-11-26):
+the host holding a file finds the BPM, key and identities too, and
+snurra uses the catalogue rather than a cache of its own.
 
 **The vocabulary**, flat lower-case names as Vorbis comments spell them,
 each a catalogue attribute on the file's root:
@@ -78324,7 +78327,8 @@ each a catalogue attribute on the file's root:
 | `width`, `height` | EXIF pixel dimensions, else the JPEG frame's | fact (hint) |
 | `place` | EXIF GPS -- "LAT,LON" in degrees, seven places | label |
 | `orientation` | EXIF `Orientation`, 1 to 8 | fact (hint) |
-| `bpm`, `key`, `musicbrainz_recording`, `acoustid` | a player (snurra) | label |
+| `bpm`, `beat`, `key`, `loudness`, `peak`, `heard` | the host holding the file, hearing it (sec 1457) | fact |
+| `musicbrainz_recording`, `acoustid` | the host, from a fingerprint (sec 1457) | label |
 
 A tag's text is a label, not a fact, though the bytes hold it: it is
 what somebody wrote, a person may assert another, and DISTINCT merge
@@ -78489,9 +78493,9 @@ by 12, orientation 6), one not here asked for and not read, found by
 its camera, a silent node, 320 px. Sabotage `photo-view-orientation-ignored`
 and `photo-view-oldest-first` each fail it.
 
-**What the catalogues still want**: snurra asserting the BPM, key and identities it finds under the names
-of sec 1447 -- told to snurra (its inbox) with this section. Ogg and
-MP4 came next (secs 1451, 1452).
+**What the catalogues still wanted**: the BPM, key and identities --
+then thought snurra's to assert, and since sec 1457 found by the host
+holding the file. Ogg and MP4 came next (secs 1451, 1452).
 
 ## 1451. Ogg Vorbis and Opus read too, 2026-11-26
 
@@ -78629,3 +78633,81 @@ alone; the Info header's, TLEN winning, and the constant bitrate's;
 the new fixture mangled too; clean under ASan and UBSan. Sabotage
 `media-tags-opus-pre-skip-counted`, `media-tags-mp3-frame-samples`,
 `media-tags-mp3-side-info`.
+
+## 1457. What a tune sounds like, heard where its bytes are: tempo, key, loudness, 2026-11-26 {#music-heard}
+
+Status:  settled 2026-11-26
+Decides: music-heard
+
+**The holder, 2026-11-26**, on the catalogues of sec 1447: "The music
+catalog is about finding all these values and storing the metadata for
+sorting and searching. Snurra should use our browser/catalog." Sec 1447
+had left the tempo, the key and a recording's identity to a player to
+assert -- snurra, which already found them, into a cache of its own
+(`beats.ini`) that no other host and no other consumer could see. So the
+finding moves here, to the host holding the file, and snurra is to read
+the catalogue and host `music_view` rather than keep its own.
+
+**The detector is snurra's, carried into C** (`media/analysis.c`, its
+`src/beats.cpp` at analysis 5): onsets as spectral flux over 1024-frame
+windows 512 apart; the tempo from their autocorrelation weighted toward
+120 BPM, 70 to 180; the period and phase refined by folding every onset;
+a dotted pulse and a half tempo told apart by the low end; a long set
+judged a minute at a time; the key from a G2-to-C7 chromagram against
+Krumhansl and Kessler's profiles, none under a fit of 0.45; loudness as
+BS.1770-4 integrated by R128's gates. Every threshold is snurra's, with
+its measurement, at 48 kHz, the rate they were measured at -- so the
+sound is resampled to 48 kHz stereo float before it is heard. Rejected:
+another detector (aubio, Essentia, Mixxx's), whose licences sec 3e of
+snurra's own design kept out, and whose numbers would disagree with what
+snurra's users already see.
+
+**Decoded through FFmpeg** (`media/decode.c`), where the build has
+libavformat, libavcodec, libavutil and libswresample: `FZN_MEDIA_DECODE`
+is `auto`, `1` or `0` as packing's switch is, probed by a link, off in
+the embedded profile; `make daemon-flags` names the libraries for a
+consumer linking `libfuzznetd.a`. Without it the host links and answers
+`add sound` with "built with no decoder".
+
+**Heard on the host holding the file, a tune at a time, in a child
+process** (`add sound ROOT`, `add sound from N`; binary `sound` 145,
+`sound_page` 146, answered by `sound_done` 147): a minute of sound takes
+about a second, which the loop cannot wait for, and the bytes are
+anybody's -- a fault in a demuxer ends the child, not the host. The child
+writes the file into the host's scratch, decodes, hears, writes what it
+found down a pipe and removes the file; the loop's `sound_tick` reads it
+once the child has ended, ends one past 900 s, and the host's stop ends
+one in flight. Rejected: a thread, which shares the fault; reading the
+file in the loop and handing the child plaintext, which holds the loop
+for a long file's copy.
+
+**What is asserted, as this host's facts** -- measured from the bytes,
+as a length is: `bpm` ("128.00"), `beat` (the first, in seconds,
+"0.098"), `key` as a DJ reads it, Camelot and name ("8A Am"), `loudness`
+(LUFS, "-9.3") and `peak` ("0.981"); and `heard`, the analysis that
+heard it ("1"), asserted when nothing was found too, so a tune is heard
+once and a later analysis can hear it again. A tune is what the
+catalogue calls `audio/` or `video/`, or of no kind with a length -- a
+decoder is never handed a file of another kind.
+
+**Next, in this order**: the music view sorting by them and the search
+reading the key as a word (sec 1458); a fingerprint, through FFmpeg's
+Chromaprint muxer as snurra takes it, and AcoustID's recording, asked
+only with a key the user registered (snurra's `acoustid/key`), under the
+names `acoustid` and `musicbrainz_recording`. snurra is told with this
+section (its inbox).
+
+**Tests:** `analysis_test` (48): snurra's made signals and its
+expectations -- a kick and four patterns found within 0.02 BPM, every
+beat within 10 ms; noise, a tone and random hits given none; a dotted
+rhythm's beat, not its pulse; C major, A minor, Gb major under drums and
+Eb minor, and none for noise or drums; a -20 dBFS sine at -20 LUFS;
+Camelot names both ways. `decode_test` (26): every fixture decoded to
+its length; a photograph and a missing file give no sound; a bound and a
+stop kept; and with an `ffmpeg` program, a tone through AAC, MP3 and
+Opus has no beat and a kick through AAC is found at 128. `live_sound`
+(a-e) against the real daemon: a tune made there heard as 128 BPM from
+0.1 s in 8A Am while the host answers, once; a photograph passed over, a
+mute `audio/` file marked heard, nothing left in the store; refusals; the
+same in binary.
+

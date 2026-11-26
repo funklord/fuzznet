@@ -148,6 +148,15 @@ struct message size=2..1881 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.photo_row.camera          offset=Dynamic size=Bounded(0, 255) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
   message.body.photo_row.name_len        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   message.body.photo_row.name            offset=Dynamic size=Bounded(0, 255) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.sound                     offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.sound.root                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.sound_page                offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_page.from           offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_done                offset=AbsoluteStatic(0x02) size=Fixed(16) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_done.next           offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_done.total          offset=AbsoluteStatic(0x06) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_done.queued         offset=AbsoluteStatic(0x0A) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.sound_done.waiting        offset=AbsoluteStatic(0x0E) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
 
 struct music_row size=62..1879 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   music_row.root                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
@@ -209,6 +218,12 @@ struct share_row size=34..66 mutate=Shifting atomic=NonAtomic
   share_row.key                          offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   share_row.name_len                     offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   share_row.name                         offset=AbsoluteStatic(0x22) size=Bounded(0, 32) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct sound_done size=16 repr=ValueConverted
+  sound_done.next                        offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  sound_done.total                       offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  sound_done.queued                      offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  sound_done.waiting                     offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
 
 struct tags_done size=12 repr=ValueConverted
   tags_done.next                         offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord

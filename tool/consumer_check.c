@@ -243,6 +243,8 @@
 #include <fuzznet/media/ulaw.h>
 #include <fuzznet/media/jitter.h>
 #include <fuzznet/media/tags.h>
+#include <fuzznet/media/analysis.h>
+#include <fuzznet/media/decode.h>
 #include <fuzznet/net/bearer.h>
 #include <fuzznet/node/verify_memo.h>
 #include <fuzznet/node/sessions.h>
@@ -517,6 +519,8 @@
 #include "media/ulaw.h"
 #include "media/jitter.h"
 #include "media/tags.h"
+#include "media/analysis.h"
+#include "media/decode.h"
 #include "net/bearer.h"
 #include "node/verify_memo.h"
 #include "node/sessions.h"
