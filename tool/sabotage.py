@@ -724,6 +724,27 @@ SABOTAGES = [
 		"Vorbis keeps a track's total apart; the catalogue's track is N/M -- sec 1447",
 	),
 	(
+		"music-view-tracks-out-of-order",
+		"gui/music_view.cpp",
+		"\t\t\t\treturn x->track < y->track;\n",
+		"\t\t\t\treturn x->track > y->track;\n",
+		"an album's tracks in their order, disc then track -- sec 1449",
+	),
+	(
+		"music-view-guest-unnamed",
+		"gui/music_view.cpp",
+		"\t\t\tt->setText(1, artist == a.key().by ? QString() : artist);\n",
+		"\t\t\tt->setText(1, QString());\n",
+		"a compilation's track says whose it is -- sec 1449",
+	),
+	(
+		"music-view-empty-album-shown",
+		"gui/music_view.cpp",
+		"\t\talbum->setHidden(!left);\n",
+		"\t\talbum->setHidden(false);\n",
+		"an album with no track found is not shown -- sec 1449",
+	),
+	(
 		"library-binary-music-total-lost",
 		"node/library_binary.c",
 		"(uint16_t)leading(v[8], l[8], 0xffffu), (uint16_t)total_of(v[8], l[8], 0xffffu),",
@@ -736,6 +757,20 @@ SABOTAGES = [
 		"|| !(a >= -90.0 && a <= 90.0) ||",
 		"|| !(a >= -900.0 && a <= 900.0) ||",
 		"a latitude past the pole is no place -- sec 1449",
+	),
+	(
+		"photo-view-orientation-ignored",
+		"gui/photo_view.cpp",
+		"\treader.setAutoTransform(true);\n",
+		"\treader.setAutoTransform(false);\n",
+		"a photograph shown as its camera turned it -- sec 1450",
+	),
+	(
+		"photo-view-oldest-first",
+		"gui/photo_view.cpp",
+		"\t\treturn c ? c > 0 : memcmp(a->root, b->root, 32) < 0;\n",
+		"\t\treturn c ? c < 0 : memcmp(a->root, b->root, 32) < 0;\n",
+		"the newest month first -- sec 1450",
 	),
 	(
 		"media-tags-ogg-first-packet",

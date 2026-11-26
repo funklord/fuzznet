@@ -78460,6 +78460,42 @@ time, a silent node, 320 px. `live_tags` phase g lists two songs and two
 photographs from the real daemon. Sabotage: three `music-view-*` and
 two `library-binary-*` entries, each failing its test.
 
+## 1450. The photographs on a widget, 2026-11-26
+
+Stage 5 of sec 1447. **`gui/photo_view`**: the photographs by the month
+they were taken, newest first, each month counting its own; each with
+when (the camera's local time, "2023-07-14 21:45"), its camera, its size,
+where it was taken as people read a place ("67.8560° N, 20.2250° E"), and
+where its bytes are; those of no time said last, under "When unknown",
+by their file's name. Found by a word of the camera, the time, the name
+or the month.
+
+**The one chosen is shown**: its bytes read through the library's play
+slices (`fzn_rpc_library_play`), from this host or arriving from another,
+its canvas read from its header before anything is decoded (at most
+20,000 pixels a side, the file at most 64 MiB), decoded at the preview's
+size, and turned as its EXIF orientation says (Qt's reader does it when
+asked to). Only the chosen one is read, so opening a library of
+thousands reads none. One not held here says so and is asked for with
+"Get it". **Not yet: a grid of thumbnails.** Each would need a file's
+bytes read on opening; EXIF's own thumbnail (IFD1) is the cheap source,
+and no tool here writes one -- Pillow and ffmpeg do not -- so a fixture
+for it would be bytes this tree built for its own reader. It waits for
+an independent writer.
+
+**Tests:** `photo_view_test` (9), answered by the node's own
+`library_binary.c` and the fixture `photo.jpg` read range by range:
+three photographs over two months and one of no time in order, a song
+that says a time not among them, the fixture shown taller than wide (16
+by 12, orientation 6), one not here asked for and not read, found by
+its camera, a silent node, 320 px. Sabotage `photo-view-orientation-ignored`
+and `photo-view-oldest-first` each fail it.
+
+**What the catalogues still want**: a thumbnail grid (above), and
+snurra asserting the BPM, key and identities it finds under the names
+of sec 1447 -- told to snurra (its inbox) with this section. Ogg and
+MP4 came next (secs 1451, 1452).
+
 ## 1451. Ogg Vorbis and Opus read too, 2026-11-26
 
 The containers a phone records into and much music comes in. `media/ogg.situ`

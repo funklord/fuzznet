@@ -58,6 +58,12 @@
 #include "../conversation_view.h"
 #include "../forks_view.h"
 #include "../library_view.h"
+#include "../music_view.h"
+#include "../photo_view.h"
+
+extern "C" {
+#include "../../wire/status.h"
+}
 #include "../search_view.h"
 #include "../traffic_view.h"
 #include "../reach_view.h"
@@ -339,6 +345,25 @@ static size_t ringing_node(void *ctx, const char *line, char *reply, size_t cap)
 }
 
 /* A node with no notes: every listing empty, every read refused. */
+/* NOTHING CATALOGUED, IN BINARY, sec 1449: a listing that is a STATUS ok
+ * alone, framed as the node frames it. */
+static int empty_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply, size_t cap, size_t *reply_len)
+{
+	uint8_t s[FZN_STATUS_LEN_MAX];
+	size_t n = fzn_status_write(s, sizeof(s), FZN_STATUS_OK, NULL);
+
+	(void)ctx;
+	(void)msg;
+	(void)len;
+	if (!n || n + 2u > cap)
+		return -1;
+	reply[0] = (uint8_t)(n >> 8);
+	reply[1] = (uint8_t)n;
+	memcpy(reply + 2, s, n);
+	*reply_len = n + 2u;
+	return 0;
+}
+
 static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
@@ -415,6 +440,12 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)forks_v.refresh();
 	fzn_library_view library_v(empty_node, nullptr);
 	(void)library_v.refresh();
+	fzn_music_view music_v(empty_node, nullptr);
+	music_v.answer_binary(empty_binary, nullptr);
+	(void)music_v.refresh();
+	fzn_photo_view photo_v(empty_node, nullptr);
+	photo_v.answer_binary(empty_binary, nullptr);
+	(void)photo_v.refresh();
 	fzn_search_view search_v(empty_node, nullptr);
 	fzn_traffic_view traffic_v(empty_node, nullptr);
 	(void)traffic_v.refresh();
@@ -736,6 +767,9 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "forks_view", &forks_v, "every host takes it" },
 			/* AN EMPTY LIBRARY IS SAID, not left a blank table (sec 1131). */
 			{ "library_view", &library_v, "The library is empty." },
+			/* NO MUSIC, NO PHOTOGRAPH YET IS SAID (secs 1449, 1450). */
+			{ "music_view", &music_v, "No music is catalogued yet." },
+			{ "photo_view", &photo_v, "No photograph is catalogued yet." },
 			/* WHAT IS SEARCHED IS SAID, not a blank table (sec 1293). */
 			{ "search_view", &search_v, "Search your conversations" },
 			/* NOTHING MOVING IS SAID, not two empty trees (sec 1182). */
