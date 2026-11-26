@@ -16,6 +16,8 @@ pulling from A.
        let go -- and A's copy untouched
     e  streamed again and then asked for plainly, it is kept: a plain fetch
        is a host asking to keep a copy
+    f  the tune, of a class B keeps, removed by hand is not fetched back
+       (sec 1476), across rounds and restarts; asked for plainly, it is
 
 Needs the faults build, `make fuzznetd-faults`: phase d shortens the idle
 time a streamed copy is kept to two seconds (FZN_TEST_STREAM_IDLE_S).
@@ -165,6 +167,18 @@ def main(argv):
 			if not whole("b", photo):
 				raise failed("e: a copy asked for after its stream was let go")
 			print("livecheck: e: streamed and then asked for plainly, the photograph is kept")
+
+			# f: let go by hand, not fetched back until asked for.
+			expect(socks["b"], "f", "remove file " + tune, "ok")
+			for rnd in range(2):
+				for who in ("a", "b"):
+					turn(who, "%s-f%d" % (who, rnd))
+				time.sleep(6)
+			if ask(socks["b"], "get file " + tune).startswith("ok "):
+				raise failed("f: a tune let go by hand was fetched back")
+			expect(socks["b"], "f", "fetch file " + tune, "ok")
+			until(lambda: whole("b", tune), "f-again")
+			print("livecheck: f: a kept tune let go by hand stayed gone, and came back when asked for")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

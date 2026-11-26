@@ -18498,6 +18498,101 @@ static void keep_set_aside(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
 	kept_copies.aside_at = (kept_copies.aside_at + 1u) % KEEP_ASIDE;
 }
 
+/* LET GO ON PURPOSE, sec 1476: a file of a class this host keeps, removed
+ * by its user, is not fetched back by the next tick -- `library/keep` is
+ * the policy, and a person's `remove file ROOT` an exception to it, kept
+ * in `unkept` in the state directory until a plain `fetch file ROOT` asks
+ * for it again. */
+#define UNKEPT_MAX 4096u
+
+static uint8_t (*let_go_roots)[FZN_PUBKEY_LEN];
+static size_t n_unkept;
+static int unkept_loaded;
+
+static int unkept_path(char *out, size_t cap)
+{
+	const int n = state_core_dir ? snprintf(out, cap, "%s/unkept", state_core_dir) : -1;
+
+	return n > 0 && (size_t)n < cap;
+}
+
+static void unkept_save(void)
+{
+	char path[1100], tmp[1110], hex[2u * FZN_PUBKEY_LEN + 1u];
+	FILE *f;
+	size_t i;
+
+	if (!unkept_path(path, sizeof(path)) || snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp))
+		return;
+	if (!n_unkept) {
+		(void)unlink(path);
+		return;
+	}
+	if (!(f = fopen(tmp, "w")))
+		return;
+	for (i = 0; i < n_unkept; i++) {
+		hex_of(let_go_roots[i], FZN_PUBKEY_LEN, hex);
+		fprintf(f, "%s\n", hex);
+	}
+	if (fclose(f) == 0)
+		(void)rename(tmp, path);
+	else
+		(void)unlink(tmp);
+}
+
+static void unkept_load(void)
+{
+	char path[1100], line[2u * FZN_PUBKEY_LEN + 8u];
+	FILE *f;
+
+	if (unkept_loaded)
+		return;
+	unkept_loaded = 1;
+	if (!let_go_roots && !(let_go_roots = malloc(UNKEPT_MAX * sizeof(*let_go_roots))))
+		return;
+	if (!unkept_path(path, sizeof(path)) || !(f = fopen(path, "r")))
+		return;
+	while (n_unkept < UNKEPT_MAX && fgets(line, sizeof(line), f))
+		if (unhex32((const uint8_t *)line, 2u * FZN_PUBKEY_LEN, let_go_roots[n_unkept]))
+			n_unkept++;
+	fclose(f);
+}
+
+static size_t unkept_at(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	unkept_load();
+	for (i = 0; let_go_roots && i < n_unkept; i++)
+		if (!memcmp(let_go_roots[i], root, FZN_PUBKEY_LEN))
+			return i;
+	return SIZE_MAX;
+}
+
+/* REMOVED BY ITS USER: where this host keeps its class, not fetched back. */
+static void keep_let_go(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	const unsigned classes = keep_classes();
+
+	if (!classes || !((classes & KEEP_ALL) || (keep_class_of(root) & classes)) || unkept_at(root) != SIZE_MAX
+	    || !let_go_roots || n_unkept == UNKEPT_MAX)
+		return;
+	memcpy(let_go_roots[n_unkept++], root, FZN_PUBKEY_LEN);
+	unkept_save();
+	say(FZN_ENTRY_INFO, "library", "a kept file let go by hand; not fetched back until asked for");
+}
+
+/* ASKED FOR AGAIN, by a plain fetch: kept as its class says. */
+static void keep_ask_again(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	size_t i = unkept_at(root);
+
+	if (i == SIZE_MAX)
+		return;
+	memcpy(let_go_roots[i], let_go_roots[--n_unkept], FZN_PUBKEY_LEN);
+	unkept_save();
+}
+
 /* `root` fetched to be kept, where it is neither held, being fetched, nor
  * set aside: 1 when a fetch began, so the tick waits on it. */
 static int keep_one(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
@@ -18508,7 +18603,8 @@ static int keep_one(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
 	fzn_request_t req;
 	size_t n;
 
-	if (fzn_node_files_status(&files, root, &st) == FZN_NODE_FILES_OK || keep_aside(root, now))
+	if (fzn_node_files_status(&files, root, &st) == FZN_NODE_FILES_OK || keep_aside(root, now)
+	    || unkept_at(root) != SIZE_MAX)
 		return 0;
 	hex_of(root, FZN_PUBKEY_LEN, hex);
 	n = (size_t)snprintf(arg, sizeof(arg), "file %s", hex);
@@ -18784,6 +18880,16 @@ static void stream_touch(const uint8_t root[FZN_PUBKEY_LEN])
 {
 	(void)root;
 }
+
+static void keep_let_go(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	(void)root;
+}
+
+static void keep_ask_again(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	(void)root;
+}
 #endif
 
 /* ---- the references of the estate's files, sec 634 --------------------------------
@@ -19022,6 +19128,9 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 					stream_mark(which);
 			} else if (request->parsed == FZN_VERB_FETCH) {
 				stream_forget(which);
+				keep_ask_again(which);
+			} else if (request->parsed == FZN_VERB_REMOVE) {
+				keep_let_go(which);
 			}
 		}
 		if (named && request->parsed == FZN_VERB_GET && left > 0u && !(left == 6u && !memcmp(at, " check", 6u)))

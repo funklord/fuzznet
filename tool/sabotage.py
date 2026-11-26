@@ -885,6 +885,13 @@ SABOTAGES = [
 		"a track's video is played from its row; music_view_test -- sec 1472",
 	),
 	(
+		"keep-fetches-let-go",
+		"node/daemon.c",
+		"\tif (fzn_node_files_status(&files, root, &st) == FZN_NODE_FILES_OK || keep_aside(root, now)\n\t    || unkept_at(root) != SIZE_MAX)\n",
+		"\tif (fzn_node_files_status(&files, root, &st) == FZN_NODE_FILES_OK || keep_aside(root, now))\n",
+		"a kept file its user let go is not fetched back; live_keep f (faults build) -- sec 1476",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

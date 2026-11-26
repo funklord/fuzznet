@@ -77369,9 +77369,8 @@ the host's storage, not of the file -- the same video belongs on the
 media server and not on the phone); fetching every class unless refused
 (the opposite default would fill every new host).
 
-**Not yet**: a host keeping `music` and then letting one tune go fetches
-it back at the next tick -- `library/keep` is the policy, and a file let
-go is not yet a pin against it. And what a host does not keep it reaches
+**A tune let go by hand stays gone** (sec 1476): `library/keep` is the
+policy, and a person's `remove file ROOT` an exception to it. And what a host does not keep it reaches
 by streaming, the next section.
 
 Tests: `live_keep` -- two hosts of one estate; B keeping `music` fetches
@@ -77441,3 +77440,24 @@ Tests: `music_view_test` -- Night Drive shows "video, lyrics" and plays
 its video's root; Aurora names none, says none and plays none; the view
 still fits 320 px. Sabotage: the client's companion fill and the view's
 video, each caught.
+
+## 1476. A kept file let go by hand is not fetched back, 2026-11-26
+
+Sec 1473 left it open: on a host keeping `music`, a person removing one
+tune saw it fetched back within seconds, so nothing could be taken off a
+music node. **A `remove file ROOT` of a file whose class this host keeps
+is recorded as let go on purpose**, in `unkept` in the state directory,
+and the keep tick passes over it -- across restarts -- **until a plain
+`fetch file ROOT` asks for it again**, which takes it off the record.
+The binary remove (sec 1303) runs the same verb, so both are recorded. A
+removal of a file whose class is not kept records nothing: the streamed
+copies the sweep lets go (sec 1474) are of that kind, and a class kept
+later would otherwise find them refused. At most 4096 roots.
+
+Rejected: a pin as a catalogue claim (a host's disk decision is not the
+estate's, the argument against an estate `library/keep`), and asking
+before removing (the person's removal is the answer).
+
+Tests: `live_keep` f -- the tune B keeps, removed, is not back after two
+rounds and restarts; fetched plainly, it is whole again. Sabotage: one
+entry, caught.
