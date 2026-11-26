@@ -733,7 +733,7 @@ SABOTAGES = [
 	(
 		"music-view-guest-unnamed",
 		"gui/music_view.cpp",
-		"\t\t\tt->setText(1, artist == a.key().by ? QString() : artist);\n",
+		"\t\t\tt->setText(1, (o == BY_ALBUM && artist == by) || o == BY_ARTIST ? QString() : artist);\n",
 		"\t\t\tt->setText(1, QString());\n",
 		"a compilation's track says whose it is -- sec 1449",
 	),
@@ -19373,6 +19373,27 @@ SABOTAGES = [
 		"\t\tif ((uint64_t)n > *left)\n\t\t\tn = (int)*left;\n",
 		"",
 		"a decode asked for half a second hands on whole frames past it -- sec 1457",
+	),
+	(
+		"catalog-search-key-no-word",
+		"node/catalog_search.c",
+		"\"camera\", \"key\" };",
+		"\"camera\" };",
+		"the key a host heard is no word, and \"8A\" finds nothing -- sec 1458",
+	),
+	(
+		"music-view-tempo-fastest-first",
+		"gui/music_view.cpp",
+		"g = { bpm > 0 ? bpm : 100000,",
+		"g = { bpm > 0 ? -bpm : 100000,",
+		"the music by tempo stands fastest first -- sec 1458",
+	),
+	(
+		"music-view-key-not-found",
+		"gui/music_view.cpp",
+		"words(e->genre), words(e->key),",
+		"words(e->genre),",
+		"a track is not found by the key it was heard in -- sec 1458",
 	),
 	(
 		"ulaw-without-bias",

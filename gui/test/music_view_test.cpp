@@ -39,6 +39,7 @@ static int checks, failures;
 static fzn_node_catalog_t cat;
 static uint8_t me[32], other[32];
 static uint64_t seq = 1;
+static int hear_pages;
 static int silent, pages_asked;
 static char last[200];
 
@@ -114,6 +115,20 @@ static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply
 		                                             &out_len);
 		(void)frame_one(&f, out, out_len);
 		(void)frame_one(&f, s, fzn_status_write(s, sizeof(s), FZN_STATUS_OK, NULL));
+	} else if (len >= 2u && msg[0] == FZN_CMD_FILES && msg[1] == FZN_FILES_LOCAL_OP_SOUND_PAGE) {
+		/* A LIBRARY HEARD, sec 1458: two pages, five tunes queued, six
+		 * waiting at the end. */
+		uint8_t row[16], out[24];
+		uint32_t row_len = 0, out_len = 0;
+		const uint32_t from = (uint32_t)msg[2] << 24 | (uint32_t)msg[3] << 16 | (uint32_t)msg[4] << 8 | msg[5];
+
+		hear_pages++;
+		(void)fzn_files_local_sound_done_build(row, sizeof(row), from ? 300u : 256u, 300u, from ? 1u : 4u,
+		                                       from ? 6u : 5u, &row_len);
+		(void)fzn_files_local_message_build_sound_done(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
+		                                              &out_len);
+		(void)frame_one(&f, out, out_len);
+		(void)frame_one(&f, s, fzn_status_write(s, sizeof(s), FZN_STATUS_OK, NULL));
 	} else if (len >= 2u && msg[0] == FZN_CMD_FILES) {
 		(void)fzn_node_library_binary(&cat, me, file_here, NULL, msg, len, frame_one, &f);
 	} else {
@@ -150,18 +165,23 @@ int main(int argc, char **argv)
 	say(me, 0x11, "track", "2/12");
 	say(me, 0x11, "year", "2019");
 	say(me, 0x11, "duration", "251000");
+	say(me, 0x11, "bpm", "128.00");
+	say(me, 0x11, "key", "8A Am");
 	say(me, 0x12, "kind", "audio/mpeg");
 	say(me, 0x12, "title", "Aurora");
 	say(me, 0x12, "artist", "Mira feat. Svalbard Echo");
 	say(me, 0x12, "album_artist", "Svalbard Echo");
 	say(me, 0x12, "album", "Polar Lights");
 	say(me, 0x12, "track", "1/12");
+	say(me, 0x12, "bpm", "96.40");
+	say(me, 0x12, "key", "9A Em");
 	/* SUNDAY AT THE VILLAGE VANGUARD, held elsewhere. */
 	say(other, 0x13, "kind", "audio/flac");
 	say(other, 0x13, "title", "Waltz for Debby");
 	say(other, 0x13, "artist", "Bill Evans");
 	say(other, 0x13, "album", "Sunday at the Village Vanguard");
 	say(other, 0x13, "year", "1961-06-25");
+	say(other, 0x13, "key", "7B F");
 	/* A TRACK OF NO ALBUM, named by its file alone. */
 	say(other, 0x14, "kind", "audio/ogg");
 	say(other, 0x14, "name", "demo take.ogg");
@@ -176,14 +196,17 @@ int main(int argc, char **argv)
 	v.on_play_all([&album_played](const QList<QPair<QByteArray, QString>> &t) { album_played = t; });
 
 	CHECK(v.refresh()
-	              && v.rows() == QStringList({ "Sunday at the Village Vanguard | Bill Evans | 1961 | ",
-	                                           "  Waltz for Debby |  |  | on 1 host(s)",
-	                                           "No album | Svalbard Echo |  | ",
-	                                           "  demo take.ogg |  |  | on 1 host(s)",
-	                                           "Polar Lights | Svalbard Echo | 2019 | ",
-	                                           "  1. Aurora | Mira feat. Svalbard Echo |  | here",
-	                                           "  2. Night Drive |  | 4:11 | here" }),
-	      "the music was not listed by album, its tracks in order, a guest's named");
+	              && v.rows() == QStringList({ "Sunday at the Village Vanguard | Bill Evans | 1961 |  |  | ",
+	                                           "  Waltz for Debby |  |  |  | 7B F | on 1 host(s)",
+	                                           "No album | Svalbard Echo |  |  |  | ",
+	                                           "  demo take.ogg |  |  |  |  | on 1 host(s)",
+	                                           "Polar Lights | Svalbard Echo | 2019 |  |  | ",
+	                                           "  1. Aurora | Mira feat. Svalbard Echo |  | 96.4 | 9A Em | here",
+	                                           "  2. Night Drive |  | 4:11 | 128 | 8A Am | here" }),
+	      "the music was not listed by album, its tracks in order, a guest's named, tempo and key shown");
+	if (failures)
+		for (const QString &r : v.rows())
+			fprintf(stderr, "    %s\n", r.toUtf8().constData());
 	CHECK(v.status() == "4 piece(s) of music.", "the count was not said");
 
 	/* PLAYING: a track, then an album in its order. */
@@ -204,8 +227,8 @@ int main(int argc, char **argv)
 	/* FINDING, by a word of the artist in another case: Bill Evans's album
 	 * alone, the others hidden. */
 	v.set_find("bill");
-	CHECK(v.rows() == QStringList({ "Sunday at the Village Vanguard | Bill Evans | 1961 | ",
-	                                "  Waltz for Debby |  |  | on 1 host(s)" })
+	CHECK(v.rows() == QStringList({ "Sunday at the Village Vanguard | Bill Evans | 1961 |  |  | ",
+	                                "  Waltz for Debby |  |  |  | 7B F | on 1 host(s)" })
 	              && v.status() == "1 of 4 shown.",
 	      "music was not found by a word of its artist");
 	v.set_find("mira");
@@ -214,6 +237,43 @@ int main(int argc, char **argv)
 	CHECK(v.rows().isEmpty() && v.status() == "No music matches.", "finding nothing was not said");
 	v.set_find("");
 	CHECK(v.rows().size() == 7, "every album did not come back");
+
+	/* BY TEMPO, sec 1458: a group a whole BPM, slowest first, the tunes not
+	 * heard last; BY KEY round the wheel, 7B before 8A before 9A; BY
+	 * ARTIST, each artist's tracks under them. The track chosen stays
+	 * chosen across an order. */
+	v.select(6);
+	v.set_order(fzn_music_view::BY_TEMPO);
+	CHECK(v.rows() == QStringList({ "96 BPM |  |  |  |  | ",
+	                                "  Aurora | Mira feat. Svalbard Echo |  | 96.4 | 9A Em | here",
+	                                "128 BPM |  |  |  |  | ",
+	                                "  Night Drive | Svalbard Echo | 4:11 | 128 | 8A Am | here",
+	                                "Tempo not heard |  |  |  |  | ",
+	                                "  demo take.ogg | Svalbard Echo |  |  |  | on 1 host(s)",
+	                                "  Waltz for Debby | Bill Evans |  |  | 7B F | on 1 host(s)" }),
+	      "the music was not ordered by tempo, slowest first, the unheard last");
+	CHECK(v.play() && played == QByteArray(32, 0x11), "the track chosen was lost to a new order");
+	v.set_order(fzn_music_view::BY_KEY);
+	CHECK(v.rows().size() == 8 && v.rows()[0].startsWith("7B F |") && v.rows()[2].startsWith("8A Am |")
+	              && v.rows()[4].startsWith("9A Em |") && v.rows()[6].startsWith("Key not heard |"),
+	      "the music was not ordered round the Camelot wheel");
+	v.set_order(fzn_music_view::BY_ARTIST);
+	CHECK(v.rows().size() == 7 && v.rows()[0].startsWith("Bill Evans |")
+	              && v.rows()[2].startsWith("Mira feat. Svalbard Echo |") && v.rows()[4].startsWith("Svalbard Echo |")
+	              && v.rows()[5].startsWith("  demo take.ogg |  |"),
+	      "the music was not ordered by artist");
+	v.set_find("8a");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Night Drive"), "a track was not found by its key");
+	v.set_find("96");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Aurora"), "a track was not found by its tempo");
+	v.set_find("");
+	v.set_order(fzn_music_view::BY_ALBUM);
+	CHECK(v.rows().size() == 7 && v.rows()[0].startsWith("Sunday at"), "the albums did not come back");
+
+	/* A LIBRARY HEARD, a page at a time to the end. */
+	CHECK(v.hear() == 6 && hear_pages == 2
+	              && v.status() == "6 tune(s) to be heard; their tempo and key show as each is.",
+	      "the library was not heard a page at a time, what waits said");
 
 	/* A LIBRARY FROM BEFORE, read a page at a time to the end. */
 	CHECK(v.read_tags() == 7 && pages_asked == 2 && v.status() == "Read 40 file(s); 7 name(s) learned.",

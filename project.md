@@ -78711,3 +78711,33 @@ Opus has no beat and a kick through AAC is found at 128. `live_sound`
 mute `audio/` file marked heard, nothing left in the store; refusals; the
 same in binary.
 
+## 1458. The music by its tempo and key: shown, ordered, found, heard on asking, 2026-11-26
+
+Sec 1457's values, where a person sorts and searches by them.
+
+**`gui/music_view`** shows each track's BPM and key beside its length,
+and orders the music four ways, chosen beside the find box: **by album**,
+as before; **by tempo**, a group a whole BPM, slowest first, the tunes
+not heard last; **by key**, round the Camelot wheel -- 7B, 8A, 8B, 9A --
+so the keys that mix stand together; **by artist**. The track chosen
+stays chosen across an order, and playing a group plays its tracks as
+shown. The find box reads a track's key ("8a", "am") and its tempo,
+rounded ("128"), beside its words. "Hear the music" queues every held
+tune a page at a time (`fzn_rpc_library_hear`, the `sound_page` op) and
+says how many wait; `fzn_rpc_library_add` asks a tune to be heard as it
+asks for its tags.
+
+**The search** (`node/catalog_search.c`) reads the key as a word, so
+"8A" or "Am" finds a tune across the estate; a tempo stays a facet, as a
+year does.
+
+Rejected: sorting by a column header, which a phone's 320 px cannot show
+six columns of, and which groups nothing -- a DJ choosing the next tune
+wants the ones near its tempo or key together, not a list to scan.
+
+**Tests:** `music_view_test` (21): the columns; by tempo, slowest first
+and the unheard last, the chosen track kept; by key round the wheel; by
+artist; found by key and by tempo; a library heard over two pages.
+`node_catalog_test` (27): a tune found by its key heard, its tempo not a
+word. Sabotage `music-view-tempo-fastest-first`,
+`music-view-key-not-found`, `catalog-search-key-no-word`, each caught.

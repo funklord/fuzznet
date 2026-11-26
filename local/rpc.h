@@ -270,13 +270,22 @@ int fzn_rpc_library_list(fzn_rpc_t *c, fzn_rpc_library_list_all_t *out);
 int fzn_rpc_library_detail(fzn_rpc_t *c, fzn_rpc_library_list_all_t *list, size_t from, size_t count);
 /* An empty acknowledgement: FZN_RPC_OK means it is catalogued. The node is
  * then asked to read what the file says of itself (sec 1447) -- its title,
- * artist, when and where a photo was taken -- which a node from before, or
- * one not holding the bytes, declines without the entry failing. */
+ * artist, when and where a photo was taken -- and to hear a tune for its
+ * tempo, key and loudness (sec 1457), which a node from before, or one not
+ * holding the bytes, declines without the entry failing. */
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry);
 /* A LIBRARY FROM BEFORE, read for its tags a page at a time (sec 1447): the
  * held files from `from`, as many as one request reads. Ask again from
  * *next until it is *total. *asserted counts what the page asserted anew. */
 int fzn_rpc_library_read_tags(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint32_t *total, uint32_t *asserted);
+/* A LIBRARY HEARD, sec 1457: the held tunes from `from` queued for the
+ * host to hear -- tempo, first beat, key, loudness -- a page a request, as
+ * read_tags pages. *queued counts what this page put in line, *waiting
+ * every tune still to be heard there; what is found lands in the
+ * catalogue as it is. A host built with no decoder answers
+ * FZN_RPC_ERR_STORAGE_IO, saying so. */
+int fzn_rpc_library_hear(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint32_t *total, uint32_t *queued,
+                         uint32_t *waiting);
 /* THE MUSIC AND PHOTO CATALOGUES, sec 1449: every file this user's hosts
  * hold that is music, or a photograph, into `out` (released by the
  * matching _release). A node from before answers FZN_RPC_ERR_MALFORMED. */

@@ -10,12 +10,14 @@ static int named(const fzn_node_catalog_entry_t *e, const char *name, size_t len
 
 /* WHAT THE WORDS READ, sec 1453's correction of sec 1447: a file's name and
  * kind, and what it says of itself in words (sec 1447's names) -- so music
- * is found by its artist or album and a photograph by its camera. Numbers,
- * sizes, places and times are facets to filter by, not words to find. */
+ * is found by its artist or album and a photograph by its camera -- and the
+ * key a host heard (sec 1457), "8A Am", by its wheel's place or its name.
+ * Numbers, sizes, places and times -- a tempo among them -- are facets to
+ * filter by, not words to find. */
 static int searched(const fzn_node_catalog_entry_t *e)
 {
 	static const char *const words[] = { "name", "kind", "title", "artist", "album",
-		                             "album_artist", "genre", "composer", "camera" };
+		                             "album_artist", "genre", "composer", "camera", "key" };
 	size_t i;
 
 	for (i = 0; i < sizeof(words) / sizeof(words[0]); i++)

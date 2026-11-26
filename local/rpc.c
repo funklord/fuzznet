@@ -5524,6 +5524,7 @@ static int file_status_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_blob
  * STATUS ok, or the node's refusal. `ask` is a `tags` or a `tags_page`. */
 struct tags_answer {
 	uint32_t next, total, asserted;
+	uint32_t queued, waiting; /* a sound_done's, sec 1457 */
 	int rows, bad, status_seen;
 	fzn_status_t code;
 	char why[FZN_STATUS_WHY_MAX + 1];
@@ -5548,8 +5549,21 @@ static void tags_each(void *ctx, const uint8_t *msg, size_t len) {
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (a->rows || a->status_seen || len > UINT32_MAX
 	    || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_files_local_message_validate(v) != SITU_OK
-	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_TAGS_DONE
+	    || fzn_files_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	/* A TUNE QUEUED TO BE HEARD answers how far, and how many wait. */
+	if (fzn_files_local_message_op_get(v) == FZN_FILES_LOCAL_OP_SOUND_DONE
+	    && fzn_files_local_message_body_sound_done_view(v, &b) == SITU_OK) {
+		a->rows++;
+		a->next = fzn_files_local_sound_done_next_get(b);
+		a->total = fzn_files_local_sound_done_total_get(b);
+		a->queued = fzn_files_local_sound_done_queued_get(b);
+		a->waiting = fzn_files_local_sound_done_waiting_get(b);
+		return;
+	}
+	if (fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_TAGS_DONE
 	    || fzn_files_local_message_body_tags_done_view(v, &b) != SITU_OK) {
 		a->bad = 1;
 		return;
@@ -5564,7 +5578,11 @@ static int library_tags(fzn_rpc_t *c, const uint8_t *ask, size_t ask_len, struct
 	int text = 0;
 	memset(a, 0, sizeof *a);
 	const int rc = fzn_rpc_binary(c, ask, ask_len, tags_each, a, &text);
-	if (text) return fail(c, FZN_RPC_ERR_MALFORMED, "this node reads no tags");
+	if (text)
+		return fail(c, FZN_RPC_ERR_MALFORMED,
+		            ask[1] == FZN_FILES_LOCAL_OP_SOUND || ask[1] == FZN_FILES_LOCAL_OP_SOUND_PAGE
+		                    ? "this node hears no tunes"
+		                    : "this node reads no tags");
 	if (rc != FZN_RPC_OK) return rc;
 	if (a->bad || !a->status_seen || (a->code == FZN_STATUS_OK && a->rows != 1)) return unreadable(c);
 	if (a->code != FZN_STATUS_OK)
@@ -5582,6 +5600,10 @@ int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {
 	uint8_t ask[2 + 32] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_TAGS };
 	struct tags_answer a;
 	memcpy(ask + 2, entry->root, 32);
+	(void)library_tags(c, ask, sizeof ask, &a);
+	/* AND WHAT IT SOUNDS LIKE, sec 1457: queued to be heard, where it is a
+	 * tune held here and the host decodes; declined otherwise, as above. */
+	ask[1] = FZN_FILES_LOCAL_OP_SOUND;
 	(void)library_tags(c, ask, sizeof ask, &a);
 	c->error[0] = '\0';
 	c->error_code = 0;
@@ -5731,6 +5753,20 @@ int fzn_rpc_library_read_tags(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint3
 	if (next) *next = a.next;
 	if (total) *total = a.total;
 	if (asserted) *asserted = a.asserted;
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_library_hear(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint32_t *total, uint32_t *queued,
+                         uint32_t *waiting) {
+	uint8_t ask[2 + 4] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_SOUND_PAGE, (uint8_t)(from >> 24), (uint8_t)(from >> 16),
+	                       (uint8_t)(from >> 8), (uint8_t)from };
+	struct tags_answer a;
+	const int rc = library_tags(c, ask, sizeof ask, &a);
+	if (rc != FZN_RPC_OK) return rc;
+	if (next) *next = a.next;
+	if (total) *total = a.total;
+	if (queued) *queued = a.queued;
+	if (waiting) *waiting = a.waiting;
 	return FZN_RPC_OK;
 }
 

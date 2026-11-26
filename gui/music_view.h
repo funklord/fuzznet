@@ -9,6 +9,13 @@
  * themselves is read where their bytes are (sec 1447); a library from
  * before is read on asking ("Read the tags").
  *
+ * WHAT IT SOUNDS LIKE, sec 1458: each track's tempo and key as the host
+ * holding it heard them (sec 1457), shown beside its length; the music
+ * ordered by album, by tempo (a group a whole BPM, slowest first), by key
+ * (round the Camelot wheel, so neighbours that mix stand together) or by
+ * artist; found by its key or tempo as by its words; and a library heard
+ * on asking ("Hear the music"), the host hearing it a tune at a time.
+ *
  * WHAT A PERSON DOES: play a track through the host's player (`on_play`,
  * the root and its title), or a whole album in its order (`on_play_all`);
  * get a track not held here; find music by a word of its title, artist,
@@ -69,11 +76,18 @@ public:
 	/* A library from before, read for its tags a page at a time; how many
 	 * names it learned. */
 	int read_tags();
+	/* The held tunes queued to be heard, a page at a time: how many wait to
+	 * be heard, or -1 where the host refused. */
+	int hear();
 	void set_find(const QString &text);
+	/* THE ORDER: by album, by tempo, by key, by artist. */
+	enum order { BY_ALBUM, BY_TEMPO, BY_KEY, BY_ARTIST };
+	void set_order(order o);
 
-	/* WHAT IS ON SCREEN: each row shown, an album as "ALBUM | ARTIST |
-	 * YEAR" and its tracks beneath as "  N | TITLE | ARTIST | LENGTH |
-	 * WHERE", and the status line. */
+	/* WHAT IS ON SCREEN: each row shown, a group -- an album as "ALBUM |
+	 * ARTIST | YEAR | | |", else "TEMPO", "KEY" or "ARTIST" -- and its tracks
+	 * beneath as "  N. TITLE | ARTIST | LENGTH | BPM | KEY | WHERE", and the
+	 * status line. */
 	QStringList rows() const;
 	QString status() const;
 
@@ -81,6 +95,7 @@ private:
 	QTreeWidgetItem *chosen() const;
 	QList<QTreeWidgetItem *> shown() const;
 	void apply_filter();
+	void rebuild();
 
 	struct fzn_gui_rpc *m_rpc;
 	std::function<void(const QByteArray &, const QString &)> m_play;
@@ -91,7 +106,10 @@ private:
 	QPushButton *m_play_button;
 	QPushButton *m_fetch;
 	QPushButton *m_read;
+	QPushButton *m_hear;
 	QPushButton *m_refresh;
+	class fzn_combo_box *m_order;
+	QList<struct fzn_rpc_music_entry> m_music; /* as last listed */
 	QLabel *m_status;
 	QString m_filter_said;
 };

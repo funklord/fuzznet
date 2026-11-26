@@ -223,6 +223,19 @@ static void test_the_files_are_searched(void)
 	CHECK(fzn_search_query_init(&q, "1961", 4u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
 	              && count == 0u,
 	      "a year was found as a word");
+	/* AND BY THE KEY A HOST HEARD, sec 1457, its tempo no word. */
+	len = attribute("key", "8A Am", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 7u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK,
+	      "fixture: its key");
+	len = attribute("bpm", "128.00", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 8u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK,
+	      "fixture: its tempo");
+	CHECK(fzn_search_query_init(&q, "8a", 2u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 1u && !memcmp(hits[0].key, song, 32u),
+	      "a file was not found by the key heard");
+	CHECK(fzn_search_query_init(&q, "128.00", 6u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 0u,
+	      "a tempo was found as a word");
 	fzn_node_catalog_free(&cat);
 }
 

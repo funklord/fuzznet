@@ -1,6 +1,7 @@
-/* The music this user's hosts hold, as a widget: gui/music_view.h, sec 1449. */
+/* The music this user's hosts hold, as a widget: gui/music_view.h, secs 1449, 1458. */
 #include "music_view.h"
 #include "choose_accessible.h"
+#include "combo.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -41,6 +42,19 @@ static QString words(const char *text)
 	return QString::fromUtf8(shown);
 }
 
+/* A KEY'S PLACE ON THE WHEEL, from its name as the host asserts it ("8A
+ * Am"): its Camelot number, A before B; none last. */
+static int key_order(const char *key)
+{
+	int number = 0, i = 0;
+
+	while (i < 2 && key[i] >= '0' && key[i] <= '9')
+		number = number * 10 + (key[i++] - '0');
+	if (!i || number < 1 || number > 12 || (key[i] != 'A' && key[i] != 'B'))
+		return 1000;
+	return number * 2 + (key[i] == 'B');
+}
+
 static QString length_words(uint64_t ms)
 {
 	if (!ms)
@@ -59,9 +73,17 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_find->setAccessibleName(tr("Find music by a word of its title, artist, album or genre"));
 	m_find->setClearButtonEnabled(true);
 	fzn_name_clear_button(m_find);
+	m_order = new fzn_combo_box(this);
+	m_order->setAccessibleName(tr("Order the music"));
+	m_order->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	m_order->setMinimumContentsLength(8);
+	m_order->addItem(tr("By album"));
+	m_order->addItem(tr("By tempo"));
+	m_order->addItem(tr("By key"));
+	m_order->addItem(tr("By artist"));
 	m_tree = new QTreeWidget(this);
-	m_tree->setColumnCount(4);
-	m_tree->setHeaderLabels({ tr("Title"), tr("Artist"), tr("Length"), tr("Where") });
+	m_tree->setColumnCount(6);
+	m_tree->setHeaderLabels({ tr("Title"), tr("Artist"), tr("Length"), tr("BPM"), tr("Key"), tr("Where") });
 	m_tree->header()->setStretchLastSection(true);
 	m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_tree->setAccessibleName(tr("The music, by album"));
@@ -69,6 +91,8 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_fetch = new QPushButton(tr("Get it"), this);
 	m_read = new QPushButton(tr("Read the tags"), this);
 	m_read->setToolTip(tr("Read the title, artist and album each file says of itself"));
+	m_hear = new QPushButton(tr("Hear the music"), this);
+	m_hear->setToolTip(tr("Have each host hear the tunes it holds for their tempo and key"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
@@ -79,10 +103,14 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	row->addStretch(1);
 	auto *more = new QHBoxLayout;
 	more->addWidget(m_read);
+	more->addWidget(m_hear);
 	more->addWidget(m_refresh);
 	more->addStretch(1);
+	auto *top = new QHBoxLayout;
+	top->addWidget(m_find, 1);
+	top->addWidget(m_order);
 	auto *col = new QVBoxLayout(this);
-	col->addWidget(m_find);
+	col->addLayout(top);
 	col->addWidget(m_tree, 1);
 	col->addLayout(row);
 	col->addLayout(more);
@@ -100,6 +128,8 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_read, &QPushButton::clicked, [this]() { read_tags(); });
+	connect(m_hear, &QPushButton::clicked, [this]() { hear(); });
+	connect(m_order, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int) { rebuild(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
 	m_play_button->setEnabled(false);
@@ -149,65 +179,117 @@ bool fzn_music_view::refresh()
 		fzn_rpc_music_list_release(&all);
 		return m_rpc->c.answered;
 	}
-	/* BY ALBUM, then by disc and track, then by title. */
-	QMap<album_key, QList<const fzn_rpc_music_entry_t *>> albums;
-	QMap<album_key, uint16_t> years;
-	for (size_t i = 0; i < all.count; i++) {
-		const fzn_rpc_music_entry_t *e = &all.entries[i];
-		const album_key k = { words(e->album), words(e->album_artist[0] ? e->album_artist : e->artist) };
-		albums[k].append(e);
-		if (e->year && (!years.value(k) || e->year < years.value(k)))
-			years[k] = e->year;
+	m_music.clear();
+	for (size_t i = 0; i < all.count; i++)
+		m_music.append(all.entries[i]);
+	fzn_rpc_music_list_release(&all);
+	rebuild();
+	answer.restore();
+	return true;
+}
+
+void fzn_music_view::set_order(order o) { m_order->setCurrentIndex((int)o); }
+
+/* THE TREE FROM THE MUSIC LAST LISTED, in the order chosen: groups, each
+ * with its tracks. An album's tracks by disc and track; a tempo's slowest
+ * first; a key's and an artist's by album, then disc and track. */
+void fzn_music_view::rebuild()
+{
+	const order o = (order)m_order->currentIndex();
+	/* A GROUP'S KEY: what it sorts by, then what it shows -- two albums of
+	 * one name by two artists stay two. */
+	struct group {
+		int rank;
+		QString title, by;
+		bool operator<(const group &g) const
+		{
+			if (rank != g.rank)
+				return rank < g.rank;
+			const int a = QString::compare(by, g.by, Qt::CaseInsensitive);
+			return a ? a < 0 : QString::compare(title, g.title, Qt::CaseInsensitive) < 0;
+		}
+	};
+	QMap<group, QList<const fzn_rpc_music_entry_t *>> groups;
+	QMap<group, uint16_t> years;
+	for (const fzn_rpc_music_entry_t &m : m_music) {
+		const fzn_rpc_music_entry_t *e = &m;
+		const QString by = words(e->album_artist[0] ? e->album_artist : e->artist);
+		group g = { 0, words(e->album), by };
+		if (o == BY_TEMPO) {
+			const int bpm = (int)(atof(e->bpm) + 0.5);
+			g = { bpm > 0 ? bpm : 100000, bpm > 0 ? tr("%1 BPM").arg(bpm) : tr("Tempo not heard"), QString() };
+		} else if (o == BY_KEY) {
+			g = { key_order(e->key), e->key[0] ? words(e->key) : tr("Key not heard"), QString() };
+		} else if (o == BY_ARTIST) {
+			g = { e->artist[0] ? 0 : 1, e->artist[0] ? words(e->artist) : tr("Unknown artist"), QString() };
+		}
+		groups[g].append(e);
+		if (o == BY_ALBUM && e->year && (!years.value(g) || e->year < years.value(g)))
+			years[g] = e->year;
 	}
 	const QByteArray kept = chosen() && chosen()->parent() ? chosen()->data(0, ROLE_ROOT).toByteArray() : QByteArray();
 	m_tree->clear();
 	QTreeWidgetItem *again = nullptr;
-	for (auto a = albums.begin(); a != albums.end(); ++a) {
+	for (auto a = groups.begin(); a != groups.end(); ++a) {
 		QList<const fzn_rpc_music_entry_t *> &tracks = a.value();
-		std::sort(tracks.begin(), tracks.end(), [](const fzn_rpc_music_entry_t *x, const fzn_rpc_music_entry_t *y) {
+		std::sort(tracks.begin(), tracks.end(), [o](const fzn_rpc_music_entry_t *x, const fzn_rpc_music_entry_t *y) {
+			if (o == BY_TEMPO && atof(x->bpm) != atof(y->bpm))
+				return atof(x->bpm) < atof(y->bpm);
+			if (o != BY_ALBUM) {
+				const int c = strcmp(x->album, y->album);
+				if (c)
+					return c < 0;
+			}
 			if (x->disc != y->disc)
 				return x->disc < y->disc;
 			if (x->track != y->track)
 				return x->track < y->track;
 			return strcmp(x->title[0] ? x->title : x->name, y->title[0] ? y->title : y->name) < 0;
 		});
-		auto *album = new QTreeWidgetItem(m_tree);
-		album->setText(0, a.key().album.isEmpty() ? tr("No album") : a.key().album);
-		album->setText(1, a.key().by.isEmpty() ? tr("Unknown artist") : a.key().by);
-		album->setText(2, years.value(a.key()) ? QString::number(years.value(a.key())) : QString());
+		auto *head = new QTreeWidgetItem(m_tree);
+		if (o == BY_ALBUM) {
+			head->setText(0, a.key().title.isEmpty() ? tr("No album") : a.key().title);
+			head->setText(1, a.key().by.isEmpty() ? tr("Unknown artist") : a.key().by);
+			head->setText(2, years.value(a.key()) ? QString::number(years.value(a.key())) : QString());
+		} else {
+			head->setText(0, a.key().title);
+		}
 		for (const fzn_rpc_music_entry_t *e : tracks) {
-			auto *t = new QTreeWidgetItem(album);
+			auto *t = new QTreeWidgetItem(head);
 			const QString title = words(e->title[0] ? e->title : e->name);
 			const QString artist = words(e->artist);
+			const QString by = words(e->album_artist[0] ? e->album_artist : e->artist);
 			const unsigned others = e->holders - (e->held_here && e->holders ? 1u : 0u);
-			t->setText(0, e->track ? QStringLiteral("%1. %2").arg(e->track).arg(title) : title);
-			/* THE ARTIST WHERE IT IS NOT THE ALBUM'S: a compilation's tracks
-			 * say whose each is, an album by one artist does not repeat it. */
-			t->setText(1, artist == a.key().by ? QString() : artist);
+			const double bpm = atof(e->bpm);
+			t->setText(0, e->track && o == BY_ALBUM ? QStringLiteral("%1. %2").arg(e->track).arg(title) : title);
+			/* THE ARTIST WHERE THE GROUP DOES NOT SAY IT: a compilation's
+			 * tracks say whose each is, an album by one artist does not
+			 * repeat it, and an artist's group says it once. */
+			t->setText(1, (o == BY_ALBUM && artist == by) || o == BY_ARTIST ? QString() : artist);
 			t->setText(2, length_words(e->duration_ms));
-			t->setText(3, e->held_here ? (others ? tr("here, and on %1 other host(s)").arg(others) : tr("here"))
+			t->setText(3, bpm > 0 ? QString::number(bpm, 'f', bpm == (int)bpm ? 0 : 1) : QString());
+			t->setText(4, words(e->key));
+			t->setText(5, e->held_here ? (others ? tr("here, and on %1 other host(s)").arg(others) : tr("here"))
 			              : others   ? tr("on %1 host(s)").arg(others)
 			                         : tr("nowhere seen"));
 			t->setData(0, ROLE_ROOT, QByteArray((const char *)e->root, 32));
 			t->setData(0, ROLE_HERE, (bool)e->held_here);
-			t->setData(0, ROLE_FIND, QStringList({ title, artist, a.key().album, a.key().by, words(e->genre) })
+			t->setData(0, ROLE_FIND, QStringList({ title, artist, words(e->album), by, words(e->genre), words(e->key),
+			                                       bpm > 0 ? QString::number((int)(bpm + 0.5)) : QString() })
 			                                 .join(QLatin1Char('\n')));
-			t->setData(0, Qt::AccessibleTextRole, tr("%1, by %2").arg(title, artist.isEmpty() ? a.key().by : artist));
+			t->setData(0, Qt::AccessibleTextRole, tr("%1, by %2").arg(title, artist.isEmpty() ? by : artist));
 			if (!kept.isEmpty() && t->data(0, ROLE_ROOT).toByteArray() == kept)
 				again = t;
 		}
 	}
 	m_tree->expandAll();
-	m_status->setText(all.count ? tr("%n piece(s) of music.", nullptr, (int)all.count)
-	                            : tr("No music is catalogued yet. \"Read the tags\" reads what files say of "
-	                                 "themselves."));
-	fzn_rpc_music_list_release(&all);
+	m_status->setText(m_music.size() ? tr("%n piece(s) of music.", nullptr, (int)m_music.size())
+	                                 : tr("No music is catalogued yet. \"Read the tags\" reads what files say of "
+	                                      "themselves."));
 	m_filter_said.clear();
 	if (again)
 		m_tree->setCurrentItem(again);
 	apply_filter();
-	answer.restore();
-	return true;
 }
 
 /* EACH TRACK SHOWN OR HIDDEN by a word it holds, and each album with the
@@ -333,12 +415,35 @@ int fzn_music_view::read_tags()
 	return (int)learned;
 }
 
+int fzn_music_view::hear()
+{
+	uint32_t from = 0, next = 0, total = 0, queued = 0, waiting = 0;
+	int pages = 0;
+
+	/* A PAGE AT A TIME until the last, bounded as read_tags is. */
+	do {
+		if (fzn_rpc_library_hear(&m_rpc->c, from, &next, &total, &queued, &waiting) != FZN_RPC_OK) {
+			m_status->setText(failed_words(m_rpc));
+			return -1;
+		}
+		if (next <= from)
+			break;
+		from = next;
+	} while (from < total && ++pages < 100000);
+	m_status->setText(waiting ? tr("%1 tune(s) to be heard; their tempo and key show as each is.").arg(waiting)
+	                          : tr("Every tune held here has been heard."));
+	return (int)waiting;
+}
+
 QStringList fzn_music_view::rows() const
 {
 	QStringList out;
-	for (QTreeWidgetItem *it : shown())
-		out << (it->parent() ? QStringLiteral("  ") : QString())
-		                + QStringList({ it->text(0), it->text(1), it->text(2), it->text(3) }).join(QStringLiteral(" | "));
+	for (QTreeWidgetItem *it : shown()) {
+		QStringList cells;
+		for (int c = 0; c < 6; c++)
+			cells << it->text(c);
+		out << (it->parent() ? QStringLiteral("  ") : QString()) + cells.join(QStringLiteral(" | "));
+	}
 	return out;
 }
 
