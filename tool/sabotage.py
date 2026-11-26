@@ -761,8 +761,8 @@ SABOTAGES = [
 	(
 		"photo-view-orientation-ignored",
 		"gui/photo_view.cpp",
-		"\treader.setAutoTransform(true);\n",
-		"\treader.setAutoTransform(false);\n",
+		"\tQImageReader reader(&buf);\n\treader.setAutoTransform(true);\n",
+		"\tQImageReader reader(&buf);\n\treader.setAutoTransform(false);\n",
 		"a photograph shown as its camera turned it -- sec 1450",
 	),
 	(
@@ -19457,6 +19457,20 @@ SABOTAGES = [
 		"\tif (it->data(0, ROLE_VIDEO).toBool()) {\n",
 		"\tif (0) {\n",
 		"a video chosen is read whole to be decoded as a picture -- sec 1460",
+	),
+	(
+		"photo-view-thumb-never-decoded",
+		"gui/photo_view.cpp",
+		"\t\t\tif (!complete || whole > THUMB_DECODE_MAX)\n\t\t\t\tcontinue;\n",
+		"\t\t\tif (1)\n\t\t\t\tcontinue;\n",
+		"a screenshot, a PNG or an editor's save shows no thumbnail, having none of the camera's -- sec 1461",
+	),
+	(
+		"photo-view-thumb-read-past-bound",
+		"gui/photo_view.cpp",
+		"\t\t\twhile (!complete && whole <= THUMB_DECODE_MAX) {\n",
+		"\t\t\twhile (!complete) {\n",
+		"a photograph of any size is read whole for its thumbnail -- sec 1461",
 	),
 	(
 		"ulaw-without-bias",

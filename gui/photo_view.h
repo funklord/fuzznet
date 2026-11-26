@@ -10,7 +10,9 @@
  * THUMBNAILS, sec 1455: each photograph held here shows the camera's own
  * thumbnail (EXIF's), read from its first 64 KiB through the play slices,
  * a few at a time on a timer, so opening a library of thousands waits for
- * none of them; one without a thumbnail shows none.
+ * none of them. One with none of the camera's -- a screenshot, a PNG, an
+ * editor's save -- held here and at most 16 MiB is read whole and decoded
+ * straight to a thumbnail's size (sec 1461); a larger one shows none.
  *
  * THE ONE CHOSEN IS SHOWN: its bytes read through the library's play
  * slices -- from this host, or arriving from another -- decoded at the

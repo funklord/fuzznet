@@ -9,7 +9,9 @@
  * not here asked for rather than read; found by its camera; a silent node;
  * the view no wider than a 320 px screen; and a phone's video among them
  * (sec 1460), its size and length said, no thumbnail read and nothing
- * decoded, handed to the host's player. Run from the tree's root.
+ * decoded, handed to the host's player; a thumbnail decoded from the
+ * picture where the camera wrote none, and none from one past 16 MiB, whose
+ * head alone is read (sec 1461). Run from the tree's root.
  */
 
 #include "../photo_view.h"
@@ -43,7 +45,8 @@ static fzn_node_catalog_t cat;
 static uint8_t me[32], other[32];
 static uint64_t seq = 1;
 static int silent, ranges_read;
-static QByteArray jpeg, thumbed;
+static QByteArray jpeg, thumbed, big;
+static size_t big_served;
 static char last[300];
 
 static void say(const uint8_t *issuer, uint8_t fill, const char *name, const char *value)
@@ -69,10 +72,10 @@ static void say(const uint8_t *issuer, uint8_t fill, const char *name, const cha
 }
 
 /* THE BYTES HERE: the photographs filled 0x21 and 0x26, the fixtures
- * photo.jpg and photo_thumb.jpg. */
+ * photo.jpg and photo_thumb.jpg; 0x28, photo.jpg run out to 17 MiB. */
 static const QByteArray *bytes_of(uint8_t fill)
 {
-	return fill == 0x21 ? &jpeg : fill == 0x26 ? &thumbed : nullptr;
+	return fill == 0x21 ? &jpeg : fill == 0x26 ? &thumbed : fill == 0x28 ? &big : nullptr;
 }
 
 static int file_here(void *ctx, const uint8_t root[32], uint64_t *length, int *whole, uint16_t *arriving)
@@ -144,12 +147,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (silent)
 		return 0;
 	if (sscanf(line, "get file %64s %llu %llu %199s", hex, &off, &n, path) == 4
-	    && (!strncmp(hex, "2121", 4) || !strncmp(hex, "2626", 4))) {
-		const QByteArray &b = hex[1] == '1' ? jpeg : thumbed;
+	    && (!strncmp(hex, "2121", 4) || !strncmp(hex, "2626", 4) || !strncmp(hex, "2828", 4))) {
+		const QByteArray &b = hex[1] == '1' ? jpeg : hex[1] == '6' ? thumbed : big;
 		QFile out(QString::fromUtf8(path));
 		if (off > (unsigned long long)b.size() || !out.open(QIODevice::WriteOnly))
 			return (size_t)snprintf(reply, cap, "error no\n");
 		out.write(b.mid((int)off, (int)n));
+		if (&b == &big)
+			big_served += (size_t)b.mid((int)off, (int)n).size();
 		ranges_read++;
 		return (size_t)snprintf(reply, cap, "ok whole\n");
 	}
@@ -169,6 +174,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	jpeg = f.readAll();
+	big = jpeg + QByteArray(17 * 1024 * 1024, '\0');
 	{
 		QFile g(QStringLiteral("media/test/fixture/photo_thumb.jpg"));
 		if (!g.open(QIODevice::ReadOnly)) {
@@ -201,6 +207,8 @@ int main(int argc, char **argv)
 	say(me, 0x27, "width", "1920");
 	say(me, 0x27, "height", "1080");
 	say(me, 0x27, "duration", "12000");
+	say(me, 0x28, "kind", "image/jpeg");
+	say(me, 0x28, "name", "big.jpg");
 	say(me, 0x25, "kind", "audio/mpeg");
 	say(me, 0x25, "taken", "2020-01-01T00:00:00");
 
@@ -216,18 +224,22 @@ int main(int argc, char **argv)
 	                                           "  2023-07-20 10:00 |  |  |  | here",
 	                                           "  2023-07-14 21:45 | Canon EOS 5D | 16 × 12 | 67.8560° N, 20.2250° E | here",
 	                                           "  2023-07-02 08:00 | OnePlus |  |  | on 1 host(s)",
-	                                           "When unknown | 1", "  scan.png |  |  |  | on 1 host(s)" }),
+	                                           "When unknown | 2", "  scan.png |  |  |  | on 1 host(s)",
+	                                           "  big.jpg |  |  |  | here" }),
 	      "the photographs were not listed by month newest first, with camera, size and place");
 	if (failures)
 		for (const QString &r : v.rows())
 			fprintf(stderr, "    %s\n", r.toUtf8().constData());
-	CHECK(v.status() == "5 photograph(s) and 1 video(s).", "the count was not said");
+	CHECK(v.status() == "6 photograph(s) and 1 video(s).", "the count was not said");
 
-	/* THUMBNAILS, sec 1455: the two held here read, jhead's showing the
-	 * camera's own thumbnail and Pillow's, which has none, showing none. */
-	CHECK(v.read_thumbnails(10) == 2 && v.has_thumbnail(4) && !v.has_thumbnail(5) && !v.has_thumbnail(1)
-	              && !v.has_thumbnail(3),
-	      "a thumbnail was not shown where the camera wrote one, or was where it did not");
+	/* THUMBNAILS, sec 1455: the three held here read -- jhead's showing the
+	 * camera's own thumbnail; Pillow's, which has none, its picture decoded
+	 * small (sec 1461); and one past 16 MiB showing none, its head alone
+	 * read. None for one not here, nor for a video. */
+	CHECK(v.read_thumbnails(10) == 3 && v.has_thumbnail(4) && v.has_thumbnail(5) && !v.has_thumbnail(9)
+	              && !v.has_thumbnail(1) && !v.has_thumbnail(3) && big_served <= 1024u * 1024u,
+	      "a thumbnail was not shown where the camera wrote one or the picture was small enough, or was where "
+	      "it should not be");
 
 	/* SHOWN, turned as its EXIF says: 16 by 12 at orientation 6 is shown
 	 * taller than wide. */
@@ -252,14 +264,14 @@ int main(int argc, char **argv)
 
 	v.set_find("oneplus");
 	CHECK(v.rows() == QStringList({ "July 2023 | 4", "  2023-07-02 08:00 | OnePlus |  |  | on 1 host(s)" })
-	              && v.status() == "1 of 6 shown.",
+	              && v.status() == "1 of 7 shown.",
 	      "a photograph was not found by its camera, in another case");
 	v.set_find("");
-	CHECK(v.rows().size() == 9, "every photograph did not come back");
+	CHECK(v.rows().size() == 10, "every photograph did not come back");
 	CHECK(v.minimumSizeHint().width() <= 320, "the view was wider than a 320 px screen");
 
 	silent = 1;
-	CHECK(!v.refresh() && v.rows().size() == 9, "a node that does not answer cleared the photographs");
+	CHECK(!v.refresh() && v.rows().size() == 10, "a node that does not answer cleared the photographs");
 
 	fzn_node_catalog_free(&cat);
 	if (failures) {

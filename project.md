@@ -78593,8 +78593,8 @@ APP1 segment and opening with its SOI.
 photograph's orientation: its first 64 KiB read through the play slices
 (APP1 is at most 64 KiB), one photograph a 30 ms tick, so a library of
 thousands opens at once and fills in. One with no thumbnail -- Pillow
-writes none -- shows none rather than being decoded whole; one not held
-here waits until it is.
+writes none -- showed none rather than being decoded whole, until sec
+1461 decoded it small; one not held here waits until it is.
 
 **Tests:** `tags_test` (17) finds jhead's thumbnail byte for byte and
 none in the photographs without one; the mangled files ask for it too.
@@ -78841,3 +78841,28 @@ songs, one given a real creation time, no video; both mangled.
 length carried. `photo_view_test` (12): the row, the count, no thumbnail,
 nothing read, played. `live_tags` phase i against the real daemon. Six
 sabotage entries, each caught.
+
+## 1461. A thumbnail where the camera wrote none: the picture decoded small, 2026-11-26
+
+Sec 1447's plan gave each photograph "EXIF's own [thumbnail] where the
+camera wrote one, else the frame decoded small"; sec 1455 built the first
+half and showed nothing for the rest. The rest is common: a screenshot, a
+PNG, a photograph an editor saved, a phone that writes no IFD1. So
+`gui/photo_view`, finding none of the camera's in a photograph's first 64
+KiB, reads the rest through the play slices and decodes it straight to a
+thumbnail's size -- Qt's JPEG decoder scales as it decodes, a fraction of
+the whole's cost -- turned by its own EXIF (`setAutoTransform`). Only one
+held here, and at most 16 MiB (`THUMB_DECODE_MAX`): a larger one shows
+none, its head alone read, so a library of raw files does not read
+gigabytes to draw icons. Still one a tick on the timer, after those with
+the camera's own.
+
+Rejected: decoding on the host and carrying a thumbnail in the
+catalogue, whose values are 255 bytes; a second timer for decodes, which
+would only reorder the same work.
+
+**Tests:** `photo_view_test` (12): Pillow's photograph now shows one; a
+17 MiB photograph shows none and is read no further than its head (under
+1 MiB served). Sabotage `photo-view-thumb-never-decoded` and
+`photo-view-thumb-read-past-bound`, each caught;
+`photo-view-orientation-ignored` respelled for the second reader.

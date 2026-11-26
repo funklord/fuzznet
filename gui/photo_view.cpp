@@ -47,6 +47,11 @@ extern "C" {
  * which holds it, is at most 64 KiB. */
 #define THUMB_HEAD (64u * 1024u)
 #define THUMB_SIDE 48
+/* AND WHERE THE CAMERA WROTE NONE (sec 1461) -- a screenshot, a PNG, a
+ * photograph an editor saved -- the picture itself, held here and no
+ * larger than this, decoded straight to a thumbnail's size: a JPEG's
+ * decoder scales as it decodes, so it costs a fraction of the whole. */
+#define THUMB_DECODE_MAX (16u * 1024u * 1024u)
 
 /* THE MOST A PHOTOGRAPH SHOWN MAY BE: its bytes read whole, a camera's
  * largest raw JPEG well within it; and its canvas as its header says it,
@@ -391,15 +396,44 @@ int fzn_photo_view::read_thumbnails(int n)
 		read++;
 		size_t off = 0, len = 0;
 		QImage img;
+		bool turned_already = false;
 		if (!fzn_media_exif_thumbnail((const uint8_t *)head.constData(), (size_t)head.size(), &off, &len)
-		    || !img.loadFromData((const uchar *)head.constData() + off, (int)len, "JPG"))
-			continue;
+		    || !img.loadFromData((const uchar *)head.constData() + off, (int)len, "JPG")) {
+			/* NONE OF THE CAMERA'S: the rest read and the picture decoded
+			 * small, where it is whole here and not too large. */
+			const uint64_t whole = slice->size;
+			bool complete = at >= whole;
+
+			while (!complete && whole <= THUMB_DECODE_MAX) {
+				if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), at,
+				                         FZN_RPC_LIBRARY_PLAY_MAX_SLICE, slice)
+				            != FZN_RPC_OK
+				    || slice->underrun || !slice->data_len)
+					break;
+				head.append((const char *)slice->data, (int)slice->data_len);
+				at += slice->data_len;
+				complete = at >= whole;
+			}
+			if (!complete || whole > THUMB_DECODE_MAX)
+				continue;
+			QBuffer buf(&head);
+			buf.open(QIODevice::ReadOnly);
+			QImageReader reader(&buf);
+			reader.setAutoTransform(true);
+			const QSize size = reader.size();
+			if (!size.isValid() || size.width() > PHOTO_SIDE_MAX || size.height() > PHOTO_SIDE_MAX)
+				continue;
+			reader.setScaledSize(size.scaled(THUMB_SIDE, THUMB_SIDE, Qt::KeepAspectRatio));
+			if (!reader.read(&img))
+				continue;
+			turned_already = true;
+		}
 		for (int m = 0; m < m_tree->topLevelItemCount(); m++)
 			for (int i = 0; i < m_tree->topLevelItem(m)->childCount(); i++) {
 				QTreeWidgetItem *p = m_tree->topLevelItem(m)->child(i);
 				if (p->data(0, ROLE_ROOT).toByteArray() == root)
 					p->setIcon(0, QIcon(QPixmap::fromImage(
-					                      turned(img, p->data(0, ROLE_TURN).toInt())
+					                      turned(img, turned_already ? 1 : p->data(0, ROLE_TURN).toInt())
 					                              .scaled(THUMB_SIDE, THUMB_SIDE, Qt::KeepAspectRatio,
 					                                      Qt::SmoothTransformation))));
 			}
