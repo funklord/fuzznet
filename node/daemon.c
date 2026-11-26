@@ -104,9 +104,11 @@
 #include "log_buckets.h"
 #include "piece_buckets.h"
 #include "../chunk/erasure.h"
-#include "../version/version.h"
 #include "pieces.h"
 #endif
+/* OUTSIDE ANY SWITCH: `--version` is every build's (fuzzypickles' Android
+ * fzpd, without log packing, stopped here, inbox 20261126T2018Z). */
+#include "../version/version.h"
 #include "reconcile.h"
 #include "settings.h"
 #include "records.h"
