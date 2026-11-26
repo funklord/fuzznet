@@ -131,7 +131,7 @@ struct message size=2..1881 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.music_row.name_len        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   message.body.music_row.name            offset=Dynamic size=Bounded(0, 255) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
   message.body.photos                    offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  message.body.photo_row                 offset=AbsoluteStatic(0x02) size=Bounded(64, 593) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.photo_row                 offset=AbsoluteStatic(0x02) size=Bounded(73, 602) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
   message.body.photo_row.root            offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.photo_row.size            offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   message.body.photo_row.holders         offset=AbsoluteStatic(0x2A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
@@ -139,11 +139,13 @@ struct message size=2..1881 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.photo_row.width           offset=AbsoluteStatic(0x2D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.photo_row.height          offset=AbsoluteStatic(0x31) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.photo_row.orientation     offset=AbsoluteStatic(0x35) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.photo_row.place           offset=AbsoluteStatic(0x36) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  message.body.photo_row.latitude        offset=AbsoluteStatic(0x37) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  message.body.photo_row.longitude       offset=AbsoluteStatic(0x3B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  message.body.photo_row.taken_len       offset=AbsoluteStatic(0x3F) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.photo_row.taken           offset=AbsoluteStatic(0x40) size=Bounded(0, 19) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.photo_row.video           offset=AbsoluteStatic(0x36) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.photo_row.duration_ms     offset=AbsoluteStatic(0x37) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.photo_row.place           offset=AbsoluteStatic(0x3F) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.photo_row.latitude        offset=AbsoluteStatic(0x40) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  message.body.photo_row.longitude       offset=AbsoluteStatic(0x44) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  message.body.photo_row.taken_len       offset=AbsoluteStatic(0x48) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.body.photo_row.taken           offset=AbsoluteStatic(0x49) size=Bounded(0, 19) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   message.body.photo_row.camera_len      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   message.body.photo_row.camera          offset=Dynamic size=Bounded(0, 255) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
   message.body.photo_row.name_len        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
@@ -189,7 +191,7 @@ struct music_row size=62..1879 mutate=Shifting address=Unstable repr=ValueConver
 
 struct nothing size=0
 
-struct photo_row size=64..593 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct photo_row size=73..602 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   photo_row.root                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   photo_row.size                         offset=AbsoluteStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   photo_row.holders                      offset=AbsoluteStatic(0x28) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
@@ -197,11 +199,13 @@ struct photo_row size=64..593 mutate=Shifting address=Unstable repr=ValueConvert
   photo_row.width                        offset=AbsoluteStatic(0x2B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   photo_row.height                       offset=AbsoluteStatic(0x2F) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   photo_row.orientation                  offset=AbsoluteStatic(0x33) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  photo_row.place                        offset=AbsoluteStatic(0x34) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
-  photo_row.latitude                     offset=AbsoluteStatic(0x35) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  photo_row.longitude                    offset=AbsoluteStatic(0x39) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  photo_row.taken_len                    offset=AbsoluteStatic(0x3D) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  photo_row.taken                        offset=AbsoluteStatic(0x3E) size=Bounded(0, 19) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  photo_row.video                        offset=AbsoluteStatic(0x34) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  photo_row.duration_ms                  offset=AbsoluteStatic(0x35) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  photo_row.place                        offset=AbsoluteStatic(0x3D) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  photo_row.latitude                     offset=AbsoluteStatic(0x3E) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  photo_row.longitude                    offset=AbsoluteStatic(0x42) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  photo_row.taken_len                    offset=AbsoluteStatic(0x46) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  photo_row.taken                        offset=AbsoluteStatic(0x47) size=Bounded(0, 19) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   photo_row.camera_len                   offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   photo_row.camera                       offset=Dynamic size=Bounded(0, 255) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
   photo_row.name_len                     offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable

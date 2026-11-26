@@ -78791,3 +78791,53 @@ UBSan. `live_identify` (a-d) against the faults daemon and a server
 standing in for AcoustID: nothing sent with no key; with one, asked once
 with the key, 30 s and the print and nothing else, the recording named;
 asked once only; an error leaves the tune to be asked again.
+
+## 1460. A phone's videos among its photographs: when, how large, which way up, where, 2026-11-26
+
+A phone's gallery is its photographs and its videos, by when they were
+taken; the photo catalogue of sec 1450 dropped every video, the film of
+sec 1449 being "neither". Now a file the catalogue calls `video/` stands
+among the photographs, marked a video, and says what a photograph does.
+
+**Read where the bytes are** (`media/tags.c`, `media/mp4.situ`), from
+the movie box the ranged reader already walks (sec 1452), and only from
+an MP4 or QuickTime file with a picture -- a track header saying a width
+and a height -- since a song's M4A has a movie header with a time too,
+its encoding's, which would put it among the photographs:
+
+- **when**: an iPhone's keyed metadata (`moov/meta` as it writes it,
+  `udta/meta` as ffmpeg does), `com.apple.quicktime.creationdate`, the
+  camera's local time as EXIF's is; else the movie header's creation
+  time, which is UTC -- so a video from a phone writing no local time
+  sorts by UTC among photographs that sort by local time, hours apart at
+  most, and said so here rather than guessed at. 0 or a time before 1970
+  is a camera with no clock, unread;
+- **how large and which way up**: the picture track's width and height,
+  and its matrix's quarter turns as EXIF's orientation (1, 6, 3, 8);
+  ffmpeg's `-display_rotation` is counter-clockwise, so its 90 is EXIF's
+  8 -- the first expectation written here had it the other way, and the
+  arithmetic of ISO 14496-12's matrix, (p, q) to (pa + qc, pb + qd),
+  settled which was wrong;
+- **where**: QuickTime's `udta/\xa9xyz`, as Android's recorder writes it,
+  or the keyed `com.apple.quicktime.location.ISO6709`, ISO 6709's decimal
+  degrees (two digits of latitude, three of longitude) into the
+  catalogue's "LAT,LON"; its degrees-and-minutes forms, which no phone
+  writes, and 3GPP's `loci`, which ffmpeg's MP4 writer does, are unread.
+
+**Listed**: `photo_row` gains VIDEO and DURATION_MS; `node/library_binary.c`
+lists a `video/` kind among the photographs; `fzn_rpc_photo_entry_t`
+carries both. **`gui/photo_view`** says a video's size and length ("1920 ×
+1080, 0:12 video"), counts "5 photograph(s) and 1 video(s)", reads no
+thumbnail for one (EXIF's is a photograph's), decodes nothing, and plays
+it through the host's player (`on_play`, as the music view does). A
+video's sound is heard as a tune's is (sec 1457), since `add sound` takes
+`video/`.
+
+**Tests:** `tags_test` (28): both videos as ffmpeg wrote them -- the
+QuickTime one's UTC, 64 by 48, a quarter anticlockwise, Stockholm; the
+iPhone one's local time winning, a quarter clockwise, Cupertino; the
+songs, one given a real creation time, no video; both mangled.
+`library_binary_test` (104): the film a video among the photographs, its
+length carried. `photo_view_test` (12): the row, the count, no thumbnail,
+nothing read, played. `live_tags` phase i against the real daemon. Six
+sabotage entries, each caught.

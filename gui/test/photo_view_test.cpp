@@ -7,7 +7,9 @@
  * slices from media/test/fixture/photo.jpg and shown turned as its EXIF
  * orientation says (16 by 12, orientation 6, shown taller than wide); one
  * not here asked for rather than read; found by its camera; a silent node;
- * the view no wider than a 320 px screen. Run from the tree's root.
+ * the view no wider than a 320 px screen; and a phone's video among them
+ * (sec 1460), its size and length said, no thumbnail read and nothing
+ * decoded, handed to the host's player. Run from the tree's root.
  */
 
 #include "../photo_view.h"
@@ -194,15 +196,23 @@ int main(int argc, char **argv)
 	say(other, 0x24, "name", "scan.png");
 	say(me, 0x26, "kind", "image/jpeg");
 	say(me, 0x26, "taken", "2023-07-20T10:00:00");
+	say(me, 0x27, "kind", "video/mp4");
+	say(me, 0x27, "taken", "2023-07-21T09:00:00");
+	say(me, 0x27, "width", "1920");
+	say(me, 0x27, "height", "1080");
+	say(me, 0x27, "duration", "12000");
 	say(me, 0x25, "kind", "audio/mpeg");
 	say(me, 0x25, "taken", "2020-01-01T00:00:00");
 
 	fzn_photo_view v(node, nullptr);
+	QByteArray played;
 	v.answer_binary(node_binary, nullptr);
+	v.on_play([&played](const QByteArray &root, const QString &) { played = root; });
 	CHECK(v.refresh()
 	              && v.rows() == QStringList({ "December 2025 | 1",
 	                                           "  2025-12-31 23:59 |  |  | 33.8650° S, 70.6500° W | on 1 host(s)",
-	                                           "July 2023 | 3",
+	                                           "July 2023 | 4",
+	                                           "  2023-07-21 09:00 |  | 1920 × 1080, 0:12 video |  | on 1 host(s)",
 	                                           "  2023-07-20 10:00 |  |  |  | here",
 	                                           "  2023-07-14 21:45 | Canon EOS 5D | 16 × 12 | 67.8560° N, 20.2250° E | here",
 	                                           "  2023-07-02 08:00 | OnePlus |  |  | on 1 host(s)",
@@ -211,16 +221,17 @@ int main(int argc, char **argv)
 	if (failures)
 		for (const QString &r : v.rows())
 			fprintf(stderr, "    %s\n", r.toUtf8().constData());
-	CHECK(v.status() == "5 photograph(s).", "the count was not said");
+	CHECK(v.status() == "5 photograph(s) and 1 video(s).", "the count was not said");
 
 	/* THUMBNAILS, sec 1455: the two held here read, jhead's showing the
 	 * camera's own thumbnail and Pillow's, which has none, showing none. */
-	CHECK(v.read_thumbnails(10) == 2 && v.has_thumbnail(3) && !v.has_thumbnail(4) && !v.has_thumbnail(1),
+	CHECK(v.read_thumbnails(10) == 2 && v.has_thumbnail(4) && !v.has_thumbnail(5) && !v.has_thumbnail(1)
+	              && !v.has_thumbnail(3),
 	      "a thumbnail was not shown where the camera wrote one, or was where it did not");
 
 	/* SHOWN, turned as its EXIF says: 16 by 12 at orientation 6 is shown
 	 * taller than wide. */
-	v.select(4);
+	v.select(5);
 	const QImage shown = v.shown_picture();
 	CHECK(!shown.isNull() && ranges_read > 0 && shown.height() > shown.width(),
 	      "the photograph chosen was not read and shown turned as it says");
@@ -228,19 +239,27 @@ int main(int argc, char **argv)
 	ranges_read = 0;
 	v.select(1);
 	CHECK(v.shown_picture().isNull() && !ranges_read && v.fetch(), "a photograph not here was read, or not asked for");
-	v.select(4);
+	v.select(5);
 	CHECK(!v.fetch(), "a photograph here was asked for again");
+	CHECK(!v.play() && played.isEmpty(), "a photograph was handed to a video's player");
+	/* A VIDEO, chosen: nothing read or decoded, played through the host's
+	 * player. */
+	ranges_read = 0;
+	v.select(3);
+	CHECK(v.shown_picture().isNull() && !ranges_read && v.status() == "A video: \"Play\" plays it."
+	              && v.play() && played == QByteArray(32, 0x27),
+	      "a video was read to be shown, or not handed to the host's player");
 
 	v.set_find("oneplus");
-	CHECK(v.rows() == QStringList({ "July 2023 | 3", "  2023-07-02 08:00 | OnePlus |  |  | on 1 host(s)" })
-	              && v.status() == "1 of 5 shown.",
+	CHECK(v.rows() == QStringList({ "July 2023 | 4", "  2023-07-02 08:00 | OnePlus |  |  | on 1 host(s)" })
+	              && v.status() == "1 of 6 shown.",
 	      "a photograph was not found by its camera, in another case");
 	v.set_find("");
-	CHECK(v.rows().size() == 8, "every photograph did not come back");
+	CHECK(v.rows().size() == 9, "every photograph did not come back");
 	CHECK(v.minimumSizeHint().width() <= 320, "the view was wider than a 320 px screen");
 
 	silent = 1;
-	CHECK(!v.refresh() && v.rows().size() == 8, "a node that does not answer cleared the photographs");
+	CHECK(!v.refresh() && v.rows().size() == 9, "a node that does not answer cleared the photographs");
 
 	fzn_node_catalog_free(&cat);
 	if (failures) {

@@ -22,6 +22,9 @@ its files as a library does it:
     g  the music and photo catalogues listed: the two songs by their titles,
        the two photographs with EXIF, and not the JPEG that says nothing
     h  an M4A with its movie box after the media, read by its boxes' sizes
+    i  a phone's video (sec 1460), QuickTime's: when, how large, which way
+       up and where, read where its bytes are, and listed among the
+       photographs marked a video, with its length
 
 Against a daemon without the verb, phase a reads `malformed`; against one
 that asserts what it read again each time, phase b counts it.
@@ -77,15 +80,20 @@ def main(argv):
 			return root
 
 		def listed(root):
-			"""`root`'s catalogue as {name: value}, values unescaped."""
-			reply = ask(sock, "list catalog " + root).split()
-			if not reply or reply[0] != "ok":
-				raise failed("list catalog answered %r" % reply)
-			out = {}
-			for row in reply[3:]:
-				_, name, value, _ = row.split(",")
-				out[name] = urllib.parse.unquote(value)
-			return out
+			"""`root`'s catalogue as {name: value}, values unescaped: `ok LIVE
+			FROM ROWS...`, as many rows as a reply holds, so asked again from
+			where it ended."""
+			out, rows = {}, 0
+			while True:
+				reply = ask(sock, "list catalog %s %d" % (root, rows)).split()
+				if len(reply) < 3 or reply[0] != "ok":
+					raise failed("list catalog answered %r" % reply)
+				for row in reply[3:]:
+					_, name, value, _ = row.split(",")
+					out[name] = urllib.parse.unquote(value)
+				rows += len(reply) - 3
+				if rows >= int(reply[1]) or len(reply) == 3:
+					return out
 
 		def tags(word):
 			reply = ask(sock, "add tags " + word)
@@ -194,6 +202,24 @@ def main(argv):
 			   or listed(m4a).get("track") != "2/9" or listed(m4a).get("duration") != "250":
 				raise failed("h: the M4A lists %r" % listed(m4a))
 			print("livecheck: h: an M4A's items read past its media, as the node holds it")
+
+			# i: a phone's video, among the photographs (`photo_row` 144: its
+			# VIDEO byte after root, size, holders, held here, width, height
+			# and orientation; its length after).
+			video = put("video.mov")
+			expect(sock, "i", "add catalog %s kind video/quicktime" % video, "ok")
+			tags(video)
+			got = listed(video)
+			if got.get("taken") != "2024-05-01T12:34:56" or got.get("width") != "64" \
+			   or got.get("orientation") != "8" or got.get("place") != "59.3293000,18.0686000":
+				raise failed("i: the video lists %r" % got)
+			rows = [m for m in binary(sock, bytes([1, 143]))[:-1] if m[:2] == bytes([1, 144])]
+			row = [m for m in rows if m[2:34].hex() == video]
+			at = 2 + 32 + 8 + 2 + 1 + 4 + 4 + 1
+			if len(row) != 1 or row[0][at] != 1 or int.from_bytes(row[0][at + 1:at + 9], "big") != 500:
+				raise failed("i: the video's row was %r" % (row,))
+			print("livecheck: i: a phone's video read for when, its size, its turn and where, "
+			      "and listed among the photographs as a video")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

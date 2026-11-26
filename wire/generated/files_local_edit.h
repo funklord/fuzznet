@@ -341,6 +341,8 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	uint8_t orientation;
+	uint8_t video;
+	uint64_t duration_ms;
 	uint8_t place;
 	int32_t latitude;
 	int32_t longitude;
@@ -401,6 +403,8 @@ static inline situ_err_t fzn_files_local_photo_row_edit_decode(const situ_msg_t 
 	out->width = fzn_files_local_photo_row_width_get(view);
 	out->height = fzn_files_local_photo_row_height_get(view);
 	out->orientation = fzn_files_local_photo_row_orientation_get(view);
+	out->video = fzn_files_local_photo_row_video_get(view);
+	out->duration_ms = fzn_files_local_photo_row_duration_ms_get(view);
 	out->place = fzn_files_local_photo_row_place_get(view);
 	out->latitude = fzn_files_local_photo_row_latitude_get(view);
 	out->longitude = fzn_files_local_photo_row_longitude_get(view);

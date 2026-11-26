@@ -3,7 +3,7 @@
 reads back, project.md sec 1447.
 
 WRITTEN BY OTHER HANDS than the reader they test: ffmpeg for the MP3s,
-the Ogg Vorbis and Opus files, the M4As, and the FLAC's audio, mutagen
+the Ogg Vorbis and Opus files, the M4As, the videos, and the FLAC's audio, mutagen
 for an ID3v2.3 tag, metaflac for the Vorbis comments, Pillow for the
 JPEG and its EXIF, jhead for an EXIF thumbnail. A reader agreeing with
 what those wrote is evidence; one agreeing with bytes this tree built
@@ -16,7 +16,7 @@ song.ogg and memo.opus differ at each run, and jhead stamps
 photo_thumb.jpg; keep the committed ones unless they are meant to
 change.
 
-BOUNDED: thirteen files, each from one tool run with a timeout; nothing loops.
+BOUNDED: fifteen files, each from a tool run or two with a timeout; nothing loops.
 """
 
 import os
@@ -107,6 +107,25 @@ def main():
 			    "-metadata", "album_artist=Various", "-metadata", "album=Arctic Nights",
 			    "-metadata", "track=2/9", "-metadata", "disc=1/1", "-metadata", "date=2018",
 			    "-metadata", "genre=Ambient", *flags, os.path.join(OUT, name))
+
+		# A PHONE'S VIDEOS, sec 1460, ffmpeg's: half a second of 64 by 48,
+		# then remuxed with a turn and a time. The first as QuickTime writes
+		# it, where it was taken in udta's \xa9xyz, turned a quarter
+		# anticlockwise (-display_rotation is counter-clockwise); the second
+		# as an iPhone does, in keyed metadata -- its local time, two hours
+		# past the movie header's UTC, and its place -- turned a quarter
+		# clockwise.
+		raw = os.path.join(scratch, "raw.mp4")
+		run("ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=0.5",
+		    "-c:v", "libx264", "-pix_fmt", "yuv420p", raw)
+		run("ffmpeg", "-y", "-loglevel", "error", "-display_rotation:v", "90", "-i", raw, "-c", "copy",
+		    "-metadata", "creation_time=2024-05-01T12:34:56Z", "-metadata", "location=+59.3293+018.0686/",
+		    "-f", "mov", os.path.join(OUT, "video.mov"))
+		run("ffmpeg", "-y", "-loglevel", "error", "-display_rotation:v", "270", "-i", raw, "-c", "copy",
+		    "-movflags", "use_metadata_tags", "-metadata", "creation_time=2024-05-01T12:34:56Z",
+		    "-metadata", "com.apple.quicktime.creationdate=2024-05-01T14:34:56+0200",
+		    "-metadata", "com.apple.quicktime.location.ISO6709=+37.3349-122.0090+010.000/",
+		    "-f", "mov", os.path.join(OUT, "video_apple.mov"))
 
 		# A JPEG with EXIF from Pillow: big-endian ("MM"), as many cameras
 		# write it, a maker and a model that repeats it, both dates, an

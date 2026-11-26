@@ -5703,6 +5703,8 @@ static void media_each(void *ctx, const uint8_t *msg, size_t len) {
 	e->width = fzn_files_local_photo_row_width_get(b);
 	e->height = fzn_files_local_photo_row_height_get(b);
 	e->orientation = fzn_files_local_photo_row_orientation_get(b);
+	e->video = fzn_files_local_photo_row_video_get(b);
+	e->duration_ms = fzn_files_local_photo_row_duration_ms_get(b);
 	e->place = fzn_files_local_photo_row_place_get(b);
 	e->latitude_e7 = fzn_files_local_photo_row_latitude_get(b);
 	e->longitude_e7 = fzn_files_local_photo_row_longitude_get(b);

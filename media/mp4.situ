@@ -1,6 +1,7 @@
 // An MP4 file's own account of itself, as far as a catalogue reads it: the
 // boxes walked to the movie header and the iTunes-style item list.
-// project.md sec 1452, the music catalogue's M4A and the phone's recordings.
+// project.md sec 1452, the music catalogue's M4A and the phone's recordings;
+// sec 1460, a phone's videos: when, how large, which way up and where.
 //
 // SOURCES. ISO/IEC 14496-12 (the base media file format), 4.2 (a box's
 // size and type, a size of 1 meaning a 64-bit size follows, 0 meaning to
@@ -67,4 +68,54 @@ struct item_pair {
 	u16  reserved;
 	u16  number;
 	u16  total;
+}
+
+// A VIDEO'S SIZE AND TURN, sec 1460: 8.3.2, the track header, version 0 or
+// 1 -- what follows the times is the same in both. A track that shows
+// nothing (sound) says a width and height of 0. The matrix's a, b, c and d
+// are 16.16; a camera held upright writes { 0, 1, -1, 0 }, the picture
+// turned a quarter clockwise to be shown.
+struct tkhd_v0 {
+	u32  creation;
+	u32  modification;
+	u32  track_id;
+	u32  reserved;
+	u32  duration;
+}
+
+struct tkhd_v1 {
+	u64  creation;
+	u64  modification;
+	u32  track_id;
+	u32  reserved;
+	u64  duration;
+}
+
+struct tkhd_rest {
+	u32  reserved[2];
+	u16  layer;
+	u16  alternate_group;
+	u16  volume;
+	u16  reserved2;
+	i32  matrix[9];
+	u32  width;
+	u32  height;
+}
+
+// WHERE IT WAS TAKEN, as a phone writes it into `udta`: QuickTime's
+// `\xa9xyz`, a length, a language, then ISO 6709 text, "+59.3293+018.0686/".
+struct xyz {
+	u16  length;
+	u16  language;
+	u8   text[length];
+}
+
+// QUICKTIME'S KEYED METADATA, sec 1460, `moov/meta/keys` as an iPhone
+// writes it: a full box, a count, then each key a box whose type is its
+// namespace ("mdta") and whose body is the key; an item of `ilst` is
+// named by its key's place, counted from 1.
+struct keys_head {
+	u8   version;
+	u24  flags;
+	u32  count;
 }

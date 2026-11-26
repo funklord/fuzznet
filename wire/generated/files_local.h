@@ -2091,8 +2091,8 @@ situ_err_t fzn_files_local_music_row_check(situ_view_t view, uint32_t *which);
 
 /* ---- struct photo_row ---- */
 
-#define FZN_FILES_LOCAL_PHOTO_ROW_SIZE_MIN   64u
-#define FZN_FILES_LOCAL_PHOTO_ROW_SIZE_MAX   593u
+#define FZN_FILES_LOCAL_PHOTO_ROW_SIZE_MIN   73u
+#define FZN_FILES_LOCAL_PHOTO_ROW_SIZE_MAX   602u
 
 /* INVALIDATION: a photo_row view, and every view derived from
  * it, is invalidated by writing `camera_len`, `name_len`, `taken_len` -- those decide where the
@@ -2213,83 +2213,113 @@ static inline void fzn_files_local_photo_row_orientation_set(situ_view_t view, u
 	(situ_base(view))[51u] = (uint8_t)value;
 }
 
-#define FZN_FILES_LOCAL_PHOTO_ROW_PLACE_VALUE_MAX 1u
+#define FZN_FILES_LOCAL_PHOTO_ROW_VIDEO_VALUE_MAX 1u
 
-/** photo_row.place : u8  at AbsoluteStatic(0x34)
+/** photo_row.video : u8  at AbsoluteStatic(0x34)
  * size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_files_local_photo_row_place_get(situ_view_t view)
+static inline uint8_t fzn_files_local_photo_row_video_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[52u]);
 }
-static inline uint8_t *fzn_files_local_photo_row_place_ptr(situ_view_t view)
+static inline uint8_t *fzn_files_local_photo_row_video_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 52u);
 }
-static inline void fzn_files_local_photo_row_place_set(situ_view_t view, uint8_t value)
+static inline void fzn_files_local_photo_row_video_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[52u] = (uint8_t)value;
+}
+
+/** photo_row.duration_ms : u64  at AbsoluteStatic(0x35)
+ * size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_files_local_photo_row_duration_ms_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 53u));
+}
+static inline void fzn_files_local_photo_row_duration_ms_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 53u, (uint64_t)value);
+}
+
+#define FZN_FILES_LOCAL_PHOTO_ROW_PLACE_VALUE_MAX 1u
+
+/** photo_row.place : u8  at AbsoluteStatic(0x3D)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_files_local_photo_row_place_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[61u]);
+}
+static inline uint8_t *fzn_files_local_photo_row_place_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 61u);
+}
+static inline void fzn_files_local_photo_row_place_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[61u] = (uint8_t)value;
 }
 
 #define FZN_FILES_LOCAL_PHOTO_ROW_LATITUDE_VALUE_MIN -900000000
 #define FZN_FILES_LOCAL_PHOTO_ROW_LATITUDE_VALUE_MAX 900000000
 
-/** photo_row.latitude : i32  at AbsoluteStatic(0x35)
- * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+/** photo_row.latitude : i32  at AbsoluteStatic(0x3E)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
 static inline int32_t fzn_files_local_photo_row_latitude_get(situ_view_t view)
 {
-	return (int32_t)((int32_t)situ_get_be32(situ_base(view) + 53u));
+	return (int32_t)((int32_t)situ_get_be32(situ_base(view) + 62u));
 }
 static inline void fzn_files_local_photo_row_latitude_set(situ_view_t view, int32_t value)
 {
-	situ_put_be32(situ_base(view) + 53u, (uint32_t)value);
+	situ_put_be32(situ_base(view) + 62u, (uint32_t)value);
 }
 
 #define FZN_FILES_LOCAL_PHOTO_ROW_LONGITUDE_VALUE_MIN -1800000000
 #define FZN_FILES_LOCAL_PHOTO_ROW_LONGITUDE_VALUE_MAX 1800000000
 
-/** photo_row.longitude : i32  at AbsoluteStatic(0x39)
- * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+/** photo_row.longitude : i32  at AbsoluteStatic(0x42)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
 static inline int32_t fzn_files_local_photo_row_longitude_get(situ_view_t view)
 {
-	return (int32_t)((int32_t)situ_get_be32(situ_base(view) + 57u));
+	return (int32_t)((int32_t)situ_get_be32(situ_base(view) + 66u));
 }
 static inline void fzn_files_local_photo_row_longitude_set(situ_view_t view, int32_t value)
 {
-	situ_put_be32(situ_base(view) + 57u, (uint32_t)value);
+	situ_put_be32(situ_base(view) + 66u, (uint32_t)value);
 }
 
 #define FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_LEN_VALUE_MAX 19u
 
-/** photo_row.taken_len : u8  at AbsoluteStatic(0x3D)
- * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+/** photo_row.taken_len : u8  at AbsoluteStatic(0x46)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
 static inline uint8_t fzn_files_local_photo_row_taken_len_get(situ_view_t view)
 {
-	return (uint8_t)((uint8_t)(situ_base(view))[61u]);
+	return (uint8_t)((uint8_t)(situ_base(view))[70u]);
 }
 static inline uint8_t *fzn_files_local_photo_row_taken_len_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + 61u);
+	return (uint8_t *)(situ_base(view) + 70u);
 }
 /* No plain setter: `taken_len` decides where later members
  * start, so writing it must invalidate outstanding views. Use
  * fzn_files_local_photo_row_taken_len_set(),
  * which takes the message and bumps its generation. */
 
-/** photo_row.taken : u8  at AbsoluteStatic(0x3E)
- * size=Bounded(0, 19) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+/** photo_row.taken : u8  at AbsoluteStatic(0x47)
+ * size=Bounded(0, 19) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
 static inline uint32_t fzn_files_local_photo_row_taken_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u])),
-		situ_remaining_u32(view.limit, 62u));
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u])),
+		situ_remaining_u32(view.limit, 71u));
 }
 static inline uint8_t *fzn_files_local_photo_row_taken_ptr(situ_view_t view)
 {
-	return situ_base(view) + 62u;
+	return situ_base(view) + 71u;
 }
 
 /* No setter: mutate is Shifting.
@@ -2340,8 +2370,8 @@ static inline uint8_t *fzn_files_local_photo_row_camera_len_ptr(situ_view_t view
  */
 static inline uint32_t fzn_files_local_photo_row_camera_offset(situ_view_t view)
 {
-	uint32_t offset = 62u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u]))), view.limit);
+	uint32_t offset = 71u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
@@ -2408,8 +2438,8 @@ static inline uint8_t *fzn_files_local_photo_row_name_len_ptr(situ_view_t view)
  */
 static inline uint32_t fzn_files_local_photo_row_name_offset(situ_view_t view)
 {
-	uint32_t offset = 62u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u]))), view.limit);
+	uint32_t offset = 71u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_photo_row_camera_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
@@ -2444,8 +2474,8 @@ static inline uint32_t fzn_files_local_photo_row_walked(situ_view_t view, uint32
 
 	marks[0] = view.limit;
 	marks[1] = view.limit;
-	at = situ_advance_u32(at, 62u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u]))), view.limit);
+	at = situ_advance_u32(at, 71u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u]))), view.limit);
 	marks[0] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_photo_row_camera_len_get_from(view, marks[0])))), view.limit);
@@ -2462,12 +2492,12 @@ static inline uint32_t fzn_files_local_photo_row_walked(situ_view_t view, uint32
  */
 static inline uint32_t fzn_files_local_photo_row_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 64u)) {
-		return 64u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 73u)) {
+		return 73u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 64u;
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u])));
+	uint32_t extent = 73u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u])));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_photo_row_camera_len_get(view))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_photo_row_name_len_get(view))));
 	return extent;
@@ -2484,8 +2514,8 @@ static inline uint32_t fzn_files_local_photo_row_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_files_local_photo_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 64u;
-	uint32_t pos = 62u;
+	uint32_t at = 73u;
+	uint32_t pos = 71u;
 	situ_view_t view;
 
 	/* A view over what has arrived, so every length expression below
@@ -2497,12 +2527,12 @@ static inline situ_err_t fzn_files_local_photo_row_required(const uint8_t *data,
 
 	/* photo_row.taken: reading its length means reading bytes that
 	 * have to be here first. */
-	if (have < 62u) {
+	if (have < 71u) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[61u]));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[70u]));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
@@ -2562,7 +2592,7 @@ static inline void fzn_files_local_photo_row_name_len_set(situ_msg_t *msg, situ_
 }
 static inline void fzn_files_local_photo_row_taken_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	(situ_base(view))[61u] = (uint8_t)value;
+	(situ_base(view))[70u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
 
@@ -2582,15 +2612,16 @@ situ_err_t fzn_files_local_photo_row_validate(situ_view_t view);
 situ_err_t fzn_files_local_photo_row_check(situ_view_t view, uint32_t *which);
 #define FZN_FILES_LOCAL_PHOTO_ROW_HELD_HERE_CHECK 0u
 #define FZN_FILES_LOCAL_PHOTO_ROW_ORIENTATION_CHECK 1u
-#define FZN_FILES_LOCAL_PHOTO_ROW_PLACE_CHECK 2u
-#define FZN_FILES_LOCAL_PHOTO_ROW_LATITUDE_CHECK 3u
-#define FZN_FILES_LOCAL_PHOTO_ROW_LONGITUDE_CHECK 4u
-#define FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_LEN_CHECK 5u
-#define FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_CHECK 6u
-#define FZN_FILES_LOCAL_PHOTO_ROW_CAMERA_LEN_CHECK 7u
-#define FZN_FILES_LOCAL_PHOTO_ROW_CAMERA_CHECK 8u
-#define FZN_FILES_LOCAL_PHOTO_ROW_NAME_LEN_CHECK 9u
-#define FZN_FILES_LOCAL_PHOTO_ROW_NAME_CHECK 10u
+#define FZN_FILES_LOCAL_PHOTO_ROW_VIDEO_CHECK 2u
+#define FZN_FILES_LOCAL_PHOTO_ROW_PLACE_CHECK 3u
+#define FZN_FILES_LOCAL_PHOTO_ROW_LATITUDE_CHECK 4u
+#define FZN_FILES_LOCAL_PHOTO_ROW_LONGITUDE_CHECK 5u
+#define FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_LEN_CHECK 6u
+#define FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_CHECK 7u
+#define FZN_FILES_LOCAL_PHOTO_ROW_CAMERA_LEN_CHECK 8u
+#define FZN_FILES_LOCAL_PHOTO_ROW_CAMERA_CHECK 9u
+#define FZN_FILES_LOCAL_PHOTO_ROW_NAME_LEN_CHECK 10u
+#define FZN_FILES_LOCAL_PHOTO_ROW_NAME_CHECK 11u
 
 /* ---- struct share_row ---- */
 
@@ -3544,6 +3575,8 @@ static inline situ_err_t fzn_files_local_message_body_photo_row_view(situ_view_t
 #define FZN_FILES_LOCAL_MESSAGE_BODY_PHOTO_ROW_HELD_HERE_VALUE_MAX 1u
 
 #define FZN_FILES_LOCAL_MESSAGE_BODY_PHOTO_ROW_ORIENTATION_VALUE_MAX 8u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_PHOTO_ROW_VIDEO_VALUE_MAX 1u
 
 #define FZN_FILES_LOCAL_MESSAGE_BODY_PHOTO_ROW_PLACE_VALUE_MAX 1u
 

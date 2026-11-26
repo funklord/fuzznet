@@ -293,7 +293,8 @@ static int place_of(const uint8_t *p, size_t len, int32_t *lat, int32_t *lon)
  * row they make: 1 when it is one, written; 0 when it is not; -1 when the
  * row would not write. Music is a kind of `audio/`, or no kind and an
  * artist or an album; a photo a kind of `image/`, or no kind and a time
- * taken or a camera. */
+ * taken or a camera; and a phone's video, a kind of `video/`, among the
+ * photographs as a phone's own gallery has it (sec 1460). */
 static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_node_library_row_t *r, unsigned op,
                      struct rows *w)
 {
@@ -337,9 +338,9 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
 		size_t height_len = word_of(set, n, "height", &height);
 		size_t orientation_len = word_of(set, n, "orientation", &orientation);
 		int32_t lat = 0, lon = 0;
-		int where;
+		int where, video = r->kind_len && kind_is(r->kind, r->kind_len, "video/");
 
-		if (r->kind_len ? !kind_is(r->kind, r->kind_len, "image/") : !taken_len && !camera_len)
+		if (r->kind_len ? !kind_is(r->kind, r->kind_len, "image/") && !video : !taken_len && !camera_len)
 			return 0;
 		if (taken_len > 19u)
 			taken_len = 0;
@@ -347,7 +348,8 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
 		ok = fzn_files_local_photo_row_build(
 		             row, sizeof(row), r->root, r->size, r->holders, r->held_here,
 		             leading(width, width_len, 0x7fffffffu), leading(height, height_len, 0x7fffffffu),
-		             (uint8_t)leading(orientation, orientation_len, 8u), (uint8_t)where, lat, lon, taken,
+		             (uint8_t)leading(orientation, orientation_len, 8u), (uint8_t)video,
+		             video ? r->duration_ms : 0u, (uint8_t)where, lat, lon, taken,
 		             (uint32_t)taken_len, camera, (uint32_t)camera_len, r->name, (uint32_t)r->name_len, &row_len)
 		             == SITU_OK
 		     && fzn_files_local_message_build_photo_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,

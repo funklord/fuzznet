@@ -1164,6 +1164,246 @@ static void mp4_items(const uint8_t *b, uint32_t len, fzn_media_tags_t *out)
 	}
 }
 
+/* ---- a video's time, size, turn and place, sec 1460 ------------------------- */
+
+/* mvhd's seconds since 1904-01-01 UTC: 0, or a time before 1970, is a camera
+ * with no clock, unread. The catalogue's "YYYY-MM-DDTHH:MM:SS" -- in UTC,
+ * where a photograph's is the camera's own time (said in sec 1460). */
+#define MP4_EPOCH_TO_UNIX 2082844800ull
+
+static void mp4_taken(uint64_t creation, fzn_media_tags_t *out)
+{
+	char when[48];
+	uint64_t t, secs;
+	int64_t z, era;
+	unsigned doe, yoe, doy, mp, d, m;
+	long y;
+
+	if (creation <= MP4_EPOCH_TO_UNIX || creation - MP4_EPOCH_TO_UNIX > 253402300799ull)
+		return;
+	t = creation - MP4_EPOCH_TO_UNIX;
+	secs = t % 86400u;
+	/* The civil date of a day count, Howard Hinnant's `civil_from_days`. */
+	z = (int64_t)(t / 86400u) + 719468;
+	era = z / 146097;
+	doe = (unsigned)(z - era * 146097);
+	yoe = (doe - doe / 1460u + doe / 36524u - doe / 146096u) / 365u;
+	doy = doe - (365u * yoe + yoe / 4u - yoe / 100u);
+	mp = (5u * doy + 2u) / 153u;
+	d = doy - (153u * mp + 2u) / 5u + 1u;
+	m = mp < 10u ? mp + 3u : mp - 9u;
+	y = (long)yoe + (long)era * 400 + (m <= 2u);
+	(void)snprintf(when, sizeof(when), "%04ld-%02u-%02uT%02u:%02u:%02u", y, m, d, (unsigned)(secs / 3600u),
+	               (unsigned)(secs / 60u % 60u), (unsigned)(secs % 60u));
+	put_text(out, N_TAKEN, when);
+}
+
+/* One signed decimal of ISO 6709 at `*at`, its integer part `digits` long:
+ * 1 with the degrees, `*at` past it. */
+static int iso6709_part(const char **at, unsigned digits, double *out)
+{
+	const char *p = *at;
+	unsigned n = 0;
+	char *end;
+
+	if (*p != '+' && *p != '-')
+		return 0;
+	while (p[1 + n] >= '0' && p[1 + n] <= '9')
+		n++;
+	if (n != digits)
+		return 0;
+	*out = strtod(p, &end);
+	if (end == p)
+		return 0;
+	*at = end;
+	return 1;
+}
+
+/* ISO 6709's decimal degrees, "+DD.DDDD+DDD.DDDD", an altitude and a / after
+ * them unread, into the catalogue's "LAT,LON" at seven places. The degrees
+ * and minutes forms no phone writes are left unread. */
+static void iso6709_place(const uint8_t *p, size_t len, fzn_media_tags_t *out)
+{
+	char text[64], place[48];
+	const char *at = text;
+	double lat, lon;
+
+	if (!len || len >= sizeof(text) || memchr(p, '\0', len))
+		return;
+	memcpy(text, p, len);
+	text[len] = '\0';
+	if (!iso6709_part(&at, 2u, &lat) || !iso6709_part(&at, 3u, &lon) || !(lat >= -90.0 && lat <= 90.0)
+	    || !(lon >= -180.0 && lon <= 180.0))
+		return;
+	(void)snprintf(place, sizeof(place), "%.7f,%.7f", lat, lon);
+	put_text(out, N_PLACE, place);
+}
+
+/* The matrix's turn as EXIF's orientation: 1 none, 6 a quarter clockwise,
+ * 3 a half, 8 three quarters; a mirror or a scale, 0, unread. */
+static unsigned matrix_orientation(int32_t a, int32_t b, int32_t c, int32_t d)
+{
+	const int32_t one = 0x10000, minus = -0x10000;
+
+	if (a == one && b == 0 && c == 0 && d == one)
+		return 1u;
+	if (a == 0 && b == one && c == minus && d == 0)
+		return 6u;
+	if (a == minus && b == 0 && c == 0 && d == minus)
+		return 3u;
+	if (a == 0 && b == minus && c == one && d == 0)
+		return 8u;
+	return 0u;
+}
+
+/* THE PICTURE'S TRACK: the first `trak` whose header says a width and a
+ * height -- a phone's video has one, a song none -- its size and turn. 1
+ * when there is one. */
+static int mp4_picture(struct mp4 *m, uint64_t moov, uint32_t head, uint64_t moov_size, fzn_media_tags_t *out)
+{
+	uint64_t at = moov + head, size, tkhd, tkhd_size;
+	uint32_t h, h2;
+	uint8_t type[4], b[4 + 36 + 60];
+
+	while (mp4_box(m, at, moov + moov_size, &size, &h, type)) {
+		if (memcmp(type, "trak", 4) == 0 && mp4_find(m, at + h, at + size, "tkhd", &tkhd, &tkhd_size, &h2)) {
+			size_t got = m->read(m->ctx, tkhd + h2, b,
+			                     tkhd_size - h2 < sizeof(b) ? (size_t)(tkhd_size - h2) : sizeof(b));
+			situ_msg_t msg;
+			situ_view_t fb, rest;
+			uint32_t times = 0, width, height;
+
+			situ_msg_init(&msg, b, (uint32_t)got);
+			if (fzn_mp4_full_box_view(&msg, 0, &fb) == SITU_OK)
+				times = fzn_mp4_full_box_version_get(fb) == 1u ? 32u : fzn_mp4_full_box_version_get(fb) == 0u ? 20u : 0u;
+			if (times && fzn_mp4_tkhd_rest_view(&msg, 4u + times, &rest) == SITU_OK
+			    && (width = fzn_mp4_tkhd_rest_width_get(rest) >> 16) != 0u
+			    && (height = fzn_mp4_tkhd_rest_height_get(rest) >> 16) != 0u) {
+				char num[16];
+				unsigned turn = matrix_orientation(fzn_mp4_tkhd_rest_matrix_get(rest, 0),
+				                                   fzn_mp4_tkhd_rest_matrix_get(rest, 1),
+				                                   fzn_mp4_tkhd_rest_matrix_get(rest, 3),
+				                                   fzn_mp4_tkhd_rest_matrix_get(rest, 4));
+
+				(void)snprintf(num, sizeof(num), "%u", (unsigned)width);
+				put_text(out, N_WIDTH, num);
+				(void)snprintf(num, sizeof(num), "%u", (unsigned)height);
+				put_text(out, N_HEIGHT, num);
+				if (turn) {
+					(void)snprintf(num, sizeof(num), "%u", turn);
+					put_text(out, N_ORIENTATION, num);
+				}
+				return 1;
+			}
+		}
+		at += size;
+	}
+	return 0;
+}
+
+/* A phone's `udta/\xa9xyz`: where it was taken. */
+static void mp4_xyz(struct mp4 *m, uint64_t udta, uint32_t head, uint64_t udta_size, fzn_media_tags_t *out)
+{
+	uint64_t at, size;
+	uint32_t h;
+	uint8_t b[4 + 64];
+	uint32_t need = 0;
+	situ_msg_t msg;
+	situ_view_t v;
+	size_t got;
+
+	if (!mp4_find(m, udta + head, udta + udta_size, "\xa9xyz", &at, &size, &h) || size - h > sizeof(b))
+		return;
+	got = m->read(m->ctx, at + h, b, (size_t)(size - h));
+	situ_msg_init(&msg, b, (uint32_t)got);
+	if (fzn_mp4_xyz_required(b, (uint32_t)got, &need) == SITU_OK && fzn_mp4_xyz_view(&msg, 0, need, &v) == SITU_OK
+	    && fzn_mp4_xyz_validate(v) == SITU_OK)
+		iso6709_place(fzn_mp4_xyz_text_ptr(v), fzn_mp4_xyz_text_len(v), out);
+}
+
+/* AN IPHONE'S KEYED METADATA, `moov/meta` as an iPhone writes it and
+ * `udta/meta` as ffmpeg does: its `keys` read for the two an iPhone
+ * writes -- the time it was taken in its own local time, and where -- and
+ * the `ilst` items they name. The local time wins over mvhd's UTC by being
+ * put first. `parent` the box holding the `meta`. */
+#define MP4_KEYS_MAX (16u * 1024u)
+#define KEY_CREATED "com.apple.quicktime.creationdate"
+#define KEY_PLACE "com.apple.quicktime.location.ISO6709"
+
+static void mp4_keyed(struct mp4 *m, uint64_t parent, uint32_t head, uint64_t parent_size, fzn_media_tags_t *out)
+{
+	uint64_t meta, meta_size, at, keys, keys_size, ilst, ilst_size;
+	uint32_t h, h2, h3, i, count, created = 0, place = 0, off;
+	uint8_t b[8], *k = NULL, *items = NULL;
+	situ_msg_t msg;
+	situ_view_t v;
+	size_t got;
+
+	if (!mp4_find(m, parent + head, parent + parent_size, "meta", &meta, &meta_size, &h))
+		return;
+	at = meta + h;
+	if (m->read(m->ctx, at, b, 8) == 8u && memcmp(b + 4, "hdlr", 4) != 0 && memcmp(b + 4, "keys", 4) != 0)
+		at += 4u;
+	if (!mp4_find(m, at, meta + meta_size, "keys", &keys, &keys_size, &h2) || keys_size - h2 > MP4_KEYS_MAX
+	    || !mp4_find(m, at, meta + meta_size, "ilst", &ilst, &ilst_size, &h3) || ilst_size - h3 > MP4_ILST_MAX
+	    || !(k = malloc((size_t)(keys_size - h2) + 1u)))
+		return;
+	got = m->read(m->ctx, keys + h2, k, (size_t)(keys_size - h2));
+	situ_msg_init(&msg, k, (uint32_t)got);
+	if (fzn_mp4_keys_head_view(&msg, 0, &v) != SITU_OK)
+		goto done;
+	count = fzn_mp4_keys_head_count_get(v);
+	for (i = 1, off = 8u; i <= count && off + 8u <= got; i++) {
+		situ_view_t key;
+		uint32_t size;
+
+		if (fzn_mp4_box_view(&msg, off, &key) != SITU_OK || (size = fzn_mp4_box_size_get(key)) < 8u
+		    || size > got - off)
+			break;
+		if (size - 8u == sizeof(KEY_CREATED) - 1u && !memcmp(k + off + 8u, KEY_CREATED, size - 8u))
+			created = i;
+		if (size - 8u == sizeof(KEY_PLACE) - 1u && !memcmp(k + off + 8u, KEY_PLACE, size - 8u))
+			place = i;
+		off += size;
+	}
+	if ((!created && !place) || !(items = malloc((size_t)(ilst_size - h3) + 1u)))
+		goto done;
+	got = m->read(m->ctx, ilst + h3, items, (size_t)(ilst_size - h3));
+	situ_msg_init(&msg, items, (uint32_t)got);
+	for (off = 0; off + 8u <= got;) {
+		situ_view_t item, data;
+		uint32_t size, index, need = 0;
+
+		if (fzn_mp4_box_view(&msg, off, &item) != SITU_OK || (size = fzn_mp4_box_size_get(item)) < 8u
+		    || size > got - off)
+			break;
+		index = (uint32_t)items[off + 4u] << 24 | (uint32_t)items[off + 5u] << 16 | (uint32_t)items[off + 6u] << 8
+		        | items[off + 7u];
+		if ((index == created || index == place)
+		    && fzn_mp4_item_data_required(items + off + 8u, size - 8u, &need) == SITU_OK
+		    && fzn_mp4_item_data_view(&msg, off + 8u, need, &data) == SITU_OK
+		    && fzn_mp4_item_data_validate(data) == SITU_OK && fzn_mp4_item_data_kind_get(data) == 1u) {
+			const uint8_t *text = fzn_mp4_item_data_value_ptr(data);
+			const size_t len = fzn_mp4_item_data_value_len(data);
+
+			if (index == place)
+				iso6709_place(text, len, out);
+			/* "2024-05-01T14:34:56+0200": its first nineteen, the local time. */
+			else if (len >= 19u && text[4] == '-' && text[7] == '-' && text[10] == 'T' && text[13] == ':'
+			         && text[16] == ':')
+				put(out, N_TAKEN, text, 19u);
+		}
+		off += size;
+	}
+done:
+	if (k)
+		wipe(k, keys_size - h2);
+	free(k);
+	if (items)
+		wipe(items, ilst_size - h3);
+	free(items);
+}
+
 /* ISO 14496-12: the movie box found by the sizes, wherever it stands; its
  * header's length; and its item list. */
 static void mp4_read(struct mp4 *m, fzn_media_tags_t *out)
@@ -1171,16 +1411,26 @@ static void mp4_read(struct mp4 *m, fzn_media_tags_t *out)
 	uint64_t moov, moov_size, at, size, udta, udta_size, meta, meta_size, ilst, ilst_size;
 	uint32_t head, h2, h3, h4;
 	uint8_t b[40];
+	int picture;
 
 	out->format = FZN_MEDIA_MP4;
 	if (!mp4_find(m, 0, m->file_len, "moov", &moov, &moov_size, &head))
 		return;
+	/* A VIDEO, sec 1460: one with a picture is a photograph's kin, and says
+	 * when, how large, which way up and where -- a song's movie header has
+	 * a time too, which is its encoding's and is not read. */
+	picture = mp4_picture(m, moov, head, moov_size, out);
+	if (picture) {
+		mp4_keyed(m, moov, head, moov_size, out);
+		if (mp4_find(m, moov + head, moov + moov_size, "udta", &udta, &udta_size, &h2))
+			mp4_keyed(m, udta, h2, udta_size, out);
+	}
 	/* THE LENGTH, from the movie header: its duration over its time scale. */
 	if (mp4_find(m, moov + head, moov + moov_size, "mvhd", &at, &size, &h2) && size >= h2 + 4u + 16u) {
 		size_t got = m->read(m->ctx, at + h2, b, size - h2 < sizeof(b) ? (size_t)(size - h2) : sizeof(b));
 		situ_msg_t msg;
 		situ_view_t fb, v;
-		uint64_t duration = 0;
+		uint64_t duration = 0, created = 0;
 		uint32_t scale = 0;
 
 		situ_msg_init(&msg, b, (uint32_t)got);
@@ -1188,10 +1438,14 @@ static void mp4_read(struct mp4 *m, fzn_media_tags_t *out)
 			if (fzn_mp4_full_box_version_get(fb) == 1u && fzn_mp4_mvhd_v1_view(&msg, 4, &v) == SITU_OK) {
 				duration = fzn_mp4_mvhd_v1_duration_get(v);
 				scale = fzn_mp4_mvhd_v1_timescale_get(v);
+				created = fzn_mp4_mvhd_v1_creation_get(v);
 			} else if (fzn_mp4_full_box_version_get(fb) == 0u && fzn_mp4_mvhd_v0_view(&msg, 4, &v) == SITU_OK) {
 				duration = fzn_mp4_mvhd_v0_duration_get(v);
 				scale = fzn_mp4_mvhd_v0_timescale_get(v);
+				created = fzn_mp4_mvhd_v0_creation_get(v);
 			}
+			if (picture)
+				mp4_taken(created, out);
 		}
 		if (scale && duration && duration != UINT64_MAX && duration != UINT32_MAX && duration < UINT64_MAX / 1000u) {
 			char ms[24];
@@ -1201,8 +1455,11 @@ static void mp4_read(struct mp4 *m, fzn_media_tags_t *out)
 	}
 	/* THE ITEMS: moov/udta/meta/ilst, `meta` a full box -- or, as some
 	 * writers have it, a plain one, its first child straight after. */
-	if (!mp4_find(m, moov + head, moov + moov_size, "udta", &udta, &udta_size, &h2)
-	    || !mp4_find(m, udta + h2, udta + udta_size, "meta", &meta, &meta_size, &h3))
+	if (!mp4_find(m, moov + head, moov + moov_size, "udta", &udta, &udta_size, &h2))
+		return;
+	if (picture)
+		mp4_xyz(m, udta, h2, udta_size, out);
+	if (!mp4_find(m, udta + h2, udta + udta_size, "meta", &meta, &meta_size, &h3))
 		return;
 	at = meta + h3;
 	if (m->read(m->ctx, at, b, 8) == 8u && memcmp(b + 4, "hdlr", 4) != 0)

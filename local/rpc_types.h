@@ -1204,6 +1204,8 @@ typedef struct fzn_rpc_photo_entry {
 	uint8_t held_here;
 	uint32_t width, height;
 	uint8_t orientation, place;
+	uint8_t video;        /* 1 for a phone's video (sec 1460), played rather than shown */
+	uint64_t duration_ms; /* a video's length, 0 unsaid */
 	int32_t latitude_e7, longitude_e7;
 	char taken[20];
 	char camera[256];

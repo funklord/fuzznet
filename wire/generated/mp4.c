@@ -245,3 +245,154 @@ situ_err_t fzn_mp4_item_pair_validate(situ_view_t view)
 	return fzn_mp4_item_pair_check(view, NULL);
 }
 
+situ_err_t fzn_mp4_tkhd_v0_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MP4_TKHD_V0_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_mp4_tkhd_v0_validate(situ_view_t view)
+{
+	return fzn_mp4_tkhd_v0_check(view, NULL);
+}
+
+situ_err_t fzn_mp4_tkhd_v1_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MP4_TKHD_V1_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_mp4_tkhd_v1_validate(situ_view_t view)
+{
+	return fzn_mp4_tkhd_v1_check(view, NULL);
+}
+
+situ_err_t fzn_mp4_tkhd_rest_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MP4_TKHD_REST_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_mp4_tkhd_rest_validate(situ_view_t view)
+{
+	return fzn_mp4_tkhd_rest_check(view, NULL);
+}
+
+situ_err_t fzn_mp4_xyz_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MP4_XYZ_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* xyz.text: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 4u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 0u))))) {
+		*which = FZN_MP4_XYZ_TEXT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_mp4_xyz_validate(situ_view_t view)
+{
+	return fzn_mp4_xyz_check(view, NULL);
+}
+
+situ_err_t fzn_mp4_keys_head_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MP4_KEYS_HEAD_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_mp4_keys_head_validate(situ_view_t view)
+{
+	return fzn_mp4_keys_head_check(view, NULL);
+}
+

@@ -957,6 +957,8 @@ static inline situ_err_t fzn_files_local_photo_row_build(
 		uint32_t width,
 		uint32_t height,
 		uint8_t orientation,
+		uint8_t video,
+		uint64_t duration_ms,
 		uint8_t place,
 		int32_t latitude,
 		int32_t longitude,
@@ -1025,6 +1027,19 @@ static inline situ_err_t fzn_files_local_photo_row_build(
 	}
 	situ_out[situ_at] = (uint8_t)orientation;
 	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)video;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)duration_ms);
+	situ_at += 8u;
 
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;

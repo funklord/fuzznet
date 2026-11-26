@@ -597,6 +597,546 @@ static inline situ_err_t fzn_mp4_item_pair_required(const uint8_t *data, uint32_
  */
 situ_err_t fzn_mp4_item_pair_validate(situ_view_t view);
 
+/* ---- struct tkhd_v0 ---- */
+
+#define FZN_MP4_TKHD_V0_SIZE_FIXED 20u
+#define FZN_MP4_TKHD_V0_SIZE_MIN   20u
+#define FZN_MP4_TKHD_V0_SIZE_MAX   20u
+
+/* INVALIDATION: nothing invalidates a tkhd_v0 view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_mp4_tkhd_v0_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MP4_TKHD_V0_SIZE_FIXED, out);
+}
+
+/** tkhd_v0.creation : u32  at AbsoluteStatic(0x00)
+ * size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v0_creation_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 0u));
+}
+static inline void fzn_mp4_tkhd_v0_creation_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 0u, (uint32_t)value);
+}
+
+/** tkhd_v0.modification : u32  at AbsoluteStatic(0x04)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v0_modification_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 4u));
+}
+static inline void fzn_mp4_tkhd_v0_modification_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 4u, (uint32_t)value);
+}
+
+/** tkhd_v0.track_id : u32  at AbsoluteStatic(0x08)
+ * size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v0_track_id_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 8u));
+}
+static inline void fzn_mp4_tkhd_v0_track_id_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 8u, (uint32_t)value);
+}
+
+/** tkhd_v0.reserved : u32  at AbsoluteStatic(0x0C)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v0_reserved_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 12u));
+}
+static inline void fzn_mp4_tkhd_v0_reserved_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 12u, (uint32_t)value);
+}
+
+/** tkhd_v0.duration : u32  at AbsoluteStatic(0x10)
+ * size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v0_duration_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 16u));
+}
+static inline void fzn_mp4_tkhd_v0_duration_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 16u, (uint32_t)value);
+}
+
+/** How many bytes a whole `tkhd_v0` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_mp4_tkhd_v0_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MP4_TKHD_V0_SIZE_FIXED;
+	return have >= FZN_MP4_TKHD_V0_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_mp4_tkhd_v0_validate(situ_view_t view);
+
+/* ---- struct tkhd_v1 ---- */
+
+#define FZN_MP4_TKHD_V1_SIZE_FIXED 32u
+#define FZN_MP4_TKHD_V1_SIZE_MIN   32u
+#define FZN_MP4_TKHD_V1_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a tkhd_v1 view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_mp4_tkhd_v1_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MP4_TKHD_V1_SIZE_FIXED, out);
+}
+
+/** tkhd_v1.creation : u64  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_mp4_tkhd_v1_creation_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 0u));
+}
+static inline void fzn_mp4_tkhd_v1_creation_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 0u, (uint64_t)value);
+}
+
+/** tkhd_v1.modification : u64  at AbsoluteStatic(0x08)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_mp4_tkhd_v1_modification_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 8u));
+}
+static inline void fzn_mp4_tkhd_v1_modification_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 8u, (uint64_t)value);
+}
+
+/** tkhd_v1.track_id : u32  at AbsoluteStatic(0x10)
+ * size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v1_track_id_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 16u));
+}
+static inline void fzn_mp4_tkhd_v1_track_id_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 16u, (uint32_t)value);
+}
+
+/** tkhd_v1.reserved : u32  at AbsoluteStatic(0x14)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_v1_reserved_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 20u));
+}
+static inline void fzn_mp4_tkhd_v1_reserved_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 20u, (uint32_t)value);
+}
+
+/** tkhd_v1.duration : u64  at AbsoluteStatic(0x18)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_mp4_tkhd_v1_duration_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 24u));
+}
+static inline void fzn_mp4_tkhd_v1_duration_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 24u, (uint64_t)value);
+}
+
+/** How many bytes a whole `tkhd_v1` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_mp4_tkhd_v1_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MP4_TKHD_V1_SIZE_FIXED;
+	return have >= FZN_MP4_TKHD_V1_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_mp4_tkhd_v1_validate(situ_view_t view);
+
+/* ---- struct tkhd_rest ---- */
+
+#define FZN_MP4_TKHD_REST_SIZE_FIXED 60u
+#define FZN_MP4_TKHD_REST_SIZE_MIN   60u
+#define FZN_MP4_TKHD_REST_SIZE_MAX   60u
+
+/* INVALIDATION: nothing invalidates a tkhd_rest view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_mp4_tkhd_rest_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MP4_TKHD_REST_SIZE_FIXED, out);
+}
+
+/** tkhd_rest.reserved : u32  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MP4_TKHD_REST_RESERVED_COUNT 2u
+/* No pointer accessor: the element type is u32,
+ * which is ValueConverted, so a pointer into it would alias bytes
+ * that are not the value. Index the elements individually. */
+static inline uint32_t fzn_mp4_tkhd_rest_reserved_get(situ_view_t view, uint32_t index)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 0u + index * 4u + 0u));
+}
+
+/** tkhd_rest.layer : u16  at AbsoluteStatic(0x08)
+ * size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_tkhd_rest_layer_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 8u));
+}
+static inline void fzn_mp4_tkhd_rest_layer_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 8u, (uint16_t)value);
+}
+
+/** tkhd_rest.alternate_group : u16  at AbsoluteStatic(0x0A)
+ * size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_tkhd_rest_alternate_group_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 10u));
+}
+static inline void fzn_mp4_tkhd_rest_alternate_group_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 10u, (uint16_t)value);
+}
+
+/** tkhd_rest.volume : u16  at AbsoluteStatic(0x0C)
+ * size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_tkhd_rest_volume_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 12u));
+}
+static inline void fzn_mp4_tkhd_rest_volume_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 12u, (uint16_t)value);
+}
+
+/** tkhd_rest.reserved2 : u16  at AbsoluteStatic(0x0E)
+ * size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_tkhd_rest_reserved2_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 14u));
+}
+static inline void fzn_mp4_tkhd_rest_reserved2_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 14u, (uint16_t)value);
+}
+
+/** tkhd_rest.matrix : i32  at AbsoluteStatic(0x10)
+ * size=Fixed(36) align=Aligned(8) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MP4_TKHD_REST_MATRIX_COUNT 9u
+/* No pointer accessor: the element type is i32,
+ * which is ValueConverted, so a pointer into it would alias bytes
+ * that are not the value. Index the elements individually. */
+static inline int32_t fzn_mp4_tkhd_rest_matrix_get(situ_view_t view, uint32_t index)
+{
+	return (int32_t)((int32_t)situ_get_be32(situ_base(view) + 16u + index * 4u + 0u));
+}
+
+/** tkhd_rest.width : u32  at AbsoluteStatic(0x34)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_rest_width_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 52u));
+}
+static inline void fzn_mp4_tkhd_rest_width_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 52u, (uint32_t)value);
+}
+
+/** tkhd_rest.height : u32  at AbsoluteStatic(0x38)
+ * size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_tkhd_rest_height_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 56u));
+}
+static inline void fzn_mp4_tkhd_rest_height_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 56u, (uint32_t)value);
+}
+
+/** How many bytes a whole `tkhd_rest` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_mp4_tkhd_rest_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MP4_TKHD_REST_SIZE_FIXED;
+	return have >= FZN_MP4_TKHD_REST_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_mp4_tkhd_rest_validate(situ_view_t view);
+
+/* ---- struct xyz ---- */
+
+#define FZN_MP4_XYZ_SIZE_MIN   4u
+#define FZN_MP4_XYZ_SIZE_MAX   65539u
+
+/* INVALIDATION: a xyz view, and every view derived from
+ * it, is invalidated by writing `length` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_mp4_xyz_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_MP4_XYZ_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** xyz.length : u16  at AbsoluteStatic(0x00)
+ * size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_xyz_length_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 0u));
+}
+/* No plain setter: `length` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_mp4_xyz_length_set(),
+ * which takes the message and bumps its generation. */
+
+/** xyz.language : u16  at AbsoluteStatic(0x02)
+ * size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_mp4_xyz_language_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 2u));
+}
+static inline void fzn_mp4_xyz_language_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 2u, (uint16_t)value);
+}
+
+/** xyz.text : u8  at AbsoluteStatic(0x04)
+ * size=Bounded(0, 65535) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_mp4_xyz_text_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 0u))),
+		situ_remaining_u32(view.limit, 4u));
+}
+static inline uint8_t *fzn_mp4_xyz_text_ptr(situ_view_t view)
+{
+	return situ_base(view) + 4u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes a whole `xyz` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_mp4_xyz_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 4u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* xyz.text: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 2u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(situ_get_be16(situ_base(view) + 0u)));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_mp4_xyz_length_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 0u, (uint16_t)value);
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_mp4_xyz_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_mp4_xyz_check(situ_view_t view, uint32_t *which);
+#define FZN_MP4_XYZ_TEXT_CHECK 0u
+
+/* ---- struct keys_head ---- */
+
+#define FZN_MP4_KEYS_HEAD_SIZE_FIXED 8u
+#define FZN_MP4_KEYS_HEAD_SIZE_MIN   8u
+#define FZN_MP4_KEYS_HEAD_SIZE_MAX   8u
+
+/* INVALIDATION: nothing invalidates a keys_head view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_mp4_keys_head_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MP4_KEYS_HEAD_SIZE_FIXED, out);
+}
+
+/** keys_head.version : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_mp4_keys_head_version_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_mp4_keys_head_version_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_mp4_keys_head_version_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** keys_head.flags : u24  at AbsoluteStatic(0x01)
+ * size=Fixed(3) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_keys_head_flags_get(situ_view_t view)
+{
+	return (uint32_t)((uint32_t)situ_bits_get_msb(situ_base(view), 8u, 24u));
+}
+static inline void fzn_mp4_keys_head_flags_set(situ_view_t view, uint32_t value)
+{
+	situ_bits_set_msb(situ_base(view), 8u, 24u, (uint64_t)value);
+}
+
+/** keys_head.count : u32  at AbsoluteStatic(0x04)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_mp4_keys_head_count_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 4u));
+}
+static inline void fzn_mp4_keys_head_count_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 4u, (uint32_t)value);
+}
+
+/** How many bytes a whole `keys_head` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_mp4_keys_head_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MP4_KEYS_HEAD_SIZE_FIXED;
+	return have >= FZN_MP4_KEYS_HEAD_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_mp4_keys_head_validate(situ_view_t view);
+
 #ifdef __cplusplus
 }
 #endif

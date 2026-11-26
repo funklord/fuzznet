@@ -153,7 +153,9 @@ struct music_row {
 // where unsaid. PLACE 1 when it was said where, LATITUDE and LONGITUDE then
 // in ten-millionths of a degree, north and east positive. TAKEN the
 // camera's "YYYY-MM-DDTHH:MM:SS", its own local time, empty where unsaid;
-// CAMERA and NAME raw, at most 255 bytes.
+// CAMERA and NAME raw, at most 255 bytes. VIDEO 1 for a phone's video (sec
+// 1460), a kind of `video/`, DURATION_MS its length, 0 where unsaid -- its
+// TAKEN in UTC where no local time was written.
 struct photo_row {
 	u8   root[32];
 	u64  size;
@@ -162,6 +164,8 @@ struct photo_row {
 	u32  width;
 	u32  height;
 	u8   orientation [max = 8];
+	u8   video [max = 1];
+	u64  duration_ms;
 	u8   place [max = 1];
 	i32  latitude [min = -900000000, max = 900000000];
 	i32  longitude [min = -1800000000, max = 1800000000];

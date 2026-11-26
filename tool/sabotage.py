@@ -789,8 +789,8 @@ SABOTAGES = [
 	(
 		"media-tags-mp4-meta-full-box",
 		"media/tags.c",
-		"\t\tat += 4u;\n\tif (!mp4_find(m, at, meta + meta_size",
-		"\t\tat += 0u;\n\tif (!mp4_find(m, at, meta + meta_size",
+		"\t\tat += 4u;\n\tif (!mp4_find(m, at, meta + meta_size, \"ilst\", &ilst, &ilst_size, &h4)",
+		"\t\tat += 0u;\n\tif (!mp4_find(m, at, meta + meta_size, \"ilst\", &ilst, &ilst_size, &h4)",
 		"meta is a full box: its version and flags stand before its children -- sec 1452",
 	),
 	(
@@ -810,7 +810,7 @@ SABOTAGES = [
 	(
 		"photo-view-no-thumbnails-wanted",
 		"gui/photo_view.cpp",
-		"\t\tif (e->held_here)\n\t\t\tm_thumbs_wanted",
+		"\t\tif (e->held_here && !e->video)\n\t\t\tm_thumbs_wanted",
 		"\t\tif (0)\n\t\t\tm_thumbs_wanted",
 		"a photograph held here shows the camera's own thumbnail -- sec 1455",
 	),
@@ -19415,6 +19415,48 @@ SABOTAGES = [
 		"\t\treturn strcmp(r.status, \"error\") == 0 ? FZN_MEDIA_LOOKUP_REFUSED : FZN_MEDIA_LOOKUP_NO_ANSWER;\n",
 		"\t\treturn FZN_MEDIA_LOOKUP_UNKNOWN;\n",
 		"a refused lookup (a bad key) reads as an answer naming nothing, and the tune is marked identified -- sec 1459",
+	),
+	(
+		"media-tags-song-taken",
+		"media/tags.c",
+		"\t\t\tif (picture)\n\t\t\t\tmp4_taken(created, out);\n",
+		"\t\t\tmp4_taken(created, out);\n",
+		"a song's M4A takes its encoding's time as when it was taken, and lands among the photographs -- sec 1460",
+	),
+	(
+		"media-tags-keyed-in-udta-unread",
+		"media/tags.c",
+		"\t\t\tmp4_keyed(m, udta, h2, udta_size, out);\n",
+		"\t\t\t;\n",
+		"keyed metadata where ffmpeg writes it is unread: no local time, no place -- sec 1460",
+	),
+	(
+		"media-tags-turn-reversed",
+		"media/tags.c",
+		"\tif (a == 0 && b == one && c == minus && d == 0)\n\t\treturn 6u;\n",
+		"\tif (a == 0 && b == one && c == minus && d == 0)\n\t\treturn 8u;\n",
+		"a video turned a quarter clockwise is shown turned the other way -- sec 1460",
+	),
+	(
+		"media-tags-iso6709-longitude-digits",
+		"media/tags.c",
+		"!iso6709_part(&at, 3u, &lon)",
+		"!iso6709_part(&at, 2u, &lon)",
+		"ISO 6709's three digits of longitude refused, and no video says where -- sec 1460",
+	),
+	(
+		"library-binary-video-not-photo",
+		"node/library_binary.c",
+		"int where, video = r->kind_len && kind_is(r->kind, r->kind_len, \"video/\");",
+		"int where, video = 0;",
+		"a phone's videos are left out of its gallery -- sec 1460",
+	),
+	(
+		"photo-view-video-decoded",
+		"gui/photo_view.cpp",
+		"\tif (it->data(0, ROLE_VIDEO).toBool()) {\n",
+		"\tif (0) {\n",
+		"a video chosen is read whole to be decoded as a picture -- sec 1460",
 	),
 	(
 		"ulaw-without-bias",

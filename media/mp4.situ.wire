@@ -41,6 +41,11 @@ struct item_pair size=6
   @0x0002   2         u16        number  big
   @0x0004   2         u16        total  big
 
+struct keys_head size=8
+  @0x0000   1         u8         version
+  @0x0001   3         u24        flags  big
+  @0x0004   4         u32        count  big
+
 struct mvhd_v0 size=16
   @0x0000   4         u32        creation  big
   @0x0004   4         u32        modification  big
@@ -52,3 +57,32 @@ struct mvhd_v1 size=28
   @0x0008   8         u64        modification  big
   @0x0010   4         u32        timescale  big
   @0x0014   8         u64        duration  big
+
+struct tkhd_rest size=60
+  @0x0000   8         u32        reserved  big
+  @0x0008   2         u16        layer  big
+  @0x000a   2         u16        alternate_group  big
+  @0x000c   2         u16        volume  big
+  @0x000e   2         u16        reserved2  big
+  @0x0010   36        i32        matrix  big
+  @0x0034   4         u32        width  big
+  @0x0038   4         u32        height  big
+
+struct tkhd_v0 size=20
+  @0x0000   4         u32        creation  big
+  @0x0004   4         u32        modification  big
+  @0x0008   4         u32        track_id  big
+  @0x000c   4         u32        reserved  big
+  @0x0010   4         u32        duration  big
+
+struct tkhd_v1 size=32
+  @0x0000   8         u64        creation  big
+  @0x0008   8         u64        modification  big
+  @0x0010   4         u32        track_id  big
+  @0x0014   4         u32        reserved  big
+  @0x0018   8         u64        duration  big
+
+struct xyz size=4..65539
+  @0x0000   2         u16        length  big
+  @0x0002   2         u16        language  big
+  @0x0004   0..65535  u8         text  sized-by=length

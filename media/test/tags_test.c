@@ -352,6 +352,54 @@ int main(void)
 		free(cbr);
 	}
 
+	/* A PHONE'S VIDEOS, sec 1460, ffmpeg's: QuickTime's, its time from the
+	 * movie header in UTC, its place from udta's \xa9xyz, turned a quarter
+	 * anticlockwise to be shown (ffmpeg's -display_rotation 90 is
+	 * counter-clockwise: EXIF's 8); an iPhone's keyed metadata, its local
+	 * time winning over the header's UTC, its place, a quarter clockwise
+	 * (270, EXIF's 6). Both 64 by 48. And a song's
+	 * M4A, whose movie header has a time too, says none: it has no picture. */
+	{
+		size_t mov_len = 0, apple_len = 0;
+		uint8_t *mov = slurp("media/test/fixture/video.mov", &mov_len);
+		uint8_t *apple = slurp("media/test/fixture/video_apple.mov", &apple_len);
+		struct served f = { mov, mov_len, 0, 0, 0, 0 }, g = { apple, apple_len, 0, 0, 0, 0 };
+
+		(void)fzn_media_tags_read_file(serve, &f, mov_len, &t);
+		CHECK(mov && t.format == FZN_MEDIA_MP4 && is(&t, "taken", "2024-05-01T12:34:56") && is(&t, "width", "64")
+		              && is(&t, "height", "48") && is(&t, "orientation", "8")
+		              && is(&t, "place", "59.3293000,18.0686000") && is(&t, "duration", "500"),
+		      "a QuickTime video's time, size, turn and place were not read as ffmpeg wrote them");
+		(void)fzn_media_tags_read_file(serve, &g, apple_len, &t);
+		CHECK(apple && is(&t, "taken", "2024-05-01T14:34:56") && is(&t, "orientation", "6")
+		              && is(&t, "place", "37.3349000,-122.0090000"),
+		      "an iPhone's keyed time and place were not read, or its local time did not win");
+		/* THE SONGS, one with a real time put into its movie header -- as
+		 * iTunes writes its encoding's -- ffmpeg's being 0. */
+		for (i = 8; i < 10u; i++) {
+			uint8_t *song = malloc(len[i]);
+			uint8_t *mvhd = song ? memcpy(song, b[i], len[i]) : NULL;
+			struct served h = { song, len[i], 0, 0, 0, 0 };
+			size_t k;
+
+			for (k = 0; mvhd && k + 16u < len[i]; k++)
+				if (!memcmp(song + k, "mvhd", 4) && song[k + 4] == 0u) {
+					memcpy(song + k + 8, "\xe2\x57\xe7\x70", 4); /* 2024-05-01 */
+					break;
+				}
+			(void)fzn_media_tags_read_file(serve, &h, len[i], &t);
+			CHECK(song && k + 16u < len[i] && absent(&t, "taken") && absent(&t, "width") && is(&t, "title", "Midnight Sun"),
+			      "a song's M4A was read as a video");
+			free(song);
+		}
+		if (mov)
+			bad += mangle(mov, mov_len, &rng, 2000u);
+		if (apple)
+			bad += mangle(apple, apple_len, &rng, 2000u);
+		free(mov);
+		free(apple);
+	}
+
 	/* THE OTHER FORMATS by ranges read their head as before. */
 	{
 		struct served f = { b[1], len[1], 0, 0, 0, 0 };
@@ -391,7 +439,7 @@ int main(void)
 	for (i = 0; i < 10u; i++)
 		bad += mangle(b[i], len[i], &rng, 4000u);
 	CHECK(bad == 0, "a file cut short or mangled read a value that is not well formed");
-	printf("  ten files cut at every length and mangled 40000 ways: %u ill-formed\n", bad);
+	printf("  ten files cut at every length and mangled 40000 ways, two videos 4000: %u ill-formed\n", bad);
 
 	for (i = 0; i < 10u; i++)
 		free(b[i]);

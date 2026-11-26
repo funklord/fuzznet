@@ -1,5 +1,5 @@
 /* The photographs this user's hosts hold, as a widget: gui/photo_view.h,
- * sec 1450. */
+ * secs 1450, 1460. */
 #include "photo_view.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
@@ -41,6 +41,7 @@ extern "C" {
 #define ROLE_HERE (Qt::UserRole + 1)
 #define ROLE_FIND (Qt::UserRole + 2)
 #define ROLE_TURN (Qt::UserRole + 3)
+#define ROLE_VIDEO (Qt::UserRole + 4)
 
 /* A THUMBNAIL is read from this much of a photograph's start: EXIF's APP1,
  * which holds it, is at most 64 KiB. */
@@ -100,11 +101,14 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_picture->setMinimumHeight(120);
 	m_picture->setAccessibleName(tr("The photograph chosen"));
 	m_fetch = new QPushButton(tr("Get it"), this);
+	m_play_button = new QPushButton(tr("Play"), this);
+	m_play_button->setToolTip(tr("Play the video chosen"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;
+	row->addWidget(m_play_button);
 	row->addWidget(m_fetch);
 	row->addWidget(m_refresh);
 	row->addStretch(1);
@@ -119,9 +123,12 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	        [this](QTreeWidgetItem *, QTreeWidgetItem *) { show_chosen(); });
 	fzn_choose_on_accessible_select(m_tree, nullptr);
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
+	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
+	connect(m_tree, &QTreeWidget::itemActivated, [this](QTreeWidgetItem *, int) { play(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
 	m_fetch->setEnabled(false);
+	m_play_button->setEnabled(false);
 	m_tree->setIconSize(QSize(THUMB_SIDE, THUMB_SIDE));
 	m_thumb_timer = new QTimer(this);
 	m_thumb_timer->setInterval(30);
@@ -132,6 +139,18 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 }
 
 fzn_photo_view::~fzn_photo_view() { delete m_rpc; }
+
+void fzn_photo_view::on_play(std::function<void(const QByteArray &, const QString &)> play)
+{
+	m_play = std::move(play);
+}
+
+/* A VIDEO'S LENGTH as a clock reads it. */
+static QString length_words(uint64_t ms)
+{
+	const uint64_t s = ms / 1000u;
+	return QStringLiteral("%1:%2").arg(s / 60u).arg(s % 60u, 2, 10, QLatin1Char('0'));
+}
 
 void fzn_photo_view::answer_binary(int (*answer)(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply,
                                                  size_t reply_cap, size_t *reply_len),
@@ -168,6 +187,7 @@ bool fzn_photo_view::refresh()
 	m_thumbs_wanted.clear();
 	QTreeWidgetItem *month = nullptr, *again = nullptr;
 	QString month_key;
+	size_t videos = 0;
 	for (const fzn_rpc_photo_entry_t *e : order) {
 		const QString taken = QString::fromLatin1(e->taken);
 		const QString key = taken.left(7);
@@ -182,7 +202,14 @@ bool fzn_photo_view::refresh()
 		/* "2023-07-14T21:45:30" said as "2023-07-14 21:45". */
 		p->setText(0, taken.isEmpty() ? words(e->name) : taken.left(10) + QLatin1Char(' ') + taken.mid(11, 5));
 		p->setText(1, words(e->camera));
-		p->setText(2, e->width && e->height ? QStringLiteral("%1 × %2").arg(e->width).arg(e->height) : QString());
+		const QString size = e->width && e->height ? QStringLiteral("%1 × %2").arg(e->width).arg(e->height) : QString();
+		if (e->video) {
+			const QString length = e->duration_ms ? length_words(e->duration_ms) : QString();
+			const QString both = size.isEmpty() || length.isEmpty() ? size + length : size + QStringLiteral(", ") + length;
+			p->setText(2, both.isEmpty() ? tr("video") : tr("%1 video").arg(both));
+		} else {
+			p->setText(2, size);
+		}
 		p->setText(3, e->place ? place_words(e->latitude_e7, e->longitude_e7) : QString());
 		p->setText(4, e->held_here ? (others ? tr("here, and on %1 other host(s)").arg(others) : tr("here"))
 		              : others   ? tr("on %1 host(s)").arg(others)
@@ -190,11 +217,14 @@ bool fzn_photo_view::refresh()
 		p->setData(0, ROLE_ROOT, QByteArray((const char *)e->root, 32));
 		p->setData(0, ROLE_HERE, (bool)e->held_here);
 		p->setData(0, ROLE_TURN, (int)e->orientation);
-		if (e->held_here)
+		p->setData(0, ROLE_VIDEO, (bool)e->video);
+		videos += e->video ? 1u : 0u;
+		/* A VIDEO HAS NO CAMERA'S THUMBNAIL: EXIF's is a photograph's. */
+		if (e->held_here && !e->video)
 			m_thumbs_wanted << p->data(0, ROLE_ROOT).toByteArray();
 		p->setData(0, ROLE_FIND, QStringList({ p->text(0), p->text(1), words(e->name), month->text(0) }).join(QLatin1Char('\n')));
-		p->setData(0, Qt::AccessibleTextRole,
-		           tr("A photograph, %1").arg(taken.isEmpty() ? words(e->name) : p->text(0)));
+		p->setData(0, Qt::AccessibleTextRole, (e->video ? tr("A video, %1") : tr("A photograph, %1"))
+		                                              .arg(taken.isEmpty() ? words(e->name) : p->text(0)));
 		if (!kept.isEmpty() && p->data(0, ROLE_ROOT).toByteArray() == kept)
 			again = p;
 	}
@@ -203,8 +233,9 @@ bool fzn_photo_view::refresh()
 	m_tree->expandAll();
 	if (!m_thumbs_wanted.isEmpty())
 		m_thumb_timer->start();
-	m_status->setText(all.count ? tr("%n photograph(s).", nullptr, (int)all.count)
-	                            : tr("No photograph is catalogued yet."));
+	m_status->setText(!all.count ? tr("No photograph is catalogued yet.")
+	                  : videos   ? tr("%1 photograph(s) and %2 video(s).").arg(all.count - videos).arg(videos)
+	                             : tr("%n photograph(s).", nullptr, (int)all.count));
 	fzn_rpc_photo_list_release(&all);
 	m_filter_said.clear();
 	if (again)
@@ -257,8 +288,14 @@ void fzn_photo_view::show_chosen()
 	m_shown = QImage();
 	m_picture->clear();
 	m_fetch->setEnabled(photo && !it->data(0, ROLE_HERE).toBool());
+	m_play_button->setEnabled(photo && it->data(0, ROLE_VIDEO).toBool() && (bool)m_play);
 	if (!photo)
 		return;
+	/* A VIDEO is played, not decoded here. */
+	if (it->data(0, ROLE_VIDEO).toBool()) {
+		m_status->setText(tr("A video: \"Play\" plays it."));
+		return;
+	}
 	const QByteArray root = it->data(0, ROLE_ROOT).toByteArray();
 	QByteArray bytes;
 	fzn_rpc_library_play_resp_t *slice = (fzn_rpc_library_play_resp_t *)malloc(sizeof(*slice));
@@ -431,5 +468,14 @@ QStringList fzn_photo_view::rows() const
 }
 
 QImage fzn_photo_view::shown_picture() const { return m_shown; }
+
+bool fzn_photo_view::play()
+{
+	QTreeWidgetItem *it = chosen();
+	if (!it || !it->parent() || it->isHidden() || !it->data(0, ROLE_VIDEO).toBool() || !m_play)
+		return false;
+	m_play(it->data(0, ROLE_ROOT).toByteArray(), it->data(0, Qt::AccessibleTextRole).toString());
+	return true;
+}
 
 QString fzn_photo_view::status() const { return m_status->text(); }

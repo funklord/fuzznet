@@ -462,7 +462,8 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 }
 
 /* THE MUSIC AND PHOTO CATALOGUES, sec 1449: a song by its kind and one by
- * its words alone, a photograph, and a film that is neither; the rows read
+ * its words alone, a photograph, and a film that is no music and, since sec
+ * 1460, a video among the photographs, its length carried; the rows read
  * back with the catalogue's words turned into numbers -- "3/12", a year
  * from a date, a place in ten-millionths of a degree. */
 static void test_music_and_photos(void)
@@ -501,6 +502,7 @@ static void test_music_and_photos(void)
 	say(host_a, photo, "place", "-33.8650000,20.2250000");
 	say(host_a, film, "kind", "video/webm");
 	say(host_a, film, "title", "A film");
+	say(host_a, film, "duration", "12000");
 
 	n_said = 0;
 	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_music, sizeof(ask_music), put, NULL)
@@ -535,8 +537,8 @@ static void test_music_and_photos(void)
 
 	n_said = 0;
 	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_photos, sizeof(ask_photos), put, NULL)
-	              && n_said == 2u,
-	      "one photograph was not a row and a STATUS");
+	              && n_said == 3u,
+	      "a photograph and a video were not two rows and a STATUS");
 	memcpy(copy, said[0], said_len[0]);
 	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
 	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
@@ -550,8 +552,18 @@ static void test_music_and_photos(void)
 	              && fzn_files_local_photo_row_latitude_get(b) == -338650000
 	              && fzn_files_local_photo_row_longitude_get(b) == 202250000
 	              && fzn_files_local_photo_row_taken_len(b) == 19u
-	              && fzn_files_local_photo_row_camera_len(b) == 12u,
+	              && fzn_files_local_photo_row_camera_len(b) == 12u
+	              && fzn_files_local_photo_row_video_get(b) == 0u
+	              && fzn_files_local_photo_row_duration_ms_get(b) == 0u,
 	      "a photograph's row did not carry when, where and its size");
+	memcpy(copy, said[1], said_len[1]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[1]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[1], &v) == SITU_OK
+	              && fzn_files_local_message_body_photo_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_photo_row_root_ptr(b), film, 32u) == 0
+	              && fzn_files_local_photo_row_video_get(b) == 1u
+	              && fzn_files_local_photo_row_duration_ms_get(b) == 12000u,
+	      "a video was not a row among the photographs, marked and its length carried");
 
 	/* A PLACE THAT IS NO PLACE is said as none, not as 0,0. */
 	say(host_a, photo, "place", "north,east");
@@ -561,7 +573,7 @@ static void test_music_and_photos(void)
 	(void)fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_photos, sizeof(ask_photos), put, NULL);
 	memcpy(copy, said[0], said_len[0]);
 	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
-	CHECK(n_said == 2u && fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	CHECK(n_said == 3u && fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
 	              && fzn_files_local_message_body_photo_row_view(v, &b) == SITU_OK
 	              && fzn_files_local_photo_row_place_get(b) == 0u
 	              && fzn_files_local_photo_row_latitude_get(b) == 0,

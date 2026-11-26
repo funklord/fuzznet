@@ -517,6 +517,11 @@ situ_err_t fzn_files_local_photo_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_FILES_LOCAL_PHOTO_ROW_ORIENTATION_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
+	/* photo_row.video [max = 1] */
+	if (fzn_files_local_photo_row_video_get(view) > 1) {
+		*which = FZN_FILES_LOCAL_PHOTO_ROW_VIDEO_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* photo_row.place [max = 1] */
 	if (fzn_files_local_photo_row_place_get(view) > 1) {
 		*which = FZN_FILES_LOCAL_PHOTO_ROW_PLACE_CHECK;
@@ -550,7 +555,7 @@ situ_err_t fzn_files_local_photo_row_check(situ_view_t view, uint32_t *which)
 	/* photo_row.taken: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, 62u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[61u])))) {
+	if (situ_remaining_u32(view.limit, 71u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[70u])))) {
 		*which = FZN_FILES_LOCAL_PHOTO_ROW_TAKEN_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

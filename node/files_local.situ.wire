@@ -113,7 +113,7 @@ struct music_row size=62..1879
 
 struct nothing size=0
 
-struct photo_row size=64..593
+struct photo_row size=73..602
   @0x0000   32        u8         root  big
   @0x0020   8         u64        size  big
   @0x0028   2         u16        holders  big
@@ -121,11 +121,13 @@ struct photo_row size=64..593
   @0x002b   4         u32        width  big
   @0x002f   4         u32        height  big
   @0x0033   1         u8         orientation  max=8
-  @0x0034   1         u8         place  max=1
-  @0x0035   4         i32        latitude  big min=-900000000 max=900000000
-  @0x0039   4         i32        longitude  big min=-1800000000 max=1800000000
-  @0x003d   1         u8         taken_len  max=19
-  @0x003e   0..19     u8         taken  sized-by=taken_len
+  @0x0034   1         u8         video  max=1
+  @0x0035   8         u64        duration_ms  big
+  @0x003d   1         u8         place  max=1
+  @0x003e   4         i32        latitude  big min=-900000000 max=900000000
+  @0x0042   4         i32        longitude  big min=-1800000000 max=1800000000
+  @0x0046   1         u8         taken_len  max=19
+  @0x0047   0..19     u8         taken  sized-by=taken_len
   ~         1         u8         camera_len
   ~         0..255    u8         camera  sized-by=camera_len
   ~         1         u8         name_len

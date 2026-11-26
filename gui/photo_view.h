@@ -17,6 +17,11 @@
  * preview's size, and turned as the camera's orientation says. Only the
  * chosen one is read, so opening a library of thousands reads none.
  *
+ * A PHONE'S VIDEOS, sec 1460, stand among them as a phone's own gallery
+ * has them: by when they were taken, their size and length, where; chosen,
+ * one is played through the host's player (`on_play`), as music is, and
+ * never decoded here.
+ *
  * Words are other hosts' and other people's, shown in caret form (sec 1126).
  *
  * Through the typed client on the host's ask callback (`rpc_ask.h`).
@@ -32,6 +37,8 @@
 #include <QString>
 #include <QStringList>
 #include <QWidget>
+
+#include <functional>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,11 +63,16 @@ public:
 	/* Ask for the photographs and show them. Whether the node answered. */
 	bool refresh();
 
+	/* THE HOST'S PLAYER, for a video: its root and what it is called. */
+	void on_play(std::function<void(const QByteArray &root, const QString &title)> play);
+
 	/* WHAT A PERSON DOES, public because a headless test cannot click: the
 	 * Nth row shown, a month's or a photograph's. Choosing a photograph
 	 * shows it where its bytes can be read. */
 	void select(int row);
 	bool fetch();
+	/* The video chosen handed to the host's player: whether one was. */
+	bool play();
 	void set_find(const QString &text);
 	/* THUMBNAILS still to read, up to `n` of them now: how many were read.
 	 * The timer calls it; a test does. Whether row `row` shows one. */
@@ -68,8 +80,9 @@ public:
 	bool has_thumbnail(int row) const;
 
 	/* WHAT IS ON SCREEN: each row shown, a month as "MONTH YEAR | N" and its
-	 * photographs beneath as "  TIME | CAMERA | SIZE | PLACE | WHERE"; the
-	 * picture shown, null for none; and the status line. */
+	 * photographs beneath as "  TIME | CAMERA | SIZE | PLACE | WHERE", a
+	 * video's SIZE "W x H, M:SS video"; the picture shown, null for none;
+	 * and the status line. */
 	QStringList rows() const;
 	QImage shown_picture() const;
 	QString status() const;
@@ -89,6 +102,8 @@ private:
 	QList<QByteArray> m_thumbs_wanted; /* roots, in the order shown */
 	class QTimer *m_thumb_timer;
 	QPushButton *m_fetch;
+	QPushButton *m_play_button;
+	std::function<void(const QByteArray &, const QString &)> m_play;
 	QPushButton *m_refresh;
 	QLabel *m_status;
 	QString m_filter_said;

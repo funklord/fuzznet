@@ -34,6 +34,11 @@ struct item_pair size=6 repr=ValueConverted
   item_pair.number                       offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
   item_pair.total                        offset=AbsoluteStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
 
+struct keys_head size=8 repr=ValueConverted atomic=NonAtomic
+  keys_head.version                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  keys_head.flags                        offset=AbsoluteStatic(0x01) size=Fixed(3) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  keys_head.count                        offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+
 struct mvhd_v0 size=16 repr=ValueConverted
   mvhd_v0.creation                       offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   mvhd_v0.modification                   offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
@@ -45,3 +50,32 @@ struct mvhd_v1 size=28 repr=ValueConverted atomic=NonAtomic
   mvhd_v1.modification                   offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   mvhd_v1.timescale                      offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   mvhd_v1.duration                       offset=AbsoluteStatic(0x14) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
+
+struct tkhd_rest size=60 repr=ValueConverted atomic=NonAtomic
+  tkhd_rest.reserved                     offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  tkhd_rest.layer                        offset=AbsoluteStatic(0x08) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_rest.alternate_group              offset=AbsoluteStatic(0x0A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  tkhd_rest.volume                       offset=AbsoluteStatic(0x0C) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  tkhd_rest.reserved2                    offset=AbsoluteStatic(0x0E) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  tkhd_rest.matrix                       offset=AbsoluteStatic(0x10) size=Fixed(36) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  tkhd_rest.width                        offset=AbsoluteStatic(0x34) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  tkhd_rest.height                       offset=AbsoluteStatic(0x38) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct tkhd_v0 size=20 repr=ValueConverted
+  tkhd_v0.creation                       offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_v0.modification                   offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  tkhd_v0.track_id                       offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_v0.reserved                       offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  tkhd_v0.duration                       offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct tkhd_v1 size=32 repr=ValueConverted
+  tkhd_v1.creation                       offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_v1.modification                   offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_v1.track_id                       offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  tkhd_v1.reserved                       offset=AbsoluteStatic(0x14) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  tkhd_v1.duration                       offset=AbsoluteStatic(0x18) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct xyz size=4..65539 mutate=Shifting repr=ValueConverted
+  xyz.length                             offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  xyz.language                           offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  xyz.text                               offset=AbsoluteStatic(0x04) size=Bounded(0, 65535) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
