@@ -1612,10 +1612,7 @@ static inline uint32_t fzn_reconcile_wire_fzn_reconcile_objects_objects_count(si
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_reconcile_wire_fzn_reconcile_object_extent(element)`.
+ * O(n^2); walk the run with `fzn_reconcile_wire_fzn_reconcile_objects_objects_next` instead.
  */
 static inline situ_err_t fzn_reconcile_wire_fzn_reconcile_objects_objects_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -1640,6 +1637,45 @@ static inline situ_err_t fzn_reconcile_wire_fzn_reconcile_objects_objects_at(sit
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_reconcile_wire_fzn_reconcile_objects_objects_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? 5u : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_reconcile_wire_fzn_reconcile_objects_objects_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_reconcile_wire_fzn_reconcile_object_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;

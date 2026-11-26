@@ -1112,10 +1112,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_devices_list_entries_
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_contact_card_record_fzn_contact_devices_listed_extent(element)`.
+ * O(n^2); walk the run with `fzn_contact_card_record_fzn_contact_devices_list_entries_next` instead.
  */
 static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_list_entries_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -1140,6 +1137,45 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_list_entrie
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_list_entries_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? 5u : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_contact_card_record_fzn_contact_devices_list_entries_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_contact_card_record_fzn_contact_devices_listed_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;
@@ -2572,10 +2608,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_devices_items_items_c
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_contact_card_record_fzn_contact_estate_listed_extent(element)`.
+ * O(n^2); walk the run with `fzn_contact_card_record_fzn_contact_devices_items_items_next` instead.
  */
 static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_items_items_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -2600,6 +2633,45 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_items_items
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_items_items_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? 9u : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_contact_card_record_fzn_contact_devices_items_items_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_contact_card_record_fzn_contact_estate_listed_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;
@@ -3326,10 +3398,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_devices_kept_rows_row
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_contact_card_record_fzn_contact_estate_row_extent(element)`.
+ * O(n^2); walk the run with `fzn_contact_card_record_fzn_contact_devices_kept_rows_rows_next` instead.
  */
 static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_kept_rows_rows_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -3354,6 +3423,45 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_kept_rows_r
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_kept_rows_rows_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? 8u : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_contact_card_record_fzn_contact_devices_kept_rows_rows_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_contact_card_record_fzn_contact_estate_row_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;
@@ -4093,10 +4201,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_devices_act_entries_e
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_contact_card_record_fzn_contact_act_listed_extent(element)`.
+ * O(n^2); walk the run with `fzn_contact_card_record_fzn_contact_devices_act_entries_entries_next` instead.
  */
 static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_act_entries_entries_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -4121,6 +4226,45 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_act_entries
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_act_entries_entries_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? 8u : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_contact_card_record_fzn_contact_devices_act_entries_entries_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_contact_card_record_fzn_contact_act_listed_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;
@@ -4833,10 +4977,7 @@ static inline uint32_t fzn_contact_card_record_fzn_contact_card_seeds_count_mark
  * there is no stride to index by.
  *
  * O(index). A loop calling this for every element is
- * O(n^2), and there is no cursor here to replace it with --
- * hold `at` yourself, take each element with
- * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
- * advance by `fzn_contact_card_record_fzn_contact_card_seed_extent(element)`.
+ * O(n^2); walk the run with `fzn_contact_card_record_fzn_contact_card_seeds_next` instead.
  */
 static inline situ_err_t fzn_contact_card_record_fzn_contact_card_seeds_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
@@ -4861,6 +5002,45 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_seeds_at(situ_
 			break;
 		}
 		if (n == index) {
+			return situ_view_sub(view, at, size, out);
+		}
+		at = at + size;
+		n  = n + 1u;
+	}
+	return SITU_ERR_BOUNDS;
+}
+
+/** The element after the one `cursor` last handed out, or the
+ * first for a zeroed cursor: SITU_OK with *out set, SITU_ERR_BOUNDS
+ * once the run is over. `_at` walks from the start on every call;
+ * this walks from where the last call stopped, so a pass over the
+ * whole run is linear. */
+static inline situ_err_t fzn_contact_card_record_fzn_contact_card_seeds_next(situ_view_t view, situ_cursor_t *cursor, situ_view_t *out)
+{
+	const uint32_t index = cursor->n;
+	uint32_t at = index == 0u ? fzn_contact_card_record_fzn_contact_card_seeds_offset(view) : cursor->at;
+	uint32_t n  = index == 0u ? 0u : index - 1u;
+
+	if (index >= fzn_contact_card_record_fzn_contact_card_seeds_count(view)) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	while (at < view.limit) {
+		situ_view_t element;
+		uint32_t    size;
+
+		if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+			break;
+		}
+		size = fzn_contact_card_record_fzn_contact_card_seed_extent(element);
+		if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+			/* A zero-extent element would walk here forever, and one
+			 * running past the limit was never in this frame. */
+			break;
+		}
+		if (n == index) {
+			cursor->at = at;
+			cursor->n  = index + 1u;
 			return situ_view_sub(view, at, size, out);
 		}
 		at = at + size;
