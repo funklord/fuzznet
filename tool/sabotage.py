@@ -738,6 +738,27 @@ SABOTAGES = [
 		"a compilation's track says whose it is -- sec 1449",
 	),
 	(
+		"music-view-tempo-span-ignored",
+		"gui/music_view.cpp",
+		"\t\t\tif (!(bpm > 0 && bpm >= t.lo - 0.5 && bpm < t.hi + 0.5))\n",
+		"\t\t\tif (!(bpm > 0 && bpm >= t.lo - 0.5 && bpm < t.lo + 0.5))\n",
+		"a span of tempos finds every track within it, not only its low end -- sec 1467",
+	),
+	(
+		"music-view-key-place-as-letters",
+		"gui/music_view.cpp",
+		"\t\t} else if (place.match(w[i]).hasMatch()) {\n",
+		"\t\t} else if (false) {\n",
+		"a key's place finds the tune in that key, not a word holding its letters -- sec 1467",
+	),
+	(
+		"music-view-one-term-enough",
+		"gui/music_view.cpp",
+		"\t\t\tif (track->data(0, ROLE_PLACE).toString() != t.word)\n\t\t\t\treturn false;\n",
+		"\t\t\tif (track->data(0, ROLE_PLACE).toString() == t.word)\n\t\t\t\treturn true;\n",
+		"every term typed is held at once -- sec 1467",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

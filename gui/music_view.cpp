@@ -16,6 +16,7 @@ extern "C" {
 #include <QLineEdit>
 #include <QMap>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -29,6 +30,86 @@ extern "C" {
 #define ROLE_ROOT (Qt::UserRole)
 #define ROLE_HERE (Qt::UserRole + 1)
 #define ROLE_FIND (Qt::UserRole + 2)
+#define ROLE_BPM (Qt::UserRole + 3)   /* the tempo heard, 0 for none */
+#define ROLE_PLACE (Qt::UserRole + 4) /* the key's place on the wheel, "8A", or empty */
+
+/* WHAT A PERSON TYPES TO FIND MUSIC, sec 1467: words, each of which a
+ * track must hold -- a word of its title, artist, album or genre, its key
+ * or its rounded tempo -- and two that are not words. A TEMPO, "128 bpm"
+ * or "120-130 bpm" (the unit glued on or not, the bounds either way
+ * round), holds a track heard at it, rounded as the column shows it; a
+ * KEY'S PLACE on the Camelot wheel, "8A", holds a track in that key alone,
+ * not one whose title merely contains the letters. */
+struct music_term {
+	enum { WORD, TEMPO, PLACE } kind;
+	QString word;
+	double lo, hi;
+};
+
+static bool tempo_of(const QString &t, double *lo, double *hi)
+{
+	const QStringList ends = t.split(QLatin1Char('-'));
+	bool a = false, b = false;
+
+	if (ends.size() == 1) {
+		*lo = *hi = ends[0].toDouble(&a);
+		return a && *lo > 0;
+	}
+	if (ends.size() != 2)
+		return false;
+	*lo = ends[0].toDouble(&a);
+	*hi = ends[1].toDouble(&b);
+	if (*lo > *hi)
+		std::swap(*lo, *hi);
+	return a && b && *lo > 0;
+}
+
+static QList<music_term> music_terms(const QString &text)
+{
+	static const QRegularExpression place(QStringLiteral("^(1[0-2]|[1-9])[AB]$"),
+	                                      QRegularExpression::CaseInsensitiveOption);
+	const QStringList w = text.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+	QList<music_term> out;
+
+	for (int i = 0; i < w.size(); i++) {
+		music_term t{ music_term::WORD, w[i], 0, 0 };
+		const bool glued = w[i].size() > 3 && w[i].endsWith(QLatin1String("bpm"), Qt::CaseInsensitive);
+		const bool apart = i + 1 < w.size() && !w[i + 1].compare(QLatin1String("bpm"), Qt::CaseInsensitive);
+
+		if ((glued || apart) && tempo_of(glued ? w[i].chopped(3) : w[i], &t.lo, &t.hi)) {
+			t.kind = music_term::TEMPO;
+			i += apart && !glued;
+		} else if (place.match(w[i]).hasMatch()) {
+			t.kind = music_term::PLACE;
+			t.word = w[i].toUpper();
+		}
+		out.append(t);
+	}
+	return out;
+}
+
+static bool holds(const QTreeWidgetItem *track, const QList<music_term> &terms)
+{
+	for (const music_term &t : terms) {
+		const double bpm = track->data(0, ROLE_BPM).toDouble();
+
+		switch (t.kind) {
+		case music_term::TEMPO:
+			if (!(bpm > 0 && bpm >= t.lo - 0.5 && bpm < t.hi + 0.5))
+				return false;
+			break;
+		case music_term::PLACE:
+			if (track->data(0, ROLE_PLACE).toString() != t.word)
+				return false;
+			break;
+		case music_term::WORD:
+			if (!track->data(0, ROLE_FIND).toString().contains(t.word, Qt::CaseInsensitive))
+				return false;
+			break;
+		}
+	}
+	return true;
+}
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -70,7 +151,8 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 
 	m_find = new QLineEdit(this);
 	m_find->setPlaceholderText(tr("Find music"));
-	m_find->setAccessibleName(tr("Find music by a word of its title, artist, album or genre"));
+	m_find->setAccessibleName(tr("Find music by words of its title, artist, album or genre, a tempo such as 120-130 bpm, or a key "
+	                             "such as 8A"));
 	m_find->setClearButtonEnabled(true);
 	fzn_name_clear_button(m_find);
 	m_order = new fzn_combo_box(this);
@@ -277,6 +359,8 @@ void fzn_music_view::rebuild()
 			t->setData(0, ROLE_FIND, QStringList({ title, artist, words(e->album), by, words(e->genre), words(e->key),
 			                                       bpm > 0 ? QString::number((int)(bpm + 0.5)) : QString() })
 			                                 .join(QLatin1Char('\n')));
+			t->setData(0, ROLE_BPM, bpm);
+			t->setData(0, ROLE_PLACE, words(e->key).section(QLatin1Char(' '), 0, 0).toUpper());
 			t->setData(0, Qt::AccessibleTextRole, tr("%1, by %2").arg(title, artist.isEmpty() ? by : artist));
 			if (!kept.isEmpty() && t->data(0, ROLE_ROOT).toByteArray() == kept)
 				again = t;
@@ -297,6 +381,7 @@ void fzn_music_view::rebuild()
 void fzn_music_view::apply_filter()
 {
 	const QString text = m_find->text().trimmed();
+	const QList<music_term> terms = music_terms(text);
 	int shown_tracks = 0, every = 0;
 
 	for (int a = 0; a < m_tree->topLevelItemCount(); a++) {
@@ -305,7 +390,7 @@ void fzn_music_view::apply_filter()
 
 		for (int t = 0; t < album->childCount(); t++) {
 			QTreeWidgetItem *track = album->child(t);
-			const bool show = text.isEmpty() || track->data(0, ROLE_FIND).toString().contains(text, Qt::CaseInsensitive);
+			const bool show = holds(track, terms);
 
 			track->setHidden(!show);
 			left += show;

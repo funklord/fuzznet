@@ -182,6 +182,9 @@ int main(int argc, char **argv)
 	say(other, 0x13, "album", "Sunday at the Village Vanguard");
 	say(other, 0x13, "year", "1961-06-25");
 	say(other, 0x13, "key", "7B F");
+	/* a genre holding a key's place in its letters, which finding the
+	 * place must pass over (sec 1467) */
+	say(other, 0x13, "genre", "Jazz at 8am");
 	/* A TRACK OF NO ALBUM, named by its file alone. */
 	say(other, 0x14, "kind", "audio/ogg");
 	say(other, 0x14, "name", "demo take.ogg");
@@ -263,9 +266,30 @@ int main(int argc, char **argv)
 	              && v.rows()[5].startsWith("  demo take.ogg |  |"),
 	      "the music was not ordered by artist");
 	v.set_find("8a");
-	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Night Drive"), "a track was not found by its key");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Night Drive"),
+	      "a track was not found by its key, or one was by a word holding its letters");
 	v.set_find("96");
 	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Aurora"), "a track was not found by its tempo");
+	/* A TEMPO AND A KEY'S PLACE, sec 1467: a span of tempos either way
+	 * round, the unit glued or apart, rounded as the column shows it; a
+	 * place on the wheel, and not its letters inside a word; every term
+	 * held at once. */
+	v.set_find("90-130 bpm");
+	CHECK(v.rows().size() == 4 && v.rows()[1].startsWith("  Aurora") && v.rows()[3].startsWith("  Night Drive")
+	              && v.status() == "2 of 4 shown.",
+	      "the tracks within a span of tempos were not found");
+	v.set_find("130-120BPM");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Night Drive"), "a span written high first was not read");
+	v.set_find("96 bpm");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Aurora"), "a tempo was not read as the column rounds it");
+	v.set_find("200 bpm");
+	CHECK(v.rows().isEmpty(), "a tempo nobody is at found a track");
+	v.set_find("7b");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Waltz for Debby"), "a track was not found by its key's place");
+	v.set_find("svalbard 9A");
+	CHECK(v.rows().size() == 2 && v.rows()[1].startsWith("  Aurora"), "every term was not held at once");
+	v.set_find("svalbard 90-100");
+	CHECK(v.rows().isEmpty(), "a span with no unit was read as a tempo");
 	v.set_find("");
 	v.set_order(fzn_music_view::BY_ALBUM);
 	CHECK(v.rows().size() == 7 && v.rows()[0].startsWith("Sunday at"), "the albums did not come back");

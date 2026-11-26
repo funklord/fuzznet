@@ -77114,3 +77114,32 @@ daemon's only way to serve and a tick added to it reaches every host. No
 running daemon behaves differently. A daemon wiped by an identity reset
 now stops its sound child (sec 1457) before it exits, as every other way
 out of the loop did.
+
+## 1467. Music found by tempo and key: "120-130 bpm", "8A", 2026-11-26
+
+The holder's aim for the music catalogue (sec 1457) is the values found
+and kept **for sorting and searching**. The music view sorted by them
+(sec 1458) but found only by substring: "8a" found a title holding
+"8am" as readily as a tune in 8A, and no span of tempos could be asked
+for at all -- the one question a person mixing tracks asks most.
+
+**The find box now reads terms, each of which a track must hold**:
+
+- a word, found in the title, artist, album, genre, key or rounded tempo,
+  as before;
+- **a tempo**, `128 bpm` or `120-130 bpm`, the unit glued on or apart and
+  the bounds either way round, holding a track heard at it as the column
+  rounds it (96.4 is 96);
+- **a key's place on the Camelot wheel**, `8A` to `12B`, holding a track
+  in that key and nothing that merely contains the letters.
+
+A number with no unit stays a word, so "1999" and a track's rounded tempo
+are still found as before. **Not built**: harmonic neighbours (8A
+finding 7A, 9A and 8B), which a DJ tool offers -- left until a person
+using the view asks, as a syntax for it would be invented here. **Nor
+in the search verb** (sec 1299): its `where DIM=VALUE` is exact, and a
+file's hit carries four facets, `kind` and the first three claims -- a
+tune's tags come first, so its tempo and key are seldom among them. The
+browser is where music is sorted and found (the holder, sec 1457); the
+verb's facets choosing what the filter names is the change if a consumer
+filters music there.
