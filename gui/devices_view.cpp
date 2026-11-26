@@ -182,7 +182,15 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_join, &QPushButton::clicked, [this]() { join(m_join_code->text()); });
 	connect(m_join_timer, &QTimer::timeout, [this]() { poll_join(); });
-	connect(m_offer, &QPushButton::clicked, [this]() { offer(); });
+	connect(m_offer, &QPushButton::clicked, [this]() { m_offering ? end_offer() : offer(); });
+	/* THE WINDOW CLOSES OF ITSELF on the node's side; the button follows. */
+	m_offer_timer = new QTimer(this);
+	m_offer_timer->setSingleShot(true);
+	m_offer_timer->setInterval(OFFER_S * 1000);
+	connect(m_offer_timer, &QTimer::timeout, [this]() {
+		m_offering = false;
+		m_offer->setText(tr("Let a device on this network find this host"));
+	});
 	connect(m_look, &QPushButton::clicked, [this]() { look(); });
 	connect(m_look_timer, &QTimer::timeout, [this]() { show_found(); });
 	connect(m_join_found, &QPushButton::clicked, [this]() { join_found(m_found->currentRow()); });
@@ -279,7 +287,23 @@ bool fzn_devices_view::offer()
 	m_status->setText(tr("For five minutes, a device on this network that looks for hosts finds this "
 	                     "one. It waits under \"Waiting to join\" until you let it in: compare the key "
 	                     "it shows with the one listed here."));
+	m_offering = true;
+	m_offer->setText(tr("Stop letting devices find this host"));
+	m_offer_timer->start();
 	refresh();
+	return true;
+}
+
+bool fzn_devices_view::end_offer()
+{
+	if (fzn_rpc_device_offer_end(&m_rpc->c) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_offering = false;
+	m_offer_timer->stop();
+	m_offer->setText(tr("Let a device on this network find this host"));
+	m_status->setText(tr("No device on this network finds this host now."));
 	return true;
 }
 

@@ -69,6 +69,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* JOIN BY REQUEST, sec 1288. */
 	if (!strcmp(line, "add offer 300"))
 		return (size_t)snprintf(reply, cap, "ok 6290 300\n");
+	if (!strcmp(line, "remove offer")) {
+		snprintf(last, sizeof last, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (!strcmp(line, "fetch offer"))
 		return (size_t)snprintf(reply, cap, "ok 255.255.255.255 6290\n");
 	if (!strcmp(line, "list offer"))
@@ -165,6 +169,11 @@ int main(int argc, char **argv)
 	 * that finds nothing says how to make a host findable; one that finds
 	 * R lists it by name and key, and joins by the code it gave. */
 	CHECK(v.offer() && v.status().contains("five minutes"), "an offer was not opened, or not said so");
+	/* ENDED EARLY, sec 1486: asked of the node, and said. */
+	last[0] = '\0';
+	CHECK(v.end_offer() && !strcmp(last, "remove offer")
+	              && v.status() == "No device on this network finds this host now.",
+	      "an offer was not ended when asked, or not said so");
 	CHECK(v.look() && v.show_found() == 0 && v.found().isEmpty() && v.status().contains("look again"),
 	      "a look that found nothing was not said so");
 	hosts_found = 1;

@@ -955,6 +955,13 @@ SABOTAGES = [
 		"a file added from the view is catalogued with the kind the system names, which the music and photo catalogues sort by -- sec 1485",
 	),
 	(
+		"devices-view-offer-not-ended",
+		"gui/devices_view.cpp",
+		"\tif (fzn_rpc_device_offer_end(&m_rpc->c) != FZN_RPC_OK) {\n",
+		"\tif (0) {\n",
+		"an offer ended from the view is ended at the node -- sec 1486",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

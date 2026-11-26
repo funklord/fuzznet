@@ -89,6 +89,9 @@ public:
 	 * a moment later (a timer, or a test), lists what answered: how many.
 	 * `join_found` joins the host in that row by the code it gave. */
 	bool offer();
+	/* THE OFFER ENDED before its five minutes (sec 1486): the button
+	 * offers it while one is open. Whether the node ended it. */
+	bool end_offer();
 	bool look();
 	int show_found();
 	bool join_found(int row);
@@ -119,6 +122,8 @@ private:
 	QPushButton *m_scan_file;
 	QPushButton *m_scan_camera;
 	QPushButton *m_offer;
+	bool m_offering = false;
+	class QTimer *m_offer_timer;
 	QPushButton *m_look;
 	QListWidget *m_found;
 	QStringList m_found_codes;

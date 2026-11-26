@@ -77699,3 +77699,17 @@ Tests: `library_view_test` -- a real `tune.mp3` stored and catalogued as
 `name tune.mp3` and `kind audio/mpeg`, said; one the store refuses said
 so; the view still fits 320 px. Sabotage: one entry, caught.
 
+## 1486. A device offer ended before its five minutes, from the devices view, 2026-11-26
+
+The same audit: the devices view opened a join-by-request offer for five
+minutes (sec 1288) and had no way to close it early, though
+`fzn_rpc_device_offer_end` exists -- so a person who had let in the
+device they meant to, or opened the window by mistake, left their host
+answering strangers' probes until it ran out. **The offer button
+toggles**: while an offer is open it reads "Stop letting devices find
+this host" and ends it, and it turns back by itself when the five
+minutes pass, as the node's window does. `end_offer()` is public for the
+headless test.
+
+Tests: `devices_view_test` -- an offer opened and then ended, asked as
+`remove offer` and said. Sabotage: one entry, caught.
