@@ -1410,6 +1410,22 @@ static void test_import_parsing(void)
 		              && fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_ERR_SHORT,
 		      "with its two items and their ticks");
 	}
+	/* A FILE CUT SHORT imports nothing of itself, sec 1471: the scan
+	 * before situ kept whatever it had read -- a title and half a text,
+	 * two of three items. Every cut of a checklist, refused and named. */
+	{
+		static const char whole[] = "{\"title\":\"shop\",\"listContent\":["
+		                            "{\"text\":\"eggs\",\"isChecked\":true},"
+		                            "{\"text\":\"bread\",\"isChecked\":false}]}";
+		size_t cut, imported = 0;
+
+		for (cut = 1; cut < sizeof(whole) - 1u; cut++) {
+			reset_collect();
+			(void)fzn_notes_import_keep((const uint8_t *)whole, cut, collect, NULL, note_refusal, NULL);
+			imported += got_count != 0u || refusal_count != 1u;
+		}
+		CHECK(imported == 0u, "a Keep note cut short was imported, or not refused");
+	}
 	reset_collect();
 	CHECK(keep("{\"color\":\"RED\"}") == FZN_NOTES_OK && got_count == 0u
 	              && refusal_count == 1u,

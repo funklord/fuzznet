@@ -4,6 +4,8 @@
 
 #include "text.h"
 #include "../wire/bytes.h"
+#include "../wire/generated/json.h"
+#include "../wire/json_walk.h"
 
 #include <string.h>
 
@@ -25,14 +27,15 @@ static void refuse(fzn_notes_import_refused_fn fn, void *ctx, fzn_notes_import_r
 		fn(ctx, why, t, t_len);
 }
 
-/* ---- Keep: just enough JSON ---------------------------------------------- */
+/* ---- Keep: its JSON through situ (sec 1471) ------------------------------
+ *
+ * A Takeout note is one JSON object, framed and validated by situ's JSON
+ * (`wire/json_walk.h`) and walked member by member; a key inside an
+ * attachment or a list item is that member's, never the note's. What is
+ * this file's own is reading a string's escapes, which situ frames and
+ * does not spell out. */
 
 typedef enum str_result { STR_OK, STR_LONG, STR_BAD } str_result_t;
-
-static int is_space(uint8_t c)
-{
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
 
 static int hex4(const uint8_t *s, size_t len, size_t at, unsigned *out)
 {
@@ -59,19 +62,6 @@ static int hex4(const uint8_t *s, size_t len, size_t at, unsigned *out)
 }
 
 /* Append `n` bytes, or note that the value ran past `cap`. */
-/* A TITLE PAST THE LIMIT, SHORTENED, sec 982: `n` bytes of whole characters
- * held, cut to at most FZN_NOTE_TITLE_MAX at a character's start. A long
- * title refused the whole note, its text with it, where fuzzypickles' import
- * kept the note and cut the title; the text is what the note is. */
-static size_t title_cut(const uint8_t *t, size_t n)
-{
-	size_t keep = n < FZN_NOTE_TITLE_MAX ? n : FZN_NOTE_TITLE_MAX;
-
-	while (keep && keep < n && (t[keep] & 0xc0u) == 0x80u)
-		keep--;
-	return keep;
-}
-
 static void put(uint8_t *out, size_t cap, size_t *n, const uint8_t *b, size_t k, int *over)
 {
 	if (*over || !out || cap - *n < k) {
@@ -110,29 +100,19 @@ static void put_utf8(uint8_t *out, size_t cap, size_t *n, unsigned cp, int *over
 }
 
 /*
- * Decode the string at `*at` (its opening quote) into `out`, leaving `*at`
- * past its closing quote. LONG when it ran past `cap` -- the whole string is
- * still walked, so the caller can go on -- and BAD when it is not a string.
- * `out` may be NULL to skip one.
+ * A string's framed characters, `len` of them, decoded into `out`: LONG
+ * when it ran past `cap`, BAD when it holds what no note may -- a NUL, raw
+ * or escaped, a lone surrogate, an escape JSON does not have.
  */
-static str_result_t json_string(const uint8_t *s, size_t len, size_t *at, uint8_t *out,
-                                size_t cap, size_t *out_len)
+static str_result_t keep_string(const uint8_t *s, size_t len, uint8_t *out, size_t cap, size_t *out_len)
 {
-	size_t i = *at, n = 0;
+	size_t i, n = 0;
 	int over = 0;
 
-	if (i >= len || s[i] != '"')
-		return STR_BAD;
-	for (i++; i < len; i++) {
+	for (i = 0; i < len; i++) {
 		uint8_t c = s[i];
 		unsigned cp, low;
 
-		if (c == '"') {
-			*at = i + 1u;
-			if (out_len)
-				*out_len = n;
-			return out && over ? STR_LONG : STR_OK;
-		}
 		if (c == 0u)
 			return STR_BAD;
 		if (c != '\\') {
@@ -176,46 +156,22 @@ static str_result_t json_string(const uint8_t *s, size_t len, size_t *at, uint8_
 		}
 		put(out, cap, &n, &c, 1u, &over);
 	}
-	return STR_BAD; /* unterminated */
+	*out_len = n;
+	return over ? STR_LONG : STR_OK;
 }
 
-/* After a key string ending at `at`: the value's start past its colon, or 0
- * when it was no key. */
-static size_t key_value(const uint8_t *s, size_t len, size_t at)
+/* A TITLE PAST THE LIMIT, SHORTENED, sec 982: `n` bytes of whole characters
+ * held, cut to at most FZN_NOTE_TITLE_MAX at a character's start. A long
+ * title refused the whole note, its text with it, where fuzzypickles' import
+ * kept the note and cut the title; the text is what the note is. */
+static size_t title_cut(const uint8_t *t, size_t n)
 {
-	while (at < len && is_space(s[at]))
-		at++;
-	if (at >= len || s[at] != ':')
-		return 0;
-	for (at++; at < len && is_space(s[at]); at++)
-		;
-	return at;
+	size_t keep = n < FZN_NOTE_TITLE_MAX ? n : FZN_NOTE_TITLE_MAX;
+
+	while (keep && keep < n && (t[keep] & 0xc0u) == 0x80u)
+		keep--;
+	return keep;
 }
-
-static int key_is(const uint8_t *k, size_t k_len, const char *name)
-{
-	return k_len == strlen(name) && memcmp(k, name, k_len) == 0;
-}
-
-static int is_true(const uint8_t *s, size_t len, size_t at)
-{
-	return len - at >= 4u && memcmp(s + at, "true", 4u) == 0;
-}
-
-static uint64_t parse_uint(const uint8_t *s, size_t len, size_t at)
-{
-	uint64_t v = 0;
-	size_t n = 0;
-
-	for (; at < len && s[at] >= '0' && s[at] <= '9'; at++, n++) {
-		if (v > (UINT64_MAX - (uint64_t)(s[at] - '0')) / 10u)
-			return 0; /* absurd: as absent */
-		v = (v * 10u) + (uint64_t)(s[at] - '0');
-	}
-	return n ? v : 0u;
-}
-
-enum { IN_NONE, IN_LIST, IN_LABELS, IN_ATTACHMENTS };
 
 /* KEEP'S COLOURS by the names its export writes, as Keep paints them
  * (0xRRGGBBAA, opaque); DEFAULT and a name not here are unset, sec 985. */
@@ -238,176 +194,213 @@ static uint32_t keep_colour(const uint8_t *name, size_t len)
 	return 0u;
 }
 
+/* THE NOTE BEING READ, and what reading it found. */
+struct keep_read {
+	fzn_notes_import_entry_t *e;
+	int bad, too_long, have_list;
+	/* the list item or label being read */
+	size_t item_len;
+	int item_checked, have_item;
+};
+
+/* A value's string into `out`: its result, and STR_OK with nothing taken
+ * -- `*taken` 0 -- for a value that is no string, which is left as if
+ * absent, as a `null` title is. */
+static str_result_t value_string(const situ_view_t *v, uint8_t *out, size_t cap, size_t *out_len, int *taken)
+{
+	const char *chars;
+	size_t len;
+
+	*taken = fzn_json_walk_string(v, &chars, &len);
+	if (!*taken)
+		return STR_OK;
+	return keep_string((const uint8_t *)chars, len, out, cap, out_len);
+}
+
+static int is_true(const situ_view_t *v)
+{
+	return fzn_json_value_kind_get(*v) == 't';
+}
+
+/* A number's leading digits, or 0 for none or one past 64 bits. */
+static uint64_t value_uint(const situ_view_t *v)
+{
+	const char *t;
+	size_t len, i;
+	uint64_t n = 0;
+
+	if (!fzn_json_walk_number(v, &t, &len))
+		return 0;
+	for (i = 0; i < len && t[i] >= '0' && t[i] <= '9'; i++) {
+		if (n > (UINT64_MAX - (uint64_t)(t[i] - '0')) / 10u)
+			return 0; /* absurd: as absent */
+		n = n * 10u + (uint64_t)(t[i] - '0');
+	}
+	return n;
+}
+
+/* A list item's or label's member: its text or name, and an item's tick. */
+static int item_member(const char *key, size_t len, const situ_view_t *held, void *ctx, const char *text_key)
+{
+	struct keep_read *k = ctx;
+	int taken = 0;
+	str_result_t r;
+
+	if (fzn_json_walk_key_is(key, len, text_key)) {
+		r = value_string(held, item, sizeof(item), &k->item_len, &taken);
+		k->bad |= r == STR_BAD;
+		k->too_long |= r == STR_LONG;
+		k->have_item |= taken;
+	} else if (!strcmp(text_key, "text") && fzn_json_walk_key_is(key, len, "isChecked")) {
+		k->item_checked = is_true(held);
+		k->have_item = 1;
+	}
+	return 1;
+}
+
+static int list_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
+{
+	return item_member(key, len, held, ctx, "text");
+}
+
+static int label_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
+{
+	return item_member(key, len, held, ctx, "name");
+}
+
+/* A checklist's item, as notes/note.h keeps it: flags (u8) | text_len
+ * (u16) | text. */
+static int list_item(const situ_view_t *held, void *ctx)
+{
+	struct keep_read *k = ctx;
+	fzn_notes_import_entry_t *e = k->e;
+
+	k->item_len = 0;
+	k->item_checked = 0;
+	k->have_item = 0;
+	if (!fzn_json_walk_members(held, list_member, k) || !k->have_item)
+		return 1;
+	{
+		uint8_t head[3];
+		size_t n = e->text_len;
+		int over = 0;
+
+		head[0] = k->item_checked ? FZN_NOTE_ITEM_FLAG_CHECKED : 0u;
+		fzn_put_be16(head + 1, (uint16_t)k->item_len);
+		put(text, sizeof(text), &n, head, 3u, &over);
+		put(text, sizeof(text), &n, item, k->item_len, &over);
+		k->too_long |= over;
+		e->text_len = n;
+	}
+	return 1;
+}
+
+static int label(const situ_view_t *held, void *ctx)
+{
+	struct keep_read *k = ctx;
+	fzn_notes_import_entry_t *e = k->e;
+	size_t n = e->labels_len;
+	int over = 0;
+	const uint8_t nul = 0;
+
+	k->item_len = 0;
+	k->have_item = 0;
+	if (!fzn_json_walk_members(held, label_member, k) || !k->item_len)
+		return 1;
+	/* A label with a NUL in it would split into two. */
+	if (memchr(item, 0, k->item_len))
+		k->bad = 1;
+	if (n)
+		put(labels, sizeof(labels), &n, &nul, 1u, &over);
+	put(labels, sizeof(labels), &n, item, k->item_len, &over);
+	k->too_long |= over;
+	e->labels_len = n;
+	return 1;
+}
+
+static int attachment(const situ_view_t *held, void *ctx)
+{
+	if (fzn_json_value_kind_get(*held) == '{')
+		((struct keep_read *)ctx)->e->attachments++;
+	return 1;
+}
+
+static int note_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
+{
+	struct keep_read *k = ctx;
+	fzn_notes_import_entry_t *e = k->e;
+	str_result_t r = STR_OK;
+	int taken = 0;
+
+	if (fzn_json_walk_key_is(key, len, "title")) {
+		r = value_string(held, title, sizeof(title), &e->title_len, &taken);
+		if (r == STR_LONG) {
+			e->title_len = title_cut(title, e->title_len);
+			r = STR_OK;
+		}
+	} else if (fzn_json_walk_key_is(key, len, "textContent") && !k->have_list) {
+		r = value_string(held, text, sizeof(text), &e->text_len, &taken);
+	} else if (fzn_json_walk_key_is(key, len, "listContent")) {
+		/* THE LIST WINS over any text beside it: Keep writes one or the
+		 * other, and a list's items are what the note is. */
+		k->have_list = 1;
+		e->content_type = FZN_NOTE_TYPE_LIST;
+		e->text_len = 0;
+		(void)fzn_json_walk_elements(held, list_item, k);
+	} else if (fzn_json_walk_key_is(key, len, "labels")) {
+		(void)fzn_json_walk_elements(held, label, k);
+	} else if (fzn_json_walk_key_is(key, len, "attachments")) {
+		(void)fzn_json_walk_elements(held, attachment, k);
+	} else if (fzn_json_walk_key_is(key, len, "color")) {
+		uint8_t name[16];
+		size_t name_len = 0;
+
+		r = value_string(held, name, sizeof(name), &name_len, &taken);
+		if (r == STR_OK && taken)
+			e->colour = keep_colour(name, name_len);
+		r = r == STR_LONG ? STR_OK : r;
+	} else if (fzn_json_walk_key_is(key, len, "isPinned")) {
+		e->flags |= is_true(held) ? FZN_NOTE_FLAG_PINNED : 0u;
+	} else if (fzn_json_walk_key_is(key, len, "isArchived")) {
+		e->flags |= is_true(held) ? FZN_NOTE_FLAG_ARCHIVED : 0u;
+	} else if (fzn_json_walk_key_is(key, len, "isTrashed")) {
+		e->flags |= is_true(held) ? FZN_NOTE_FLAG_TRASHED : 0u;
+	} else if (fzn_json_walk_key_is(key, len, "createdTimestampUsec")) {
+		e->created_at_ms = value_uint(held) / 1000u;
+	}
+	k->bad |= r == STR_BAD;
+	k->too_long |= r == STR_LONG;
+	return 1;
+}
+
 fzn_notes_err_t fzn_notes_import_keep(const uint8_t *json, size_t len, fzn_notes_import_fn fn,
                                       void *ctx, fzn_notes_import_refused_fn refused,
                                       void *refused_ctx)
 {
 	fzn_notes_import_entry_t e;
-	size_t i = 0, depth = 0, in_depth = 0, item_len = 0;
-	int in = IN_NONE, pending = IN_NONE, have_list = 0, item_checked = 0, have_item = 0;
-	int bad = 0, too_long = 0;
+	struct keep_read k;
+	situ_msg_t msg;
+	situ_view_t note;
 
 	if (!json || !fn)
 		return FZN_NOTES_ERR_MALFORMED;
 	memset(&e, 0, sizeof(e));
+	memset(&k, 0, sizeof(k));
 	e.content_type = FZN_NOTE_TYPE_NOTE;
 	e.title = title;
 	e.text = text;
 	e.labels = labels;
+	k.e = &e;
+	/* ONE JSON OBJECT, whole: a file cut short or not JSON imports
+	 * nothing of itself, where a scan would have kept what it had read. */
+	if (!fzn_json_walk_frame((const char *)json, len, &msg, &note) || !fzn_json_walk_members(&note, note_member, &k))
+		k.bad = 1;
 
-	while (i < len && !bad) {
-		uint8_t c = json[i];
-		size_t v;
-		uint8_t key[32];
-		size_t key_len = 0;
-		str_result_t r;
-
-		if (c == '{' || c == '[') {
-			depth++;
-			if (c == '[' && pending != IN_NONE && depth == 2u) {
-				in = pending;
-				in_depth = depth;
-			}
-			pending = IN_NONE;
-			if (c == '{' && in == IN_ATTACHMENTS && depth == in_depth + 1u)
-				e.attachments++;
-			if (c == '{' && in != IN_NONE && depth == in_depth + 1u) {
-				item_len = 0;
-				item_checked = 0;
-				have_item = 0;
-			}
-			i++;
-			continue;
-		}
-		if (c == '}' || c == ']') {
-			if (c == '}' && in != IN_NONE && depth == in_depth + 1u && have_item) {
-				if (in == IN_LIST) {
-					/* flags (u8) | text_len (u16) | text, notes/note.h */
-					uint8_t head[3];
-					size_t n = e.text_len;
-					int over = 0;
-
-					head[0] = item_checked ? FZN_NOTE_ITEM_FLAG_CHECKED : 0u;
-					fzn_put_be16(head + 1, (uint16_t)item_len);
-					put(text, sizeof(text), &n, head, 3u, &over);
-					put(text, sizeof(text), &n, item, item_len, &over);
-					too_long |= over;
-					e.text_len = n;
-				} else if (item_len > 0u) {
-					size_t n = e.labels_len;
-					int over = 0;
-					const uint8_t nul = 0;
-
-					/* A label with a NUL in it would split into two. */
-					if (memchr(item, 0, item_len))
-						bad = 1;
-					if (n)
-						put(labels, sizeof(labels), &n, &nul, 1u, &over);
-					put(labels, sizeof(labels), &n, item, item_len, &over);
-					too_long |= over;
-					e.labels_len = n;
-				}
-			}
-			if (c == ']' && in != IN_NONE && depth == in_depth)
-				in = IN_NONE;
-			if (depth)
-				depth--;
-			i++;
-			continue;
-		}
-		if (c != '"') {
-			i++;
-			continue;
-		}
-		/* A string: a key when a colon follows it. */
-		{
-			size_t at = i;
-
-			r = json_string(json, len, &at, key, sizeof(key), &key_len);
-			if (r == STR_BAD) {
-				bad = 1;
-				break;
-			}
-			v = key_value(json, len, at);
-			if (!v || r == STR_LONG) {
-				i = at;
-				continue;
-			}
-			i = v;
-		}
-		if (depth == 1u) {
-			if (key_is(key, key_len, "title")) {
-				r = json_string(json, len, &i, title, sizeof(title), &e.title_len);
-				if (r == STR_LONG) {
-					e.title_len = title_cut(title, e.title_len);
-					r = STR_OK;
-				}
-			} else if (key_is(key, key_len, "textContent") && !have_list)
-				r = json_string(json, len, &i, text, sizeof(text), &e.text_len);
-			else if (key_is(key, key_len, "listContent")) {
-				/* THE LIST WINS over any text beside it: Keep writes one or
-				 * the other, and a list's items are what the note is. */
-				have_list = 1;
-				e.content_type = FZN_NOTE_TYPE_LIST;
-				e.text_len = 0;
-				pending = IN_LIST;
-				continue;
-			} else if (key_is(key, key_len, "labels")) {
-				pending = IN_LABELS;
-				continue;
-			} else if (key_is(key, key_len, "attachments")) {
-				pending = IN_ATTACHMENTS;
-				continue;
-			} else if (key_is(key, key_len, "color")) {
-				uint8_t name[16];
-				size_t name_len = 0;
-
-				r = json_string(json, len, &i, name, sizeof(name), &name_len);
-				if (r == STR_OK)
-					e.colour = keep_colour(name, name_len);
-				r = r == STR_LONG ? STR_OK : r;
-			} else if (key_is(key, key_len, "isPinned")) {
-				e.flags |= is_true(json, len, i) ? FZN_NOTE_FLAG_PINNED : 0u;
-				continue;
-			} else if (key_is(key, key_len, "isArchived")) {
-				e.flags |= is_true(json, len, i) ? FZN_NOTE_FLAG_ARCHIVED : 0u;
-				continue;
-			} else if (key_is(key, key_len, "isTrashed")) {
-				e.flags |= is_true(json, len, i) ? FZN_NOTE_FLAG_TRASHED : 0u;
-				continue;
-			} else if (key_is(key, key_len, "createdTimestampUsec")) {
-				e.created_at_ms = parse_uint(json, len, i) / 1000u;
-				continue;
-			} else {
-				continue;
-			}
-		} else if (in != IN_NONE && depth == in_depth + 1u
-		           && ((in == IN_LIST && key_is(key, key_len, "text"))
-		               || (in == IN_LABELS && key_is(key, key_len, "name")))) {
-			r = json_string(json, len, &i, item, sizeof(item), &item_len);
-			have_item = 1;
-		} else if (in == IN_LIST && depth == in_depth + 1u
-		           && key_is(key, key_len, "isChecked")) {
-			item_checked = is_true(json, len, i);
-			have_item = 1;
-			continue;
-		} else {
-			continue;
-		}
-		/* A value that is not a string, where one was expected. */
-		if (r == STR_BAD) {
-			if (i < len && json[i] != '"')
-				continue;
-			bad = 1;
-		}
-		too_long |= r == STR_LONG;
-	}
-
-	if (bad) {
+	if (k.bad) {
 		refuse(refused, refused_ctx, FZN_NOTES_IMPORT_UNPARSED, title, e.title_len);
 		return FZN_NOTES_OK;
 	}
-	if (too_long) {
+	if (k.too_long) {
 		refuse(refused, refused_ctx, FZN_NOTES_IMPORT_TOO_LONG, title, e.title_len);
 		return FZN_NOTES_OK;
 	}

@@ -97,8 +97,8 @@ listener port spans (`150e3106`).
   nine hand-only grammars are its token cells (sec 1414), and the local
   permit's grammar is situ's (sec 1415), the remote permit's too (sec
   1440), and the group list's (sec 1441); the manifest's order is the
-  schema's (sec 1438); AcoustID's answer and gpsd's TPV are read by
-  situ's JSON (secs 1469, 1470). The erasure shape stays hand-written for the
+  schema's (sec 1438); AcoustID's answer, gpsd's TPV and a Keep note
+  are read by situ's JSON (secs 1469-1471). The erasure shape stays hand-written for the
   reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
@@ -77242,10 +77242,38 @@ handed back as written, for the caller to read. AcoustID's reader (sec
 and view by tag alone** (`struct situ_msg`, `struct situ_view`): every
 header here is installed and none includes a generated one --
 installcheck refused the first version, which did -- so a caller that
-walks includes `wire/generated/json.h` itself. **The third, the Google Keep
-import (`notes/import.c`), is next.**
+walks includes `wire/generated/json.h` itself. The third, the Google Keep
+import, followed (sec 1471).
 
 Tests: `tpv_test` adds the nested key and the line that is not JSON;
 `gpsd_test` and `fingerprint_test` unchanged and passing. Sabotage: the
 element walk and the member walk, each caught by `fingerprint_test`; the
 TPV entries re-pointed to the new lines, each caught.
+
+## 1471. A Google Keep note read by situ's JSON, 2026-11-26
+
+`fzn_notes_import_keep` (sec 429) read a Takeout note with a scan of its
+own: brackets counted for depth, a string a key when a colon followed it,
+state flags for "inside the list" and "inside the labels". The last of
+the three JSON readers sec 1470 named; it moves onto `wire/json_walk.h`
+as the others did.
+
+**The note is one JSON object, framed and validated, its members walked**:
+`title`, `textContent`, `listContent` (each item's `text` and
+`isChecked`), `labels` (each `name`), `attachments` (counted), `color`,
+the three flags and `createdTimestampUsec`. A key inside an attachment or
+an item is that member's by construction, where the scan kept a depth
+count to tell. What the note may hold is unchanged and still the file's
+own: a string's escapes read into UTF-8, a NUL raw or escaped and a lone
+surrogate refusing the note, a title past its bound cut at a
+character's start (sec 982), a text past its bound refusing the note.
+
+**One thing differs: a file cut short imports nothing.** The scan kept
+what it had read -- a title and half a text, two of three items -- and
+imported it; now the note is refused as unparsed. A new test cuts a
+checklist at every byte and imports none.
+
+The sabotage entry that broke the scan's depth test (`depth == 1u`) is
+retired: no line now hands a nested member to the note's reader. Three
+others follow the lines they guard; `json-walk-unvalidated` holds the
+validation every reader relies on and is caught by `tpv_test`'s `1.`.

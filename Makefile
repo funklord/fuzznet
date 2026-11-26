@@ -271,6 +271,11 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/persist_wire.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
+# JSON THROUGH SITU'S VIEWS, secs 1469-1471: AcoustID's answer, gpsd's
+# TPV and a Keep note. Named once, and before any rule names it -- make
+# expands a prerequisite list as it reads it -- so a binary linking more
+# than one (fuzznetd) links each object once.
+JSON_WALK_OBJS := $(BUILD_DIR)/wire/json_walk.o $(BUILD_DIR)/wire/generated/json.o
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
 GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
@@ -2684,7 +2689,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/notes/view.o \
                                           $(BUILD_DIR)/notes/author.o \
                                           $(BUILD_DIR)/notes/purge.o \
-                                          $(BUILD_DIR)/notes/import.o \
+                                          $(BUILD_DIR)/notes/import.o $(JSON_WALK_OBJS) \
                                           $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/wire/generated/note_row.o \
                                           $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                           $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
@@ -2767,7 +2772,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/sync.o $(BUILD_DIR)/wire/generated/sync_wire.o \
                                    $(BUILD_DIR)/notes/share.o \
                                    $(BUILD_DIR)/notes/received.o \
-                                   $(BUILD_DIR)/notes/import.o \
+                                   $(BUILD_DIR)/notes/import.o $(JSON_WALK_OBJS) \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -3879,9 +3884,6 @@ $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_T
 # WHAT A TUNE SOUNDS LIKE, sec 1457: its tempo, key and loudness, held to
 # snurra's measurements of the detector it carries here; and the sound
 # decoded through FFmpeg where the build has it (FZN_MEDIA_DECODE).
-# JSON THROUGH SITU'S VIEWS, sec 1469: AcoustID's answer and gpsd's TPV.
-# Named once so a binary linking both (fuzznetd) links each object once.
-JSON_WALK_OBJS := $(BUILD_DIR)/wire/json_walk.o $(BUILD_DIR)/wire/generated/json.o
 MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o
 MEDIA_SOUND_LIBS = $(MEDIA_DECODE_LIBS) -lm
 $(BUILD_DIR)/media/decode.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
@@ -4262,7 +4264,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/notes/sync.o $(BUILD_DIR)/wire/generated/sync_wire.o \
                                      $(BUILD_DIR)/notes/share.o \
                                      $(BUILD_DIR)/notes/received.o \
-                                     $(BUILD_DIR)/notes/import.o \
+                                     $(BUILD_DIR)/notes/import.o $(JSON_WALK_OBJS) \
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                      $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
