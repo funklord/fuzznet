@@ -77540,7 +77540,10 @@ sixty-four structs, four to a level -- before framing it. Every reader
 here goes through it. AcoustID's answer is four or five levels, a Keep
 note three, a TPV line one. situ is told (its inbox 20261126T1843Z): the
 fix that belongs there is `_required` spending the depth `_validate`
-does; the guard goes when it does.
+does; the guard goes when it does. **Gone since situ 1824966a** (its
+answer, inbox 20261126T2120Z): `_required` refuses past `[depth]` itself,
+without a deep stack, so the pre-count is removed and the hundred
+thousand brackets are refused by situ's framing, plain and under ASan.
 
 Tests: `fingerprint_test` -- an answer a hundred thousand deep refused,
 plain and under ASan, where without the guard it is a segfault. Sabotage:

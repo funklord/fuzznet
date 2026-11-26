@@ -116,33 +116,41 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint8_t fzn_json_member_sep_get(situ_view_t view);
 
 /* members.entries : member  at AbsoluteStatic(0x00)
@@ -409,13 +417,22 @@ static inline uint32_t fzn_json_members_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 0u;
 	situ_view_t view;
 
+	/* `members` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -441,7 +458,11 @@ static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t
 				*need = at;
 				return SITU_ERR_TRUNCATED;
 			}
-			e = fzn_json_member_required(data + pos, situ_remaining_u32(have, pos), &part);
+			e = fzn_json_member_required_at(data + pos, situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
@@ -463,6 +484,11 @@ static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_members_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -523,32 +549,39 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 
 /** object.open : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
@@ -799,13 +832,22 @@ static inline uint32_t fzn_json_object_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 1u;
 	situ_view_t view;
 
+	/* `object` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -853,8 +895,12 @@ static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t 
 				return SITU_ERR_TRUNCATED;
 			}
 		} else {
-			e = fzn_json_members_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
+			e = fzn_json_members_required_at(data + pos,
+			                situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
@@ -866,6 +912,11 @@ static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t 
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_object_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -929,32 +980,39 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 
 /** element.held : value  at AbsoluteStatic(0x00)
  * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
@@ -1181,13 +1239,22 @@ static inline uint32_t fzn_json_element_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 0u;
 	situ_view_t view;
 
+	/* `element` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -1207,8 +1274,12 @@ static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t
 		uint32_t   part = 0u;
 		situ_err_t e;
 
-		e = fzn_json_value_required(data + pos,
-		                situ_remaining_u32(have, pos), &part);
+		e = fzn_json_value_required_at(data + pos,
+		                situ_remaining_u32(have, pos), &part, depth + 1u);
+		if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+			*need = have;
+			return e;
+		}
 		if (e != SITU_OK) {
 			*need = situ_need_u32(at, part);
 			return SITU_ERR_TRUNCATED;
@@ -1231,6 +1302,11 @@ static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_element_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -1292,33 +1368,41 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get(situ_view_t view);
 
 /* elements.entries : element  at AbsoluteStatic(0x00)
@@ -1585,13 +1669,22 @@ static inline uint32_t fzn_json_elements_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 0u;
 	situ_view_t view;
 
+	/* `elements` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -1617,7 +1710,11 @@ static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_
 				*need = at;
 				return SITU_ERR_TRUNCATED;
 			}
-			e = fzn_json_element_required(data + pos, situ_remaining_u32(have, pos), &part);
+			e = fzn_json_element_required_at(data + pos, situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
@@ -1639,6 +1736,11 @@ static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_elements_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -1699,32 +1801,39 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 
 /** array.open : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
@@ -1975,13 +2084,22 @@ static inline uint32_t fzn_json_array_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 1u;
 	situ_view_t view;
 
+	/* `array` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -2029,8 +2147,12 @@ static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t h
 				return SITU_ERR_TRUNCATED;
 			}
 		} else {
-			e = fzn_json_elements_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
+			e = fzn_json_elements_required_at(data + pos,
+			                situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
@@ -2042,6 +2164,11 @@ static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t h
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_array_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -2727,32 +2854,39 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 
 /** value.kind : u8  at Scanned
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
@@ -3166,13 +3300,22 @@ static inline uint32_t fzn_json_value_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 0u;
 	uint32_t pos = 0u;
 	situ_view_t view;
 
+	/* `value` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -3207,15 +3350,23 @@ static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t h
 			return SITU_ERR_TRUNCATED;
 		}
 		if (fzn_json_value_kind_get(view) == 123u) {
-			e = fzn_json_object_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
+			e = fzn_json_object_required_at(data + pos,
+			                situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
 		} else if (fzn_json_value_kind_get(view) == 91u) {
-			e = fzn_json_array_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
+			e = fzn_json_array_required_at(data + pos,
+			                situ_remaining_u32(have, pos), &part, depth + 1u);
+			if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+				*need = have;
+				return e;
+			}
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
@@ -3262,6 +3413,11 @@ static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t h
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_value_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],
@@ -3330,32 +3486,39 @@ static inline uint8_t fzn_json_member_sep_get_from(situ_view_t view, uint32_t at
 static inline uint32_t fzn_json_member_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_member_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_members_extent(situ_view_t view);
 static inline uint32_t fzn_json_members_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_members_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_members_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_members_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_object_extent(situ_view_t view);
 static inline uint32_t fzn_json_object_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_object_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_object_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_object_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_element_extent(situ_view_t view);
 static inline uint32_t fzn_json_element_extent_at(situ_view_t view, uint32_t depth);
 static inline uint8_t fzn_json_element_sep_get_from(situ_view_t view, uint32_t at);
 static inline uint32_t fzn_json_element_extent_marked_at(situ_view_t view, uint32_t depth, uint32_t *marks);
 static inline uint32_t fzn_json_element_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_element_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_element_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_elements_extent(situ_view_t view);
 static inline uint32_t fzn_json_elements_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_elements_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_elements_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_elements_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_array_extent(situ_view_t view);
 static inline uint32_t fzn_json_array_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_array_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_array_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_array_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 static inline uint32_t fzn_json_value_extent(situ_view_t view);
 static inline uint32_t fzn_json_value_extent_at(situ_view_t view, uint32_t depth);
 static inline uint32_t fzn_json_value_nesting_at(situ_view_t view, uint32_t depth);
 static inline situ_err_t fzn_json_value_required(const uint8_t *data, uint32_t have, uint32_t *need);
+static inline situ_err_t fzn_json_value_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth);
 
 /** member.open : u8  at Scanned
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
@@ -3850,13 +4013,22 @@ static inline uint32_t fzn_json_member_nesting(situ_view_t view)
  * For framing a stream: read, ask, read the difference, ask again. The
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
+ *
+ * SITU_ERR_CONSTRAINT nested past its bound, which no more bytes mend
  */
-static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_json_member_required_at(const uint8_t *data, uint32_t have, uint32_t *need, uint32_t depth)
 {
 	uint32_t at = 1u;
 	uint32_t pos = 0u;
 	situ_view_t view;
 
+	/* `member` nests at most 64 deep, and each level
+	 * is a call: past the bound the message is refused, which no
+	 * further byte can change, and the stack stays bounded (20.1). */
+	if (depth > 64u) {
+		*need = have;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* A view over what has arrived, so every length expression below
 	 * reads through the same bounds the accessors do. */
 	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
@@ -3930,8 +4102,12 @@ static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t 
 		uint32_t   part = 0u;
 		situ_err_t e;
 
-		e = fzn_json_value_required(data + pos,
-		                situ_remaining_u32(have, pos), &part);
+		e = fzn_json_value_required_at(data + pos,
+		                situ_remaining_u32(have, pos), &part, depth + 1u);
+		if (e == SITU_ERR_CONSTRAINT || e == SITU_ERR_DEPTH) {
+			*need = have;
+			return e;
+		}
 		if (e != SITU_OK) {
 			*need = situ_need_u32(at, part);
 			return SITU_ERR_TRUNCATED;
@@ -3954,6 +4130,11 @@ static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t 
 
 	*need = at;
 	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+static inline situ_err_t fzn_json_member_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	return fzn_json_member_required_at(data, have, need, 0u);
 }
 
 /** Check every constraint this schema states: [must_eq], [max],

@@ -80,7 +80,8 @@ static inline situ_err_t fzn_session_frame_wire_fzn_session_frame_head_reader_pu
  *
  * SITU_ERR_BOUNDS where a whole one needs more than this buffer can
  * ever hold. That never becomes true by waiting, so it is reported
- * rather than left to spin on a stream that will never satisfy it. */
+ * rather than left to spin on a stream that will never satisfy it.
+ */
 static inline situ_err_t fzn_session_frame_wire_fzn_session_frame_head_reader_next(fzn_session_frame_wire_fzn_session_frame_head_reader_t *reader,
                                      situ_msg_t *msg, situ_view_t *out)
 {
@@ -166,7 +167,8 @@ static inline situ_err_t fzn_session_frame_wire_fzn_session_text_reader_push(fzn
  *
  * SITU_ERR_BOUNDS where a whole one needs more than this buffer can
  * ever hold. That never becomes true by waiting, so it is reported
- * rather than left to spin on a stream that will never satisfy it. */
+ * rather than left to spin on a stream that will never satisfy it.
+ */
 static inline situ_err_t fzn_session_frame_wire_fzn_session_text_reader_next(fzn_session_frame_wire_fzn_session_text_reader_t *reader,
                                      situ_msg_t *msg, situ_view_t *out)
 {
@@ -252,7 +254,8 @@ static inline situ_err_t fzn_session_frame_wire_fzn_session_ask_reader_push(fzn_
  *
  * SITU_ERR_BOUNDS where a whole one needs more than this buffer can
  * ever hold. That never becomes true by waiting, so it is reported
- * rather than left to spin on a stream that will never satisfy it. */
+ * rather than left to spin on a stream that will never satisfy it.
+ */
 static inline situ_err_t fzn_session_frame_wire_fzn_session_ask_reader_next(fzn_session_frame_wire_fzn_session_ask_reader_t *reader,
                                      situ_msg_t *msg, situ_view_t *out)
 {
@@ -338,7 +341,8 @@ static inline situ_err_t fzn_session_frame_wire_fzn_session_grant_reader_push(fz
  *
  * SITU_ERR_BOUNDS where a whole one needs more than this buffer can
  * ever hold. That never becomes true by waiting, so it is reported
- * rather than left to spin on a stream that will never satisfy it. */
+ * rather than left to spin on a stream that will never satisfy it.
+ */
 static inline situ_err_t fzn_session_frame_wire_fzn_session_grant_reader_next(fzn_session_frame_wire_fzn_session_grant_reader_t *reader,
                                      situ_msg_t *msg, situ_view_t *out)
 {

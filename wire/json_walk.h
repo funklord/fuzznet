@@ -22,7 +22,7 @@ struct situ_view;
 /* THE ONE VALUE at the start of `len` bytes of `text`, framed and
  * validated, into `out`; `msg` is the caller's and must outlive `out`.
  * Bytes past the value are not read. 1, or 0 for no whole JSON value, or
- * one nested past sixteen levels (sec 1480). */
+ * one nested past sixteen levels, which situ's framing refuses (sec 1480). */
 int fzn_json_walk_frame(const char *text, size_t len, struct situ_msg *msg, struct situ_view *out);
 
 /* EACH MEMBER of an object value: its key as framed (escapes not read),

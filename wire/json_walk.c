@@ -4,45 +4,14 @@
 
 #include <string.h>
 
-/* NO DEEPER THAN THE SCHEMA, sec 1480: the schema's `[depth = 64]` counts
- * structs, four to a level of braces, so sixteen levels -- which situ's
- * generated `_required` does not hold to: it recurses a call a bracket,
- * and 100000 brackets, 200 KB, overflowed the stack of a plain build
- * (situ told). So the brackets outside strings are counted first, once
- * through, and a document past sixteen levels is refused before it is
- * framed. */
-#define JSON_WALK_LEVELS 16u
-
-static int shallow(const char *text, size_t len)
-{
-	size_t i, depth = 0;
-	int quoted = 0;
-
-	for (i = 0; i < len; i++) {
-		const char c = text[i];
-
-		if (quoted) {
-			if (c == '\\')
-				i++;
-			else if (c == '"')
-				quoted = 0;
-		} else if (c == '"') {
-			quoted = 1;
-		} else if (c == '[' || c == '{') {
-			if (++depth > JSON_WALK_LEVELS)
-				return 0;
-		} else if ((c == ']' || c == '}') && depth) {
-			depth--;
-		}
-	}
-	return 1;
-}
-
 int fzn_json_walk_frame(const char *text, size_t len, struct situ_msg *msg, struct situ_view *out)
 {
 	uint32_t need = 0;
 
-	if (!text || !msg || !out || len > UINT32_MAX || !shallow(text, len)
+	/* NO DEEPER THAN THE SCHEMA: situ's `_required` refuses past its
+	 * `[depth = 64]`, sixteen levels of brackets, without a deep stack
+	 * (situ 1824966a; sec 1480's pre-count gone with it). */
+	if (!text || !msg || !out || len > UINT32_MAX
 	    || fzn_json_value_required((const uint8_t *)text, (uint32_t)len, &need) != SITU_OK || need > len)
 		return 0;
 	situ_msg_init(msg, (uint8_t *)(uintptr_t)text, need);
