@@ -77163,6 +77163,13 @@ the rest while room is left. Four is still the most a hit carries, so a
 filter naming more than three dimensions besides `kind` can still miss
 -- a bound of the hit's, kept; no consumer filters by more.
 
+**The notes store had the same shape** (sec 1332): a note's kind, then
+its labels in order, so `where label=garden` missed a note whose fourth
+label it was. It now carries the labels the filter names first. The
+reading is one helper both stores call, `fzn_search_filter_named_read`
+and `fzn_search_filter_names` in `search/filter.h`; the messages and
+stickers stores tag a fixed few facets each, under four, and need none.
+
 Values stay exact: `where bpm=128.00` matches the tempo as the catalogue
 keeps it, and a span (`bpm` 120 to 130) is facet's RANGE, whose
 collation two hosts must agree on (F7, F20) -- the music view's

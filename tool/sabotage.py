@@ -761,9 +761,16 @@ SABOTAGES = [
 	(
 		"catalog-search-filter-dims-last",
 		"node/catalog_search.c",
-		"\t\t\tconst int asked = !kind && named_by(d, about[k].name, about[k].name_len);\n",
+		"\t\t\tconst int asked = !kind && fzn_search_filter_names(d, (const char *)about[k].name, about[k].name_len, NULL, 0u);\n",
 		"\t\t\tconst int asked = 0;\n",
 		"a hit carries the claims its filter names before any other, or `where` never sees them -- sec 1468",
+	),
+	(
+		"notes-search-filter-labels-last",
+		"node/notes.c",
+		"\t\t\t\t    && fzn_search_filter_names(&asked, \"label\", 5u, (const char *)l, l_len) == (pass == 0))\n",
+		"\t\t\t\t    && pass == 1)\n",
+		"a hit carries the labels its filter names before its others, or `where label=` misses a note's fourth -- sec 1468",
 	),
 	(
 		"music-view-empty-album-shown",

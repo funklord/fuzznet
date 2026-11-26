@@ -8,6 +8,7 @@
 #include "../local/escape.h"
 #include "groups.h"
 #include "../notes/received.h"
+#include "../search/filter.h"
 #include "../notes/share.h"
 #include "../notes/text.h"
 #include "../wire/bytes.h"
@@ -2606,8 +2607,10 @@ static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store
 	static struct by_edit *order;
 	static fzn_note_t note;
 	static uint8_t record[FZN_RECORD_MAX_LEN];
+	static fzn_search_filter_named_t asked;
 	size_t i, k = 0;
 
+	fzn_search_filter_named_read(&asked, q->filter, q->filter_len);
 	if (!order && !(order = malloc(FZN_NOTES_MAX * sizeof(*order))))
 		return 0;
 	if (fzn_notes_view_load(store, view) != FZN_NOTES_OK)
@@ -2631,6 +2634,7 @@ static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store
 		const uint8_t *from = NULL;
 		size_t from_len = 0, at = 0, label;
 		unsigned best = 0;
+		int pass;
 
 		if (fzn_notes_purge_pending(store, node->id)
 		    || fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta) != FZN_NOTE_OK)
@@ -2677,18 +2681,22 @@ static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store
 		/* THE FIELD THAT SCORED BEST is what the snippet shows. */
 		fzn_search_snippet(q, (const char *)from, from_len, &h);
 		/* ITS FACETS, sec 1332, the same on every host that holds it: a
-		 * note or a checklist, and its labels while the hit has room. */
+		 * note or a checklist, and its labels while the hit has room --
+		 * those the query's filter names first (sec 1468), or a note's
+		 * fourth label could never be filtered by. */
 		if (node->content_type == FZN_NOTE_TYPE_LIST)
 			(void)fzn_search_facet_add(&h, "kind", "list", 4u);
 		else if (node->content_type == FZN_NOTE_TYPE_NOTE)
 			(void)fzn_search_facet_add(&h, "kind", "note", 4u);
-		for (label = 0; label < fzn_note_label_count(&note); label++) {
-			const uint8_t *l;
-			size_t l_len;
+		for (pass = 0; pass < 2; pass++)
+			for (label = 0; label < fzn_note_label_count(&note); label++) {
+				const uint8_t *l;
+				size_t l_len;
 
-			if (fzn_note_label(&note, label, &l, &l_len) == FZN_NOTE_OK)
-				(void)fzn_search_facet_add(&h, "label", (const char *)l, l_len);
-		}
+				if (fzn_note_label(&note, label, &l, &l_len) == FZN_NOTE_OK
+				    && fzn_search_filter_names(&asked, "label", 5u, (const char *)l, l_len) == (pass == 0))
+					(void)fzn_search_facet_add(&h, "label", (const char *)l, l_len);
+			}
 		if (!emit(emit_ctx, &h))
 			return 1;
 	}

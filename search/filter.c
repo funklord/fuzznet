@@ -87,3 +87,48 @@ size_t fzn_search_filter_line(const char *line, size_t len, uint8_t *out, size_t
 	}
 	return fzn_search_filter_encode(&f, out, cap);
 }
+
+void fzn_search_filter_named_read(fzn_search_filter_named_t *f, const uint8_t *filter, size_t len)
+{
+	if (!f)
+		return;
+	f->any = filter && len
+	         && fzn_facet_expr_decode(filter, len, f->pos, FZN_SEARCH_FILTER_TERMS, f->neg, FZN_SEARCH_FILTER_TERMS,
+	                                  f->members, FZN_SEARCH_FILTER_MEMBERS, &f->expr, NULL)
+	                    == FZN_FACET_OK;
+}
+
+static int node_names(const fzn_facet_node_t *n, const char *dim, size_t dim_len, const char *value, size_t value_len,
+                      int any_value)
+{
+	return n->dim_len == dim_len && !memcmp(n->dim, dim, dim_len)
+	       && (any_value || !value || (n->id_len == value_len && !memcmp(n->id, value, value_len)));
+}
+
+static int term_names(const fzn_facet_term_t *t, const char *dim, size_t dim_len, const char *value, size_t value_len)
+{
+	size_t m;
+
+	if (t->kind != FZN_FACET_ALT)
+		return node_names(&t->node, dim, dim_len, value, value_len, t->kind == FZN_FACET_RANGE);
+	for (m = 0; m < t->member_count; m++)
+		if (node_names(&t->members[m], dim, dim_len, value, value_len, 0))
+			return 1;
+	return 0;
+}
+
+int fzn_search_filter_names(const fzn_search_filter_named_t *f, const char *dim, size_t dim_len, const char *value,
+                            size_t value_len)
+{
+	size_t i;
+
+	if (!f || !f->any || !dim)
+		return 0;
+	for (i = 0; i < f->expr.pos_count; i++)
+		if (term_names(&f->expr.pos[i], dim, dim_len, value, value_len))
+			return 1;
+	for (i = 0; i < f->expr.neg_count; i++)
+		if (term_names(&f->expr.neg[i], dim, dim_len, value, value_len))
+			return 1;
+	return 0;
+}

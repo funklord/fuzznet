@@ -10,6 +10,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../notes.h"
+#include "../../search/filter.h"
 #include "../../notes/author.h"
 #include "../journal.h"
 #include "../../contact/contact.h"
@@ -3304,6 +3305,30 @@ static void test_search(void)
 	              && !strcmp(hits[0].facets[0].value, "list") && !strcmp(hits[0].facets[1].dim, "label")
 	              && !strcmp(hits[0].facets[1].value, "weekly"),
 	      "a checklist's hit did not carry its kind and its label");
+	/* A LABEL THE FILTER NAMES FIRST, sec 1468: given four more labels,
+	 * the checklist's hit has room for three; filtered by its last, that
+	 * one is carried, or the filter could never select the list. */
+	snprintf(line, sizeof(line), "set note %s labels weekly home car garden", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: four labels");
+	{
+		static uint8_t filter[FZN_SEARCH_FILTER_MAX];
+		const char where[] = "where label=garden";
+		const size_t flen = fzn_search_filter_line(where, sizeof(where) - 1u, filter, sizeof(filter));
+		int garden = 0;
+
+		CHECK(fzn_search_query_init(&q, "weekly", 6u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+		              && count == 1u && hits[0].n_facets == FZN_SEARCH_FACETS_MAX
+		              && strcmp(hits[0].facets[3].value, "garden"),
+		      "fixture: unfiltered, the fourth label is past the hit's facets");
+		CHECK(flen && fzn_search_query_init(&q, "weekly", 6u, 10u), "fixture: a filter on the last label");
+		q.filter = filter;
+		q.filter_len = flen;
+		CHECK(fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u, "the filtered search ran");
+		for (i = 0; count && i < hits[0].n_facets; i++)
+			garden |= !strcmp(hits[0].facets[i].dim, "label") && !strcmp(hits[0].facets[i].value, "garden");
+		CHECK(garden && !strcmp(hits[0].facets[0].dim, "kind"),
+		      "a label the filter names was left off the hit, so the filter could never see it");
+	}
 	CHECK(fzn_search_query_init(&q, "milk", 4u, 10u)
 	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
 	      "a note found by its title and its text was not one hit");

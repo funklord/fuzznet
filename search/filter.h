@@ -38,4 +38,24 @@ size_t fzn_search_filter_encode(fzn_search_filter_words_t *f, uint8_t *out, size
  * or no `where` at all. `line` is borrowed until the call returns. */
 size_t fzn_search_filter_line(const char *line, size_t len, uint8_t *out, size_t cap);
 
+/* WHAT A FILTER NAMES, sec 1468: a query's filter read once, so a store
+ * tags a hit first with the facets the filter asks about -- a hit holds
+ * FZN_SEARCH_FACETS_MAX, and one filled in a store's own order can leave
+ * off the very facet the filter selects by, dropping an item that holds
+ * it. `fzn_search_filter_named_read` decodes `filter` (none, or one that
+ * does not decode, names nothing); `fzn_search_filter_names` is 1 where a
+ * term on either side names dimension `dim` -- and, `value` not NULL,
+ * that value: a node, an alternation's member, or any value of a RANGE's
+ * dimension, which only evaluation can order. `filter` is borrowed while
+ * `f` is used. */
+typedef struct fzn_search_filter_named {
+	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
+	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
+	fzn_facet_expr_t expr;
+	int any;
+} fzn_search_filter_named_t;
+void fzn_search_filter_named_read(fzn_search_filter_named_t *f, const uint8_t *filter, size_t len);
+int fzn_search_filter_names(const fzn_search_filter_named_t *f, const char *dim, size_t dim_len, const char *value,
+                            size_t value_len);
+
 #endif /* FZN_SEARCH_FILTER_H */

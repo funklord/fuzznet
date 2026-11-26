@@ -3,7 +3,6 @@
 
 #include <string.h>
 
-#include "../facet/codec.h"
 #include "../search/filter.h"
 
 static int named(const fzn_node_catalog_entry_t *e, const char *name, size_t len)
@@ -47,60 +46,13 @@ static int name_of(const fzn_node_catalog_t *c, const uint8_t *entity, const uin
 	return 0;
 }
 
-/* THE DIMENSIONS A FILTER NAMES, sec 1468: decoded once a search, so a
- * file's hit carries those facets before any other -- a hit holds four,
- * and a tune's tags come first, so `where genre=Jazz` or `where
- * key=8A Am` would otherwise never see the claim it asks about. */
-struct named_dims {
-	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
-	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
-	fzn_facet_expr_t expr;
-	int any;
-};
-
-static void dims_of(const fzn_search_query_t *q, struct named_dims *d)
-{
-	d->any = q->filter_len
-	         && fzn_facet_expr_decode(q->filter, q->filter_len, d->pos, FZN_SEARCH_FILTER_TERMS, d->neg,
-	                                  FZN_SEARCH_FILTER_TERMS, d->members, FZN_SEARCH_FILTER_MEMBERS,
-	                                  &d->expr, NULL)
-	                    == FZN_FACET_OK;
-}
-
-static int term_names(const fzn_facet_term_t *t, const uint8_t *name, size_t len)
-{
-	size_t m;
-
-	if (t->kind != FZN_FACET_ALT)
-		return t->node.dim_len == len && !memcmp(t->node.dim, name, len);
-	for (m = 0; m < t->member_count; m++)
-		if (t->members[m].dim_len == len && !memcmp(t->members[m].dim, name, len))
-			return 1;
-	return 0;
-}
-
-static int named_by(const struct named_dims *d, const uint8_t *name, size_t len)
-{
-	size_t i;
-
-	if (!d || !d->any)
-		return 0;
-	for (i = 0; i < d->expr.pos_count; i++)
-		if (term_names(&d->expr.pos[i], name, len))
-			return 1;
-	for (i = 0; i < d->expr.neg_count; i++)
-		if (term_names(&d->expr.neg[i], name, len))
-			return 1;
-	return 0;
-}
-
 /* ITS FACETS, sec 1331: the file's live claims, each a dimension and its
  * value as the catalogue keeps them -- `kind` first, then those the
  * query's filter names (sec 1468), then the rest while the hit has room
  * (FZN_SEARCH_FACETS_MAX) -- so a search filters the library by the
  * dimensions `facet` was made for. Its name is no facet: the words find
  * it. */
-static void facets_of(const fzn_node_catalog_t *c, const uint8_t *entity, const struct named_dims *d,
+static void facets_of(const fzn_node_catalog_t *c, const uint8_t *entity, const fzn_search_filter_named_t *d,
                       fzn_search_hit_t *h)
 {
 	static fzn_catalog_assertion_t about[256];
@@ -111,7 +63,7 @@ static void facets_of(const fzn_node_catalog_t *c, const uint8_t *entity, const 
 	for (pass = 0; pass < 3; pass++)
 		for (k = 0; k < n; k++) {
 			const int kind = about[k].name_len == 4u && memcmp(about[k].name, "kind", 4u) == 0;
-			const int asked = !kind && named_by(d, about[k].name, about[k].name_len);
+			const int asked = !kind && fzn_search_filter_names(d, (const char *)about[k].name, about[k].name_len, NULL, 0u);
 			char dim[FZN_SEARCH_FACET_DIM_MAX + 1u];
 
 			if (!about[k].live || (pass == 0) != kind || (pass == 1) != asked
@@ -128,7 +80,7 @@ int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_
                             void *emit_ctx)
 {
 	const fzn_node_catalog_t *c = ctx;
-	static struct named_dims dims;
+	static fzn_search_filter_named_t dims;
 	size_t i;
 
 	if (!c || !q || !emit)
@@ -137,7 +89,7 @@ int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_
 	 * library file is in none. */
 	if (asker || q->within)
 		return 1;
-	dims_of(q, &dims);
+	fzn_search_filter_named_read(&dims, q->filter, q->filter_len);
 	for (i = 0; i < c->count; i++) {
 		const fzn_node_catalog_entry_t *e = &c->entries[i];
 		const uint8_t *shown;

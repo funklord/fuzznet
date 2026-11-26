@@ -2756,6 +2756,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
                                    $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
+                                   $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                    $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(FUZZNETD_JOURNAL_OBJS) \
                                    $(BUILD_DIR)/notes/store.o \
@@ -4246,6 +4247,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/local/peer_linux.o \
                                      $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
+                                     $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                      $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/notes/store.o \
                                      $(BUILD_DIR)/notes/view.o \
