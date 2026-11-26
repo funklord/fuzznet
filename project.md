@@ -77496,3 +77496,17 @@ whole estate.
 Tests: `live_keep` g -- A puts a second tune and its lyrics and reads
 neither, so A links nothing; B, keeping music, fetches both and lists
 the lyrics on the tune. Sabotage: two entries, each caught.
+
+## 1479. The keep tick looks a file up by the catalogue's index, 2026-11-26
+
+`keep_tick` (sec 1473) runs every 5 s and walks the catalogue, asking
+each file's class; the class asked `name_and_kind`, which scanned every
+entry of the catalogue for the one file -- so each tick was quadratic in
+the library: a library of 20000 files, 60000 entries (sec 953's
+figure), is about 10^9 comparisons in the daemon's loop every few
+seconds, and the loop answers nothing meanwhile. `name_and_kind` now
+reads the file's own claims through the catalogue's index
+(`fzn_node_catalog_assertions`, the chain `catalog_first` uses), so a
+tick is linear. The companion link (sec 1472), which asks the same of
+each file sharing a stem, gains the same. Not measured at that size: the
+count is the argument, and `live_keep` and `live_tags` pass unchanged.

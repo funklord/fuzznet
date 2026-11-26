@@ -17766,25 +17766,38 @@ static const char *companion_role(const uint8_t *name, size_t len, const uint8_t
 	return NULL;
 }
 
-/* A FILE'S NAME AND KIND as catalogued, anybody's: 1 with the name. */
+/* A FILE'S NAME AND KIND as catalogued, anybody's: 1 with the name. By
+ * the catalogue's index of each file's claims (sec 1479), so a lookup
+ * costs that file's claims, not the library's -- the keep tick asks it of
+ * every file every few seconds. The values are the catalogue's, borrowed
+ * until it next changes. */
 static int name_and_kind(const uint8_t root[FZN_PUBKEY_LEN], const uint8_t **name, size_t *name_len,
                          const uint8_t **kind, size_t *kind_len)
 {
-	size_t i;
+	static fzn_catalog_assertion_t *set;
+	static size_t set_cap;
+	size_t n = fzn_node_catalog_count_of(&node_catalog, root), i;
 
 	*name = *kind = NULL;
 	*name_len = *kind_len = 0;
-	for (i = 0; i < node_catalog.count; i++) {
-		const fzn_node_catalog_entry_t *e = &node_catalog.entries[i];
+	if (n > set_cap) {
+		fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
 
-		if (!e->live || !e->value_len || memcmp(e->entity, root, FZN_PUBKEY_LEN) != 0)
+		if (!more)
+			return 0;
+		set = more;
+		set_cap = n;
+	}
+	n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+	for (i = 0; i < n && i < set_cap; i++) {
+		if (!set[i].live || !set[i].value_len || set[i].name_len != 4u)
 			continue;
-		if (e->name_len == 4u && !memcmp(e->name, "name", 4u) && !*name) {
-			*name = e->value;
-			*name_len = e->value_len;
-		} else if (e->name_len == 4u && !memcmp(e->name, "kind", 4u) && !*kind) {
-			*kind = e->value;
-			*kind_len = e->value_len;
+		if (!memcmp(set[i].name, "name", 4u) && !*name) {
+			*name = set[i].value;
+			*name_len = set[i].value_len;
+		} else if (!memcmp(set[i].name, "kind", 4u) && !*kind) {
+			*kind = set[i].value;
+			*kind_len = set[i].value_len;
 		}
 	}
 	return *name != NULL;
