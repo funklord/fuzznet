@@ -997,6 +997,13 @@ SABOTAGES = [
 		"a row chosen stays chosen across a refresh, as a host polls -- sec 1488",
 	),
 	(
+		"clock-words-no-hours",
+		"gui/clock_words.h",
+		"return s >= 3600u ?",
+		"return s >= 3600000000u ?",
+		"an hour and a half is 1:27:03, not 87:03 -- sec 1490",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",
@@ -17249,7 +17256,7 @@ SABOTAGES = [
 	(
 		"library-view-broken-unsaid",
 		"gui/library_view.cpp",
-		"\tm_status->setText(out.dropped ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
+		"\tm_status->setText(dropped ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
 		"\tm_status->setText(0 ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
 		"a verified file's broken pieces are said as every one whole -- sec 1156",
 	),

@@ -1,6 +1,7 @@
 /* One line for the call that matters: call_bar.h, fuzznet sec 1238. */
 #include "call_bar.h"
 #include "call_audio.h"
+#include "clock_words.h"
 #include "call_video.h"
 #include "rpc_ask.h"
 
@@ -14,14 +15,7 @@
 
 #include <time.h>
 
-static QString elapsed_words(uint32_t s)
-{
-	return s >= 3600u ? QStringLiteral("%1:%2:%3")
-	                            .arg(s / 3600u)
-	                            .arg(s / 60u % 60u, 2, 10, QLatin1Char('0'))
-	                            .arg(s % 60u, 2, 10, QLatin1Char('0'))
-	                  : QStringLiteral("%1:%2").arg(s / 60u).arg(s % 60u, 2, 10, QLatin1Char('0'));
-}
+static QString elapsed_words(uint32_t s) { return fzn_clock_words(s); }
 
 fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QString &node_socket, QWidget *parent)
     : QWidget(parent), m_rpc(new fzn_gui_rpc), m_audio(new fzn_call_audio(ask, ask_ctx)),

@@ -77776,3 +77776,32 @@ saying what the views are, with it.
 so at 720 px every title was cut to a few letters -- "Field Recor...",
 "Demo, t...". The title column now takes the room and the rest their
 contents' width; `music_view_test` still fits 320 px.
+
+## 1490. The library's check read to its end, and lengths past an hour
+
+**fuzzypickles compared its Library page with `library_view`** (inbox
+20261126T2240Z, under "the more capable one wins", before it hosts ours)
+and reported a fault: `verify()` asks `fzn_rpc_blob_scrub` for one slice
+from piece 0, ignores `next_index` and `done`, and says "every one
+whole". **Measured, it is not wrong today**: the typed client ignores
+`from` and asks fuzznetd's `get file ROOT check`, which verifies the
+whole file (`fzn_node_files_verify`) and answers `done` with `next_index`
+at the end. But the view read the client's contract wrongly, and would
+call a file whole from its start the day a node answers in slices. So
+`verify` now goes on from `next_index` until `done`, adding what each
+slice checked and dropped, and says a check that stops advancing rather
+than looping.
+
+**Lengths past an hour** were the second real one: the library, photo
+and music views each kept a copy of a minutes-and-seconds formatter and
+said "87:03" of an hour and a half. One header, `gui/clock_words.h`
+(`fzn_clock_words`, H:MM:SS from an hour), as `size_words.h` is, serves
+them and the call bar.
+
+The rest of that list, and the call bar's (inbox 20261126T2236Z) and
+the conversations list's (20261126T2240Z), are requirements fuzzypickles
+holds before swapping; taken one at a time in the sections after this.
+
+Tests: `library_view_test` lists a talk 1:27:03 long. Sabotage:
+`clock-words-no-hours`, caught; `library-view-broken-unsaid` follows the
+summed count.

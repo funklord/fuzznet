@@ -1,5 +1,6 @@
 /* The music this user's hosts hold, as a widget: gui/music_view.h, secs 1449, 1458. */
 #include "music_view.h"
+#include "clock_words.h"
 #include "choose_accessible.h"
 #include "combo.h"
 #include "keep_place.h"
@@ -141,8 +142,7 @@ static QString length_words(uint64_t ms)
 {
 	if (!ms)
 		return QString();
-	uint64_t s = ms / 1000u;
-	return QStringLiteral("%1:%2").arg(s / 60u).arg(s % 60u, 2, 10, QLatin1Char('0'));
+	return fzn_clock_words(ms / 1000u);
 }
 
 fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)

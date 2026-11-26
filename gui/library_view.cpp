@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "clock_words.h"
 #include "choose_accessible.h"
 #include "combo.h"
 #include "size_words.h"
@@ -43,8 +44,7 @@ static QString length_words(uint64_t ms)
 {
 	if (!ms)
 		return QString();
-	uint64_t s = ms / 1000u;
-	return QStringLiteral("%1:%2").arg(s / 60u).arg(s % 60u, 2, 10, QLatin1Char('0'));
+	return fzn_clock_words(ms / 1000u);
 }
 
 static QString words(const char *text, size_t len)
@@ -516,17 +516,32 @@ bool fzn_library_view::verify()
 {
 	const QByteArray root = chosen_root();
 	fzn_rpc_blob_scrub_resp_t out;
+	uint64_t from = 0, checked = 0, dropped = 0;
 	if (root.size() != 32 || !chosen_here(m_table))
 		return false;
-	if (fzn_rpc_blob_scrub(&m_rpc->c, (const uint8_t *)root.constData(), 0, &out) != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
-		return false;
+	/* EVERY SLICE, sec 1490: the client answers a slice and where to go
+	 * on. fuzznetd checks a whole file in one, but "every one whole" is
+	 * said only once the answer says done -- never of a file's start. */
+	for (;;) {
+		if (fzn_rpc_blob_scrub(&m_rpc->c, (const uint8_t *)root.constData(), from, &out) != FZN_RPC_OK) {
+			m_status->setText(failed_words(m_rpc));
+			return false;
+		}
+		checked += out.checked;
+		dropped += out.dropped;
+		if (out.done)
+			break;
+		if (out.next_index <= from) {
+			m_status->setText(tr("The check stopped at piece %1 of %2.").arg(from).arg(out.leaf_count));
+			return false;
+		}
+		from = out.next_index;
 	}
 	/* A BROKEN PIECE IS DROPPED, to be fetched again: said so. */
-	m_status->setText(out.dropped ? tr("%1 pieces checked; %2 broken, dropped to be fetched again.")
-	                                        .arg(out.checked)
-	                                        .arg(out.dropped)
-	                              : tr("%1 pieces checked, every one whole.").arg(out.checked));
+	m_status->setText(dropped ? tr("%1 pieces checked; %2 broken, dropped to be fetched again.")
+	                                    .arg(checked)
+	                                    .arg(dropped)
+	                          : tr("%1 pieces checked, every one whole.").arg(checked));
 	return true;
 }
 

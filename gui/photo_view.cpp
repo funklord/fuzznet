@@ -1,6 +1,7 @@
 /* The photographs this user's hosts hold, as a widget: gui/photo_view.h,
  * secs 1450, 1460. */
 #include "photo_view.h"
+#include "clock_words.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
 #include "size_words.h"
@@ -153,8 +154,7 @@ void fzn_photo_view::on_play(std::function<void(const QByteArray &, const QStrin
 /* A VIDEO'S LENGTH as a clock reads it. */
 static QString length_words(uint64_t ms)
 {
-	const uint64_t s = ms / 1000u;
-	return QStringLiteral("%1:%2").arg(s / 60u).arg(s % 60u, 2, 10, QLatin1Char('0'));
+	return fzn_clock_words(ms / 1000u);
 }
 
 void fzn_photo_view::answer_binary(int (*answer)(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply,

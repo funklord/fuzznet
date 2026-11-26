@@ -64,11 +64,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * the host that catalogued it. */
 	if (!strcmp(line, "list catalog 0"))
 		return (size_t)snprintf(reply, cap,
-		                        "ok 6 0 " MOVIE ",name,movie.mkv,bbbb000000000000 " SONG ",name,song.ogg,aaaa000000000000 " SONG
+		                        "ok 7 0 " MOVIE ",name,movie.mkv,bbbb000000000000 " SONG ",name,song.ogg,aaaa000000000000 " SONG
 		                        ",kind,audio/ogg,aaaa000000000000 " SONG
 		                        ",duration,185000,aaaa000000000000 " TALK
 		                        ",name,talk.webm,bbbb000000000000 " TALK
-		                        ",kind,video/webm,bbbb000000000000\n");
+		                        ",kind,video/webm,bbbb000000000000 " TALK
+		                        ",duration,5223000,bbbb000000000000\n");
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", ME, ME);
 	if (!strcmp(line, "list file 0"))
@@ -104,7 +105,7 @@ int main(int argc, char **argv)
 	CHECK(v.refresh()
 	              && v.rows() == QStringList({ "movie.mkv |  | 700.0 MB |  | arriving, 40%, from 1 host(s)",
 	                                           "song.ogg | audio/ogg | 4.0 MB | 3:05 | here, and on 1 other host(s)",
-	                                           "talk.webm | video/webm |  |  | on 1 host(s)" }),
+	                                           "talk.webm | video/webm |  | 1:27:03 | on 1 host(s)" }),
 	      "the files were not listed with their kind, size, length and where they are");
 
 	/* FINDING A FILE, sec 1207: by a word of its name or kind, any case, and
