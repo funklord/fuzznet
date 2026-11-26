@@ -73,6 +73,9 @@ public:
 	void select(int row);
 	bool play();
 	bool fetch();
+	/* THE CHOSEN TRACK'S MUSIC VIDEO, sec 1472, played by the host's
+	 * player as a track is: false where it names none. */
+	bool play_video();
 	/* A library from before, read for its tags a page at a time; how many
 	 * names it learned. */
 	int read_tags();
@@ -86,8 +89,9 @@ public:
 
 	/* WHAT IS ON SCREEN: each row shown, a group -- an album as "ALBUM |
 	 * ARTIST | YEAR | | |", else "TEMPO", "KEY" or "ARTIST" -- and its tracks
-	 * beneath as "  N. TITLE | ARTIST | LENGTH | BPM | KEY | WHERE", and the
-	 * status line. */
+	 * beneath as "  N. TITLE | ARTIST | LENGTH | BPM | KEY | WHERE", then
+	 * " | WITH" where it has companions -- "video, lyrics" (sec 1472) --
+	 * and the status line. */
 	QStringList rows() const;
 	QString status() const;
 
@@ -105,6 +109,7 @@ private:
 	QTreeWidget *m_tree;
 	QPushButton *m_play_button;
 	QPushButton *m_fetch;
+	QPushButton *m_video;
 	QPushButton *m_read;
 	QPushButton *m_hear;
 	QPushButton *m_refresh;

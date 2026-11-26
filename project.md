@@ -77424,3 +77424,20 @@ go once idle (two seconds under FZN_TEST_STREAM_IDLE_S, so the script
 needs the faults build and moves to that section), A's copy untouched;
 e -- streamed again and asked for plainly, it stays across idle restarts.
 Sabotage: three entries, each caught.
+
+## 1475. A track's companions on the music view, and its video played, 2026-11-26
+
+The music view (sec 1449) shows what goes with each track (sec 1472) in
+a seventh column, **With** -- "video, lyrics, tracklist, beatmap", those
+named -- and a **Video** button plays the chosen track's music video
+through the host's player, as Play plays the track: by root, so the
+player fetches or streams it as any file (secs 998, 1474). `rows()`
+gives the column only where a track has companions, so a library
+without them reads as before. Lyrics and a tracklist are for a player
+to read -- snurra reads a cue sheet and FFmpeg's chapters already -- and
+the view names them rather than showing them.
+
+Tests: `music_view_test` -- Night Drive shows "video, lyrics" and plays
+its video's root; Aurora names none, says none and plays none; the view
+still fits 320 px. Sabotage: the client's companion fill and the view's
+video, each caught.

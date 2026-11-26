@@ -305,6 +305,23 @@ int main(int argc, char **argv)
 
 	CHECK(v.minimumSizeHint().width() <= 320, "the view was wider than a 320 px screen");
 
+	/* ITS COMPANIONS, sec 1472: Night Drive's video, the film 0x15, and its
+	 * lyrics, a file 0x16, named on it by their roots -- shown after where
+	 * it is, and its video played as a track is; Aurora names none. */
+	say(me, 0x11, "video", "1515151515151515151515151515151515151515151515151515151515151515");
+	say(me, 0x11, "lyrics", "1616161616161616161616161616161616161616161616161616161616161616");
+	played.clear();
+	v.set_find("night");
+	CHECK(v.refresh() && v.rows().size() == 2 && v.rows()[1].endsWith("| here | video, lyrics"),
+	      "a track's companions were not shown");
+	v.select(1);
+	CHECK(v.play_video() && played == QByteArray(32, 0x15), "a track's video was not played");
+	v.set_find("aurora");
+	v.select(1);
+	CHECK(!v.play_video() && v.rows().size() == 2 && v.rows()[1].endsWith("| here"),
+	      "a track naming no video played one, or said companions");
+	v.set_find("");
+
 	silent = 1;
 	CHECK(!v.refresh() && v.rows().size() == 7, "a node that does not answer cleared the music");
 

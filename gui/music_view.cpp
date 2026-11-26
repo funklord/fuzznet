@@ -32,6 +32,7 @@ extern "C" {
 #define ROLE_FIND (Qt::UserRole + 2)
 #define ROLE_BPM (Qt::UserRole + 3)   /* the tempo heard, 0 for none */
 #define ROLE_PLACE (Qt::UserRole + 4) /* the key's place on the wheel, "8A", or empty */
+#define ROLE_VIDEO (Qt::UserRole + 5) /* its music video's root, sec 1472, or empty */
 
 /* WHAT A PERSON TYPES TO FIND MUSIC, sec 1467: words, each of which a
  * track must hold -- a word of its title, artist, album or genre, its key
@@ -164,13 +165,18 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_order->addItem(tr("By key"));
 	m_order->addItem(tr("By artist"));
 	m_tree = new QTreeWidget(this);
-	m_tree->setColumnCount(6);
-	m_tree->setHeaderLabels({ tr("Title"), tr("Artist"), tr("Length"), tr("BPM"), tr("Key"), tr("Where") });
+	m_tree->setColumnCount(7);
+	m_tree->setHeaderLabels(
+	        { tr("Title"), tr("Artist"), tr("Length"), tr("BPM"), tr("Key"), tr("Where"), tr("With") });
 	m_tree->header()->setStretchLastSection(true);
 	m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_tree->setAccessibleName(tr("The music, by album"));
 	m_play_button = new QPushButton(tr("Play"), this);
 	m_fetch = new QPushButton(tr("Get it"), this);
+	/* ITS MUSIC VIDEO, sec 1472: a file of its own, played as a track is,
+	 * by the host's player -- fetched or streamed by root like any. */
+	m_video = new QPushButton(tr("Video"), this);
+	m_video->setToolTip(tr("Play the music video that goes with this track"));
 	m_read = new QPushButton(tr("Read the tags"), this);
 	m_read->setToolTip(tr("Read the title, artist and album each file says of itself"));
 	m_hear = new QPushButton(tr("Hear the music"), this);
@@ -182,6 +188,7 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_play_button);
 	row->addWidget(m_fetch);
+	row->addWidget(m_video);
 	row->addStretch(1);
 	auto *more = new QHBoxLayout;
 	more->addWidget(m_read);
@@ -203,12 +210,14 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 		const bool track = it && it->parent();
 		m_fetch->setEnabled(track && !it->data(0, ROLE_HERE).toBool());
 		m_play_button->setEnabled(it && (track ? (bool)m_play : (bool)m_play_all));
+		m_video->setEnabled(track && m_play && !it->data(0, ROLE_VIDEO).toByteArray().isEmpty());
 	});
 	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
 	fzn_choose_on_accessible_select(m_tree, nullptr);
 	connect(m_tree, &QTreeWidget::itemActivated, [this](QTreeWidgetItem *, int) { play(); });
 	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
+	connect(m_video, &QPushButton::clicked, [this]() { play_video(); });
 	connect(m_read, &QPushButton::clicked, [this]() { read_tags(); });
 	connect(m_hear, &QPushButton::clicked, [this]() { hear(); });
 	connect(m_order, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int) { rebuild(); });
@@ -216,6 +225,7 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
 	m_play_button->setEnabled(false);
 	m_fetch->setEnabled(false);
+	m_video->setEnabled(false);
 }
 
 fzn_music_view::~fzn_music_view() { delete m_rpc; }
@@ -359,6 +369,21 @@ void fzn_music_view::rebuild()
 			t->setData(0, ROLE_FIND, QStringList({ title, artist, words(e->album), by, words(e->genre), words(e->key),
 			                                       bpm > 0 ? QString::number((int)(bpm + 0.5)) : QString() })
 			                                 .join(QLatin1Char('\n')));
+			/* WHAT GOES WITH IT, sec 1472: each a file of its own. */
+			{
+				QStringList with;
+				if (e->has_video)
+					with << tr("video");
+				if (e->has_lyrics)
+					with << tr("lyrics");
+				if (e->has_tracklist)
+					with << tr("tracklist");
+				if (e->has_beatmap)
+					with << tr("beatmap");
+				t->setText(6, with.join(QStringLiteral(", ")));
+				if (e->has_video)
+					t->setData(0, ROLE_VIDEO, QByteArray((const char *)e->video, 32));
+			}
 			t->setData(0, ROLE_BPM, bpm);
 			t->setData(0, ROLE_PLACE, words(e->key).section(QLatin1Char(' '), 0, 0).toUpper());
 			t->setData(0, Qt::AccessibleTextRole, tr("%1, by %2").arg(title, artist.isEmpty() ? by : artist));
@@ -435,6 +460,16 @@ void fzn_music_view::select(int row)
 {
 	const QList<QTreeWidgetItem *> rows = shown();
 	m_tree->setCurrentItem(row >= 0 && row < rows.size() ? rows[row] : nullptr);
+}
+
+bool fzn_music_view::play_video()
+{
+	QTreeWidgetItem *it = chosen();
+	const QByteArray video = it && it->parent() && !it->isHidden() ? it->data(0, ROLE_VIDEO).toByteArray() : QByteArray();
+	if (video.isEmpty() || !m_play)
+		return false;
+	m_play(video, tr("%1 (video)").arg(it->data(0, Qt::AccessibleTextRole).toString()));
+	return true;
 }
 
 bool fzn_music_view::play()
@@ -527,6 +562,8 @@ QStringList fzn_music_view::rows() const
 		QStringList cells;
 		for (int c = 0; c < 6; c++)
 			cells << it->text(c);
+		if (!it->text(6).isEmpty())
+			cells << it->text(6);
 		out << (it->parent() ? QStringLiteral("  ") : QString()) + cells.join(QStringLiteral(" | "));
 	}
 	return out;

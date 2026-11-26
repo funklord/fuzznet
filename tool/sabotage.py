@@ -871,6 +871,20 @@ SABOTAGES = [
 		"a restart does not make a streamed copy fresh again; live_keep d (faults build) -- sec 1474",
 	),
 	(
+		"rpc-music-companions-dropped",
+		"local/rpc.c",
+		"\t\te->has_##f = 1;                                                                           \\\n",
+		"\t\te->has_##f = 0;                                                                           \\\n",
+		"a tune's companions reach the client from its music row; music_view_test -- sec 1472",
+	),
+	(
+		"music-view-video-not-kept",
+		"gui/music_view.cpp",
+		"\t\t\t\t\tt->setData(0, ROLE_VIDEO, QByteArray((const char *)e->video, 32));\n",
+		"\t\t\t\t\t(void)e->video;\n",
+		"a track's video is played from its row; music_view_test -- sec 1472",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",
