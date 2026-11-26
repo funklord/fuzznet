@@ -8,6 +8,22 @@ static int named(const fzn_node_catalog_entry_t *e, const char *name, size_t len
 	return e->name_len == len && memcmp(e->name, name, len) == 0;
 }
 
+/* WHAT THE WORDS READ, sec 1453's correction of sec 1447: a file's name and
+ * kind, and what it says of itself in words (sec 1447's names) -- so music
+ * is found by its artist or album and a photograph by its camera. Numbers,
+ * sizes, places and times are facets to filter by, not words to find. */
+static int searched(const fzn_node_catalog_entry_t *e)
+{
+	static const char *const words[] = { "name", "kind", "title", "artist", "album",
+		                             "album_artist", "genre", "composer", "camera" };
+	size_t i;
+
+	for (i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+		if (named(e, words[i], strlen(words[i])))
+			return 1;
+	return 0;
+}
+
 /* THE FILE'S NAME, a live `name` claim about `entity`: 1 with `*name`,
  * `*len`, borrowed from `c`, or 0. */
 static int name_of(const fzn_node_catalog_t *c, const uint8_t *entity, const uint8_t **name, size_t *len)
@@ -71,7 +87,7 @@ int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_
 		fzn_search_hit_t h;
 		unsigned s;
 
-		if (!e->live || !e->value_len || (!named(e, "name", 4u) && !named(e, "kind", 4u)))
+		if (!e->live || !e->value_len || !searched(e))
 			continue;
 		s = fzn_search_score(&q->words, (const char *)e->value, e->value_len);
 		if (!s)

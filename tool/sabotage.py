@@ -794,6 +794,13 @@ SABOTAGES = [
 		"meta is a full box: its version and flags stand before its children -- sec 1452",
 	),
 	(
+		"catalog-search-artist-unread",
+		"node/catalog_search.c",
+		"\"name\", \"kind\", \"title\", \"artist\", \"album\",",
+		"\"name\", \"kind\", \"title\", \"album\",",
+		"music is found by its artist -- sec 1454",
+	),
+	(
 		"sticker-raster-any-canvas",
 		"gui/sticker_render.cpp",
 		"\treturn !s.isValid() || ((unsigned)s.width() <= APNG_SIDE_MAX && (unsigned)s.height() <= APNG_SIDE_MAX);\n",

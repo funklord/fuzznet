@@ -78359,8 +78359,9 @@ vocabulary above, holders and held here; the typed client
 `music_view` (artist, album, track, played through the host's player as
 the library's Play is, sec 1156) and `photo_view` (by month taken, a
 thumbnail each -- EXIF's own where the camera wrote one, else the frame
-decoded small). Searching by artist or album needs nothing new: the
-search's `files` store reads every catalogue value (sec 1299).
+decoded small). Searching by artist or album: the search's `files` store
+read only a file's name and kind as words, every other value a facet --
+corrected in sec 1454, which this said needed nothing.
 
 **Stages**, each committed with its tests: (1) the schemas and
 `media/tags`, reading a buffer into name/value pairs, fuzzed; (2) the
@@ -78560,3 +78561,19 @@ name, so a screen reader hears two buttons saying nothing.
 box it clears, "Clear: Find a sticker by its words", at every find box
 that turns one on -- the library's, the search's, the sticker picker's,
 and the music and photo views'. With it the render passes, 296 checks.
+
+## 1454. Music found by its artist, a photograph by its camera, 2026-11-26
+
+Sec 1447 said searching the catalogues needed nothing new, the search's
+`files` store reading every catalogue value (sec 1299). Read before
+relying on it: **its words read only a file's `name` and `kind`**; every
+other value is a facet to filter by. So "Bill Evans" found nothing.
+`node/catalog_search.c` now scores the words against what a file says of
+itself in words too -- `title`, `artist`, `album`, `album_artist`,
+`genre`, `composer`, `camera` -- the hit still one per file, keyed by its
+root and shown by its name. Numbers, sizes, places and times stay facets:
+"1961" finds no year.
+
+**Tests:** `node_catalog_test` finds a song by its artist, once, shown
+by its name, and no year as a word; with `artist` left out of the words
+it fails (sabotage `catalog-search-artist-unread`).

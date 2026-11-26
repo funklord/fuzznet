@@ -209,6 +209,20 @@ static void test_the_files_are_searched(void)
 	              && count == 1u && hits[0].n_facets == 1u && !strcmp(hits[0].facets[0].dim, "kind")
 	              && !strcmp(hits[0].facets[0].value, "audio/ogg"),
 	      "a file's kind did not tag its hit, or its name did");
+	/* WHAT A FILE SAYS OF ITSELF IS FOUND TOO (sec 1447): the song by its
+	 * artist, once, shown by its name; a year is no word to find. */
+	len = attribute("artist", "Bill Evans", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 5u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK,
+	      "fixture: its artist");
+	len = attribute("year", "1961", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 6u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK,
+	      "fixture: its year");
+	CHECK(fzn_search_query_init(&q, "evans", 5u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 1u && !memcmp(hits[0].key, song, 32u) && !strcmp(hits[0].snippet, "Harbour Lights.ogg"),
+	      "a file was not found by its artist, once, shown by its name");
+	CHECK(fzn_search_query_init(&q, "1961", 4u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 0u,
+	      "a year was found as a word");
 	fzn_node_catalog_free(&cat);
 }
 
