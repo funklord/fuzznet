@@ -1047,7 +1047,7 @@ situ_err_t fzn_settings_registry_address_check(situ_view_t view, uint32_t *which
  * instances add one word of a-z and 0-9 -- and the struct its
  * cell's bytes are a message of.
  */
-#define FZN_SETTINGS_REGISTRY_NODE_COUNT 48u
+#define FZN_SETTINGS_REGISTRY_NODE_COUNT 49u
 
 /** Which type a cell is: an entry's `cell`, by name.
  */

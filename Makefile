@@ -409,7 +409,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h media/tags.h media/analysis.h media/decode.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h media/tags.h media/analysis.h media/decode.h media/fingerprint.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
              local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h local/call_sound.h \
@@ -491,7 +491,7 @@ CORE_SRCS := $(SRCS)
 SRCS      += location/geo.c
 # AND A TUNE HEARD, sec 1457, for the same reason: the detector is
 # arithmetic, and its decoder links FFmpeg where the build has one.
-SRCS      += media/analysis.c media/decode.c
+SRCS      += media/analysis.c media/decode.c media/fingerprint.c
 
 # The primitive names installcheck looks for, spelled once because the probe
 # and the control that proves the probe works must not be able to drift
@@ -505,7 +505,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c media/test/tags_test.c media/test/analysis_test.c media/test/decode_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c media/test/tags_test.c media/test/analysis_test.c media/test/decode_test.c media/test/fingerprint_test.c \
              local/test/rpc_test.c local/test/call_sound_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
@@ -650,6 +650,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/media/test/tags_test \
              $(BUILD_DIR)/media/test/analysis_test \
              $(BUILD_DIR)/media/test/decode_test \
+             $(BUILD_DIR)/media/test/fingerprint_test \
              $(BUILD_DIR)/local/test/rpc_test \
              $(BUILD_DIR)/local/test/call_sound_test \
              $(BUILD_DIR)/location/test/geo_test \
@@ -3876,9 +3877,15 @@ $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_T
 # WHAT A TUNE SOUNDS LIKE, sec 1457: its tempo, key and loudness, held to
 # snurra's measurements of the detector it carries here; and the sound
 # decoded through FFmpeg where the build has it (FZN_MEDIA_DECODE).
-MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o
+MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o
 MEDIA_SOUND_LIBS = $(MEDIA_DECODE_LIBS) -lm
 $(BUILD_DIR)/media/decode.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
+$(BUILD_DIR)/media/fingerprint.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
+# WHICH RECORDING A TUNE IS, sec 1459: AcoustID's answer read, and with
+# FFmpeg's Chromaprint a tune printed near itself and far from another.
+$(BUILD_DIR)/media/test/fingerprint_test: $(BUILD_DIR)/media/test/fingerprint_test.o $(BUILD_DIR)/media/fingerprint.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
 $(BUILD_DIR)/media/test/analysis_test: $(BUILD_DIR)/media/test/analysis_test.o $(BUILD_DIR)/media/analysis.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -lm -o $@
@@ -8429,6 +8436,7 @@ livecheck-faults: fuzznetd-faults
 	@# JOURNEY 2, 1:1 chat over two users of two hosts (sec 731), and a call ringing
 	@# every host of a user (sec 1071): run by hand only until then.
 	@timeout 900 python3 tool/live_chat.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 300 python3 tool/live_identify.py $(BUILD_DIR)/faults/fuzznetd
 
 # FUZZYPICKLES' CLIENT OVER fuzznetd, sec 710: its `fzp --node-socket`
 # driving the subset across fault-build daemons. Not part of
@@ -9636,6 +9644,7 @@ manifest:
 	@# the form that says it has none, so a consumer building from this
 	@# manifest needs no FFmpeg unless it asks for one.
 	@echo "link media/analysis.c -lm"
+	@echo "link media/fingerprint.c -lm"
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/gather.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)

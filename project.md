@@ -65682,7 +65682,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074); the media -- jitter, mu-law, `call_sound`, `call_audio`, `call_video` (secs 1234-1237), Opus where FFmpeg is (sec 1254); `call_bar` over every page, a screen while it rings (secs 1238, 1247); each conversation's call history (sec 1255) | fuzzypickles' own call screens, to move onto these | |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257); what a file says of itself read where its bytes are -- EXIF, ID3v2, FLAC, Ogg, MP4 (secs 1447-1452) -- and the music and photo catalogues, `fzn_rpc_music_list`, `fzn_rpc_photo_list`, `music_view`, `photo_view` (secs 1449-1450) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257); what a file says of itself read where its bytes are -- EXIF, ID3v2, FLAC, Ogg, MP4 (secs 1447-1452) -- and the music and photo catalogues, `fzn_rpc_music_list`, `fzn_rpc_photo_list`, `music_view`, `photo_view` (secs 1449-1450); a tune heard where its bytes are for its tempo, key and loudness (sec 1457), the music ordered and found by them (sec 1458), and the recording it is asked of AcoustID with the user's key (sec 1459) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view`; snurra's beats.ini cache, to move onto the catalogue (inbox 20261126T0505Z) | |
 | Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | none measured (sec 1414): the listing pages and fetches a row's detail on demand, and a facet query cannot list a kind alone |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
@@ -78690,12 +78690,10 @@ once and a later analysis can hear it again. A tune is what the
 catalogue calls `audio/` or `video/`, or of no kind with a length -- a
 decoder is never handed a file of another kind.
 
-**Next, in this order**: the music view sorting by them and the search
-reading the key as a word (sec 1458); a fingerprint, through FFmpeg's
-Chromaprint muxer as snurra takes it, and AcoustID's recording, asked
-only with a key the user registered (snurra's `acoustid/key`), under the
-names `acoustid` and `musicbrainz_recording`. snurra is told with this
-section (its inbox).
+**Then**: the music view sorting by them and the search reading the key
+as a word (sec 1458); the fingerprint and AcoustID's recording, asked
+only with a key the user set (sec 1459). snurra was told with this
+section (its inbox, 20261126T0505Z).
 
 **Tests:** `analysis_test` (48): snurra's made signals and its
 expectations -- a kick and four patterns found within 0.02 BPM, every
@@ -78741,3 +78739,55 @@ artist; found by key and by tempo; a library heard over two pages.
 `node_catalog_test` (27): a tune found by its key heard, its tempo not a
 word. Sabotage `music-view-tempo-fastest-first`,
 `music-view-key-not-found`, `catalog-search-key-no-word`, each caught.
+
+## 1459. Which recording a tune is: its fingerprint, and AcoustID asked with the user's key, 2026-11-26
+
+The last of sec 1457's values: the `acoustid` and `musicbrainz_recording`
+a tune is, which sec 1447 named and left to a player.
+
+**The fingerprint is Chromaprint's, through FFmpeg's chromaprint muxer**
+(`media/fingerprint.c`), as snurra takes it -- no library FFmpeg did not
+already bring -- fed the same 48 kHz frames the hearing is, its first two
+minutes as AcoustID's own fpcalc takes. Where FFmpeg was built without
+Chromaprint, nothing is printed and nothing asked.
+
+**AcoustID is asked only with the user's own key**: the estate setting
+`media/acoustid`, the client key acoustid.org registers to a person,
+which no build carries -- snurra's rule (its `acoustid/key`). Unset, no
+byte leaves the host. Set, the child hearing a tune POSTs the key, the
+tune's length in whole seconds and its fingerprint -- nothing of the
+file, its name or its tags -- to AcoustID's v2 lookup over FFmpeg's
+https, the certificate checked (`tls_verify`, which FFmpeg does not do
+unasked), ten seconds to answer. The answer's best-scoring result gives
+the `acoustid` and its first recording's `musicbrainz_recording`, each
+held to a UUID's letters before it is asserted, as this host's labels;
+`identified` is asserted once AcoustID has answered, found or not. An
+error -- a bad key -- or no answer leaves the tune to be asked again,
+and a key set later has every tune heard before asked again by the next
+`add sound`. The answer is a stranger's, read by a JSON reader of the
+file's own, bounded in depth (32) and length (256 KiB), taking four
+fields and stepping over the rest. Rejected: libcurl, a second library
+where FFmpeg's https already is; asking without a key, which AcoustID
+refuses and which would send a fingerprint unasked; carrying the
+fingerprint in the catalogue, whose values are 255 bytes and whose
+readers have no use for 2,600.
+
+A test's own AcoustID: in a build with faults on (sec 689),
+`FZN_TEST_ACOUSTID_URL` names the address asked; every other build asks
+AcoustID's. Each hearing is logged at debug (subsystem `sound`): the
+seconds heard, the tempo, the key, the print's length and AcoustID's
+answer -- which is how the live test's own fault was found: `list
+catalog ROOT` answers as many rows as one reply holds (`ok LIVE FROM
+ROWS`), and a tune that has been identified carries ten, so the test now
+pages it, as `live_sound` does.
+
+**Tests:** `fingerprint_test` (13): the best of two results read, an
+error told from an empty answer, an id that is no UUID refused, every
+cut and three manglings of every byte read without reading past, ten
+thousand deep refused; a tune printed near itself under noise (0.001)
+and far from another (0.452), snurra's measure; the base64 form
+printable; nothing asked without a key or a print. Clean under ASan and
+UBSan. `live_identify` (a-d) against the faults daemon and a server
+standing in for AcoustID: nothing sent with no key; with one, asked once
+with the key, 30 s and the print and nothing else, the recording named;
+asked once only; an error leaves the tune to be asked again.

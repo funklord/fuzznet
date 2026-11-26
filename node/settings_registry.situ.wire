@@ -70,6 +70,7 @@ registry node
   key="log/level" cell=log_level max_size=8 min_size=1 scope=host
   key="log/scope" cell=log_scope display=sensitive max_size=12 min_size=6 scope=host
   key="log/segment" cell=count display=advanced max=1099511627776 min=4096 scope=host
+  key="media/acoustid" cell=text max_size=64 min_size=1 scope=estate
   key="message/read-marks" cell=flag default="off" safe=lower scope=estate\x20|\x20host
   key="message/read/" cell=flag family safe=lower scope=estate\x20|\x20host
   key="message/unsend" cell=flag default="off" safe=lower scope=estate\x20|\x20host

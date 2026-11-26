@@ -19396,6 +19396,27 @@ SABOTAGES = [
 		"a track is not found by the key it was heard in -- sec 1458",
 	),
 	(
+		"media-fingerprint-first-not-best",
+		"media/fingerprint.c",
+		"\tif (r->id[0] && (!r->found || r->score > r->best.score)) {\n",
+		"\tif (r->id[0] && !r->found) {\n",
+		"AcoustID's first result is taken, not its best -- sec 1459",
+	),
+	(
+		"media-fingerprint-id-unchecked",
+		"media/fingerprint.c",
+		"\tif (!r.found || !id_ok(r.best.acoustid))\n",
+		"\tif (!r.found)\n",
+		"an answer's id is asserted whatever its letters, a stranger's text in the catalogue -- sec 1459",
+	),
+	(
+		"media-fingerprint-error-unknown",
+		"media/fingerprint.c",
+		"\t\treturn strcmp(r.status, \"error\") == 0 ? FZN_MEDIA_LOOKUP_REFUSED : FZN_MEDIA_LOOKUP_NO_ANSWER;\n",
+		"\t\treturn FZN_MEDIA_LOOKUP_UNKNOWN;\n",
+		"a refused lookup (a bad key) reads as an answer naming nothing, and the tune is marked identified -- sec 1459",
+	),
+	(
 		"ulaw-without-bias",
 		"media/ulaw.c",
 		"\ts += BIAS;\n",

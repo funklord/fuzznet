@@ -102,6 +102,8 @@ registry node {
 		"a metric family logged every so many seconds, subsystem metric/NAME; unset, not logged (sec 1053)";
 	"net/address" : address [max_size = 253, scope = host, display = advertised]
 		"where this host is reached, HOST PORT, an admin's to correct (sec 579)";
+	"media/acoustid" : text [min_size = 1, max_size = 64, scope = estate]
+		"the AcoustID client key registered to this user; set, a host hearing a tune asks AcoustID which recording it is, sending its fingerprint and length and nothing else (sec 1459)";
 	"host/name" : text [min_size = 1, max_size = 32, scope = host]
 		"what this host's user calls it -- laptop, phone -- as every device of the estate lists it (sec 848)";
 	"local/permit/" : text [min_size = 1, max_size = 256, scope = host]

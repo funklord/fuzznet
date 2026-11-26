@@ -116,15 +116,20 @@ def main(argv):
 			return root
 
 		def listed(root):
-			"""`root`'s catalogue as {name: value}, values unescaped."""
-			reply = ask(sock, "list catalog " + root).split()
-			if not reply or reply[0] != "ok":
-				raise failed("list catalog answered %r" % reply)
-			out = {}
-			for row in reply[3:]:
-				_, name, value, _ = row.split(",")
-				out[name] = urllib.parse.unquote(value)
-			return out
+			"""`root`'s catalogue as {name: value}, values unescaped: `ok LIVE
+			FROM ROWS...`, as many rows as a reply holds, so asked again from
+			where it ended."""
+			out, rows = {}, 0
+			while True:
+				reply = ask(sock, "list catalog %s %d" % (root, rows)).split()
+				if len(reply) < 3 or reply[0] != "ok":
+					raise failed("list catalog answered %r" % reply)
+				for row in reply[3:]:
+					_, name, value, _ = row.split(",")
+					out[name] = urllib.parse.unquote(value)
+				rows += len(reply) - 3
+				if rows >= int(reply[1]) or len(reply) == 3:
+					return out
 
 		def heard(root, what):
 			while time.monotonic() < live_trim.DEADLINE:

@@ -70,6 +70,7 @@
 #include "../media/tags.h"
 #include "../media/analysis.h"
 #include "../media/decode.h"
+#include "../media/fingerprint.h"
 #include "../claim/claim.h"
 #include "../local/client.h"
 #include "../local/escape.h"
@@ -17802,6 +17803,14 @@ static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char
  * `heard` says which analysis heard it -- asserted when nothing was found
  * too, so a tune is not heard twice.
  *
+ * AND WHICH RECORDING IT IS, sec 1459: where the user has set `media/acoustid`
+ * -- the client key AcoustID registered to them -- the child prints the
+ * tune's first two minutes (media/fingerprint.h) and asks AcoustID, and
+ * the host asserts the `acoustid` and `musicbrainz_recording` it names, and
+ * `identified` once AcoustID has answered, found or not. With no key set
+ * nothing leaves the host; one set later has the tunes heard before asked
+ * again.
+ *
  * A TUNE AT A TIME, IN A PROCESS OF ITS OWN: a minute of sound takes about a
  * second to hear, which the loop cannot wait for, and the bytes are
  * anybody's, read by FFmpeg's demuxers -- a fault there ends the child and
@@ -17823,6 +17832,50 @@ static int sound_fd = -1;
 static time_t sound_began;
 static uint8_t sound_root[FZN_PUBKEY_LEN];
 static char sound_path[FZN_NODE_SHELF_DIR_MAX + 16u];
+/* AcoustID's key, as `media/acoustid` says it now, and where it is asked:
+ * read before each child, which takes copies. */
+static char sound_key[FZN_SETTING_VALUE_MAX + 1u];
+#define SOUND_ACOUSTID_URL "https://api.acoustid.org/v2/lookup"
+
+/* What a child tells down its pipe. */
+struct sound_found {
+	fzn_media_sound_t sound;
+	fzn_media_identity_t id;
+	int looked; /* 1 when AcoustID answered, found or not */
+	int lookup; /* fzn_media_lookup_result_t, or -1 where nothing was printed */
+	unsigned print_len;
+};
+
+/* `media/acoustid`, the estate's: 1 with the key in sound_key, 0 for none. */
+static int sound_key_set(void)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	sound_key[0] = '\0';
+	if (!node_apply.root
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_apply.root, (const uint8_t *)"media/acoustid",
+	                              14u, value, &len, &rank)
+	    || !len || len >= sizeof(sound_key))
+		return 0;
+	memcpy(sound_key, value, len);
+	sound_key[len] = '\0';
+	return 1;
+}
+
+/* Where AcoustID is asked: its own address, or in a build with faults on,
+ * FZN_TEST_ACOUSTID_URL, a test's own server. */
+static const char *sound_url(void)
+{
+#ifdef FZN_TEST_FAULTS
+	const char *url = getenv("FZN_TEST_ACOUSTID_URL");
+
+	if (url && *url)
+		return url;
+#endif
+	return SOUND_ACOUSTID_URL;
+}
 
 /* The first live value of `name` of `root`, anybody's: its length, 0 for
  * none. */
@@ -17860,7 +17913,8 @@ static int sound_wanted(const uint8_t root[FZN_PUBKEY_LEN])
 	size_t i;
 
 	if (fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || !st.whole || !st.length
-	    || catalog_says(root, "heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u))
+	    || (catalog_says(root, "heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u)
+	        && (!sound_key_set() || catalog_says(root, "identified", "1", 1u))))
 		return 0;
 	if (catalog_first(root, "kind", kind, sizeof(kind))) {
 		if (strncmp(kind, "audio/", 6u) != 0 && strncmp(kind, "video/", 6u) != 0)
@@ -17893,16 +17947,29 @@ static int sound_queue(const uint8_t root[FZN_PUBKEY_LEN])
 	return 1;
 }
 
+struct sound_hearing {
+	fzn_media_analysis_t *a;
+	fzn_media_print_t *print; /* NULL where no key is set, or no Chromaprint */
+};
+
 static int sound_heard(void *ctx, const float *stereo, size_t frames)
 {
-	return fzn_media_analysis_add(ctx, stereo, frames);
+	struct sound_hearing *h = ctx;
+
+	if (h->print && !fzn_media_print_add(h->print, stereo, frames)) {
+		fzn_media_print_free(h->print);
+		h->print = NULL;
+	}
+	return fzn_media_analysis_add(h->a, stereo, frames);
 }
 
-/* THE CHILD: the file written out, decoded, heard, told down `fd`. */
+/* THE CHILD: the file written out, decoded, heard -- and, with a key,
+ * printed and asked after -- and told down `fd`. */
 static void sound_child(int fd, const fzn_node_file_ref_t *ref)
 {
-	fzn_media_sound_t found;
-	fzn_media_analysis_t *a = fzn_media_analysis_open();
+	static uint8_t print[16u * 1024u];
+	struct sound_found found;
+	struct sound_hearing h = { fzn_media_analysis_open(), sound_key[0] ? fzn_media_print_open(0) : NULL };
 	int whole = 0;
 	ssize_t wrote;
 
@@ -17910,13 +17977,29 @@ static void sound_child(int fd, const fzn_node_file_ref_t *ref)
 	(void)signal(SIGINT, SIG_DFL);
 	(void)signal(SIGPIPE, SIG_DFL);
 	memset(&found, 0, sizeof(found));
-	found.key = -1;
-	if (a && fzn_node_files_read_range(&files, ref, 0, ref->length, sound_path, &whole) == FZN_NODE_FILES_OK
-	    && fzn_media_decode(sound_path, 0, sound_heard, a, NULL) == FZN_MEDIA_DECODE_OK) {
-		(void)fzn_media_analysis_finish(a, &found, NULL);
-		a = NULL;
+	found.sound.key = -1;
+	found.lookup = -1;
+	if (h.a && fzn_node_files_read_range(&files, ref, 0, ref->length, sound_path, &whole) == FZN_NODE_FILES_OK
+	    && fzn_media_decode(sound_path, 0, sound_heard, &h, NULL) == FZN_MEDIA_DECODE_OK) {
+		(void)fzn_media_analysis_finish(h.a, &found.sound, NULL);
+		h.a = NULL;
+		if (h.print) {
+			const size_t n = fzn_media_print_finish(h.print, print, sizeof(print) - 1u);
+			fzn_media_lookup_result_t r;
+
+			h.print = NULL;
+			print[n] = '\0';
+			r = n && found.sound.seconds >= 1.0
+			            ? fzn_media_acoustid_lookup(sound_url(), sound_key, (const char *)print,
+			                                        (unsigned)(found.sound.seconds + 0.5), &found.id)
+			            : FZN_MEDIA_LOOKUP_NONE;
+			found.looked = r == FZN_MEDIA_LOOKUP_FOUND || r == FZN_MEDIA_LOOKUP_UNKNOWN;
+			found.lookup = (int)r;
+			found.print_len = (unsigned)n;
+		}
 	}
-	fzn_media_analysis_free(a);
+	fzn_media_analysis_free(h.a);
+	fzn_media_print_free(h.print);
 	(void)unlink(sound_path);
 	wrote = write(fd, &found, sizeof(found));
 	_exit(wrote == (ssize_t)sizeof(found) ? 0 : 1);
@@ -17942,6 +18025,7 @@ static void sound_start(void)
 		}
 		fzn_wipe(ref_bytes, sizeof(ref_bytes));
 		ref.length = st.length;
+		(void)sound_key_set(); /* the child's copy, as the setting stands now */
 		n = snprintf(sound_path, sizeof(sound_path), "%s/.sound-XXXXXX", tags_dir);
 		if (n < 0 || (size_t)n >= sizeof(sound_path) || (fd = mkstemp(sound_path)) < 0) {
 			fzn_wipe(&ref, sizeof(ref));
@@ -17970,9 +18054,10 @@ static void sound_start(void)
 }
 
 /* What was found, asserted as this host's; `heard` whether or not anything
- * was. */
-static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const fzn_media_sound_t *s)
+ * was, and `identified` where AcoustID answered. */
+static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const struct sound_found *f)
 {
+	const fzn_media_sound_t *s = f ? &f->sound : NULL;
 	char value[32];
 	size_t n;
 	int put = 0;
@@ -17996,6 +18081,13 @@ static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const fzn_media_sou
 		n = (size_t)snprintf(value, sizeof(value), "%.3f", s->peak);
 		SOUND_PUT("peak", value, n);
 	}
+	if (f && f->looked && f->id.acoustid[0]) {
+		SOUND_PUT("acoustid", f->id.acoustid, strlen(f->id.acoustid));
+		if (f->id.recording[0])
+			SOUND_PUT("musicbrainz_recording", f->id.recording, strlen(f->id.recording));
+	}
+	if (f && f->looked)
+		SOUND_PUT("identified", "1", 1u);
 	SOUND_PUT("heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u);
 #undef SOUND_PUT
 	if (put) {
@@ -18010,7 +18102,7 @@ static void sound_assert(const uint8_t root[FZN_PUBKEY_LEN], const fzn_media_sou
  * asserted, one past its time ended, and the next tune started. */
 static void sound_tick(void)
 {
-	fzn_media_sound_t found;
+	struct sound_found found;
 	int status;
 	pid_t done;
 
@@ -18024,8 +18116,12 @@ static void sound_tick(void)
 		if (done == 0)
 			return;
 		if (done == sound_pid && WIFEXITED(status) && WEXITSTATUS(status) == 0
-		    && read(sound_fd, &found, sizeof(found)) == (ssize_t)sizeof(found))
+		    && read(sound_fd, &found, sizeof(found)) == (ssize_t)sizeof(found)) {
+			say(FZN_ENTRY_DEBUG, "sound", "heard %02x%02x%02x%02x: %.1f s, %.2f BPM, key %d, a %u-byte print, AcoustID %d",
+			    sound_root[0], sound_root[1], sound_root[2], sound_root[3], found.sound.seconds, found.sound.bpm,
+			    found.sound.key, found.print_len, found.lookup);
 			sound_assert(sound_root, &found);
+		}
 		else
 			sound_assert(sound_root, NULL);
 		close(sound_fd);

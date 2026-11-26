@@ -245,6 +245,7 @@
 #include <fuzznet/media/tags.h>
 #include <fuzznet/media/analysis.h>
 #include <fuzznet/media/decode.h>
+#include <fuzznet/media/fingerprint.h>
 #include <fuzznet/net/bearer.h>
 #include <fuzznet/node/verify_memo.h>
 #include <fuzznet/node/sessions.h>
@@ -521,6 +522,7 @@
 #include "media/tags.h"
 #include "media/analysis.h"
 #include "media/decode.h"
+#include "media/fingerprint.h"
 #include "net/bearer.h"
 #include "node/verify_memo.h"
 #include "node/sessions.h"
