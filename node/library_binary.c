@@ -299,34 +299,37 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
                      struct rows *w)
 {
 	static uint8_t row[16u * 1024u], out[16u * 1024u + 8u];
-	const uint8_t *v[9];
-	size_t l[9];
+	const uint8_t *v[14];
+	size_t l[14];
 	uint32_t row_len = 0, out_len = 0;
 	int ok;
 
 	if (op == FZN_FILES_LOCAL_OP_MUSIC) {
-		static const char *names[9] = { "title", "artist", "album", "album_artist", "genre",
-			                        "composer", "bpm", "key", "track" };
+		/* AND WHAT ITS HOST HEARD, sec 1462: 6 to 11 as the row carries them,
+		 * each held to its field's bound -- a value past it is no value. */
+		static const char *names[14] = { "title", "artist", "album", "album_artist", "genre",
+			                         "composer", "bpm", "key", "beat", "loudness", "peak",
+			                         "acoustid", "musicbrainz_recording", "track" };
+		static const size_t most[14] = { 255u, 255u, 255u, 255u, 255u, 255u, 16u, 16u, 16u, 16u, 16u, 36u, 36u, 255u };
 		const uint8_t *disc, *year;
 		size_t disc_len, year_len, i;
 
-		for (i = 0; i < 9u; i++)
-			l[i] = word_of(set, n, names[i], &v[i]);
+		for (i = 0; i < 14u; i++)
+			if ((l[i] = word_of(set, n, names[i], &v[i])) > most[i])
+				l[i] = 0;
 		if (r->kind_len ? !kind_is(r->kind, r->kind_len, "audio/") : !l[1] && !l[2])
 			return 0;
 		disc_len = word_of(set, n, "disc", &disc);
 		year_len = word_of(set, n, "year", &year);
-		if (l[6] > 16u)
-			l[6] = 0;
-		if (l[7] > 16u)
-			l[7] = 0;
 		ok = fzn_files_local_music_row_build(
 		             row, sizeof(row), r->root, r->duration_ms, r->holders, r->held_here,
-		             (uint16_t)leading(v[8], l[8], 0xffffu), (uint16_t)total_of(v[8], l[8], 0xffffu),
+		             (uint16_t)leading(v[13], l[13], 0xffffu), (uint16_t)total_of(v[13], l[13], 0xffffu),
 		             (uint16_t)leading(disc, disc_len, 0xffffu), (uint16_t)total_of(disc, disc_len, 0xffffu),
 		             (uint16_t)leading(year, year_len, 0xffffu), v[0], (uint32_t)l[0], v[1], (uint32_t)l[1], v[2],
 		             (uint32_t)l[2], v[3], (uint32_t)l[3], v[4], (uint32_t)l[4], v[5], (uint32_t)l[5], v[6],
-		             (uint32_t)l[6], v[7], (uint32_t)l[7], r->name, (uint32_t)r->name_len, &row_len)
+		             (uint32_t)l[6], v[7], (uint32_t)l[7], v[8], (uint32_t)l[8], v[9], (uint32_t)l[9], v[10],
+		             (uint32_t)l[10], v[11], (uint32_t)l[11], v[12], (uint32_t)l[12], r->name, (uint32_t)r->name_len,
+		             &row_len)
 		             == SITU_OK
 		     && fzn_files_local_message_build_music_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
 		                                                &out_len)

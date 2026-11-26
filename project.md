@@ -78441,8 +78441,9 @@ catalogued with no kind and saying nothing is not a photograph. The
 catalogue's words become numbers where a list sorts or places by them:
 "3/12" is track 3 of 12, "1961-06-25" the year 1961, "LAT,LON" ten-
 millionths of a degree, and a latitude past a pole no place at all. BPM
-and key, a player's words (sec 1447), are carried as said, at most 16
-bytes. `fzn_rpc_music_list` and `fzn_rpc_photo_list` gather them; a
+and key -- a player's words in sec 1447, the host's hearing since sec
+1457 -- are carried as said, at most 16 bytes; sec 1462 adds the rest
+of what is heard. `fzn_rpc_music_list` and `fzn_rpc_photo_list` gather them; a
 node from before answers MALFORMED.
 
 **`gui/music_view`**: the music by album -- the album artist where one
@@ -78766,7 +78767,12 @@ error -- a bad key -- or no answer leaves the tune to be asked again,
 and a key set later has every tune heard before asked again by the next
 `add sound`. The answer is a stranger's, read by a JSON reader of the
 file's own, bounded in depth (32) and length (256 KiB), taking four
-fields and stepping over the rest. Rejected: libcurl, a second library
+fields and stepping over the rest. **Not yet situ's**, which is to own
+every layout and takes weak text formats in scope: its `example/json`
+was measured against AcoustID's answers (2026-11-26, situ `268f20a8`) and
+refuses an empty array and an empty object -- `"results": []` is the
+answer for a recording AcoustID does not know -- so moving onto it waits
+on situ (its inbox, 20261126T0642Z). Rejected: libcurl, a second library
 where FFmpeg's https already is; asking without a key, which AcoustID
 refuses and which would send a fingerprint unasked; carrying the
 fingerprint in the catalogue, whose values are 255 bytes and whose
@@ -78866,3 +78872,27 @@ would only reorder the same work.
 1 MiB served). Sabotage `photo-view-thumb-never-decoded` and
 `photo-view-thumb-read-past-bound`, each caught;
 `photo-view-orientation-ignored` respelled for the second reader.
+
+## 1462. What a host heard, in the music row: a player reads its grid and level there, 2026-11-26
+
+The holder's "Snurra should use our browser/catalog" (sec 1457) needs
+every value snurra keeps in `beats.ini` reachable through the typed
+client, and the music row carried only the tempo and key. A player's grid
+is a period and a first beat; its level match a loudness and a peak. So
+`music_row` gains, after the key, the first `beat` (seconds), the
+`loudness` (LUFS) and the `peak`, at most 16 bytes each, and the
+`acoustid` and MusicBrainz `recording`, at most 36 -- the text as the
+host asserted it, which is what a reader can check against the
+catalogue. A value past its field's bound is no value, not a value cut:
+a UUID with something after it is not a UUID. `fzn_rpc_music_entry_t`
+carries all five, and its comment says how a player turns them into a
+grid (60 * rate / bpm frames a beat, from beat * rate) and a level.
+
+snurra was told (its inbox) with this section.
+
+**Tests:** `library_binary_test` (109): the song's row carries the beat,
+loudness, peak and AcoustID, and a recording past 36 bytes is none.
+`live_sound` phase f: the tune heard on the real daemon has all five in
+its row, asked in binary. Sabotage `library-binary-heard-unbounded` and
+`library-binary-beat-not-carried`, each caught; the track-total entry
+follows its line.

@@ -465,6 +465,101 @@ situ_err_t fzn_files_local_music_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_FILES_LOCAL_MUSIC_ROW_KEY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* music_row.beat_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_music_row_beat_len_offset(view), 1u)) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_BEAT_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.beat_len [max = 16] */
+	if (fzn_files_local_music_row_beat_len_get(view) > 16) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_BEAT_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* music_row.beat: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_music_row_beat_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beat_len_get(view))))) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_BEAT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.loudness_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_music_row_loudness_len_offset(view), 1u)) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_LOUDNESS_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.loudness_len [max = 16] */
+	if (fzn_files_local_music_row_loudness_len_get(view) > 16) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_LOUDNESS_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* music_row.loudness: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_music_row_loudness_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_loudness_len_get(view))))) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_LOUDNESS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.peak_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_music_row_peak_len_offset(view), 1u)) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_PEAK_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.peak_len [max = 16] */
+	if (fzn_files_local_music_row_peak_len_get(view) > 16) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_PEAK_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* music_row.peak: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_music_row_peak_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view))))) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_PEAK_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.acoustid_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_music_row_acoustid_len_offset(view), 1u)) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_ACOUSTID_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.acoustid_len [max = 36] */
+	if (fzn_files_local_music_row_acoustid_len_get(view) > 36) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_ACOUSTID_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* music_row.acoustid: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_music_row_acoustid_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view))))) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_ACOUSTID_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.recording_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_music_row_recording_len_offset(view), 1u)) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_RECORDING_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* music_row.recording_len [max = 36] */
+	if (fzn_files_local_music_row_recording_len_get(view) > 36) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_RECORDING_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* music_row.recording: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_music_row_recording_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view))))) {
+		*which = FZN_FILES_LOCAL_MUSIC_ROW_RECORDING_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
 	/* music_row.name_len: its offset is a sum of lengths the message
 	 * chose, so the frame is not known to contain it. The accessor
 	 * answers safely; this is where the message is called malformed. */

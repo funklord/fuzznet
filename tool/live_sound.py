@@ -19,6 +19,9 @@ A minor chord, written as a WAV -- is put into its files as a library does:
     e  the same asked in binary, as the typed client does (FZN_CMD_FILES 1,
        `sound` 145, `sound_page` 146): a sound_done (147) naming nothing
        queued, every tune heard already, then a STATUS ok
+    f  the music listed in binary (`music` 141), as a player reads its grid
+       and level (sec 1462): the tune's row carries the tempo, first beat,
+       key, loudness and peak its host heard
 
 Against a daemon without the verb, phase a reads `malformed`; against one that
 hears in its own loop rather than a child, the `get` asked while it hears
@@ -213,6 +216,15 @@ def main(argv):
 			   or got[0][10:18] != bytes(8):
 				raise failed("e: a page in binary answered %r" % got)
 			print("livecheck: e: the same asked in binary, a tune and a page")
+
+			# f: the music row, `music_row` 142, its words as asserted.
+			got = listed(tune)
+			rows = [m for m in binary(sock, bytes([1, 141]))[:-1]
+			        if m[:2] == bytes([1, 142]) and m[2:34].hex() == tune]
+			want = [got[k].encode() for k in ("bpm", "beat", "key", "loudness", "peak")]
+			if len(rows) != 1 or not all(w in rows[0] for w in want):
+				raise failed("f: the tune's music row %r lacks one of %r" % (rows, want))
+			print("livecheck: f: the music row carries %s" % ", ".join(w.decode() for w in want))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -652,6 +652,16 @@ static inline situ_err_t fzn_files_local_music_row_build(
 		uint32_t bpm__len,
 		const uint8_t *key_,
 		uint32_t key__len,
+		const uint8_t *beat_,
+		uint32_t beat__len,
+		const uint8_t *loudness_,
+		uint32_t loudness__len,
+		const uint8_t *peak_,
+		uint32_t peak__len,
+		const uint8_t *acoustid_,
+		uint32_t acoustid__len,
+		const uint8_t *recording_,
+		uint32_t recording__len,
 		const uint8_t *name_,
 		uint32_t name__len,
 		uint32_t *situ_wrote)
@@ -896,6 +906,111 @@ static inline situ_err_t fzn_files_local_music_row_build(
 		situ_put(situ_out + situ_at, key_, key__len);
 	}
 	situ_at += key__len;
+
+	/* beat_len: the length of `beat_`, which the schema states. */
+	if (beat__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)beat__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < beat__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (beat__len != 0u) {
+		if (beat_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, beat_, beat__len);
+	}
+	situ_at += beat__len;
+
+	/* loudness_len: the length of `loudness_`, which the schema states. */
+	if (loudness__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)loudness__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < loudness__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (loudness__len != 0u) {
+		if (loudness_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, loudness_, loudness__len);
+	}
+	situ_at += loudness__len;
+
+	/* peak_len: the length of `peak_`, which the schema states. */
+	if (peak__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)peak__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < peak__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (peak__len != 0u) {
+		if (peak_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, peak_, peak__len);
+	}
+	situ_at += peak__len;
+
+	/* acoustid_len: the length of `acoustid_`, which the schema states. */
+	if (acoustid__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)acoustid__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < acoustid__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (acoustid__len != 0u) {
+		if (acoustid_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, acoustid_, acoustid__len);
+	}
+	situ_at += acoustid__len;
+
+	/* recording_len: the length of `recording_`, which the schema states. */
+	if (recording__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)recording__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < recording__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (recording__len != 0u) {
+		if (recording_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, recording_, recording__len);
+	}
+	situ_at += recording__len;
 
 	/* name_len: the length of `name_`, which the schema states. */
 	if (name__len > 255u) {

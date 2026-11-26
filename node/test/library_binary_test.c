@@ -492,6 +492,11 @@ static void test_music_and_photos(void)
 	say(host_a, song, "year", "2019-05-02");
 	say(host_a, song, "duration", "251000");
 	say(host_b, song, "bpm", "118.00");
+	say(host_b, song, "beat", "0.098");
+	say(host_b, song, "loudness", "-9.3");
+	say(host_b, song, "peak", "0.981");
+	say(host_b, song, "acoustid", "0b1cf1a2-2222-4b4b-8c8c-000000000002");
+	say(host_b, song, "musicbrainz_recording", "bbbbbbbb-0000-4000-8000-000000000002-and-more");
 	say(host_a, bare, "artist", "Bill Evans");
 	say(host_a, photo, "kind", "image/jpeg");
 	say(host_a, photo, "taken", "2023-07-14T21:45:30");
@@ -523,6 +528,13 @@ static void test_music_and_photos(void)
 	              && fzn_files_local_music_row_title_len(b) == 11u
 	              && memcmp(fzn_files_local_music_row_title_ptr(b), "Night Drive", 11u) == 0
 	              && fzn_files_local_music_row_bpm_len(b) == 6u
+	              && fzn_files_local_music_row_beat_len(b) == 5u
+	              && memcmp(fzn_files_local_music_row_beat_ptr(b), "0.098", 5u) == 0
+	              && fzn_files_local_music_row_loudness_len(b) == 4u
+	              && fzn_files_local_music_row_peak_len(b) == 5u
+	              && fzn_files_local_music_row_acoustid_len(b) == 36u
+	              /* past a UUID's 36: no value, not a value cut */
+	              && fzn_files_local_music_row_recording_len(b) == 0u
 	              && fzn_files_local_music_row_name_len(b) == 12u,
 	      "a song's row did not carry its words and their numbers");
 	memcpy(copy, said[1], said_len[1]);

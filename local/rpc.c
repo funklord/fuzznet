@@ -5680,6 +5680,11 @@ static void media_each(void *ctx, const uint8_t *msg, size_t len) {
 		WORDS(composer);
 		WORDS(bpm);
 		WORDS(key);
+		WORDS(beat);
+		WORDS(loudness);
+		WORDS(peak);
+		WORDS(acoustid);
+		WORDS(recording);
 		WORDS(name);
 #undef WORDS
 		return;

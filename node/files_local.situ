@@ -117,7 +117,10 @@ struct sound_done {
 // is 3 of 12, "1961-06-25" is 1961 -- 0 where none is said or it is no
 // number. The words are the first live value of each, raw, at most 255
 // bytes: the title, artist, album, album artist, genre and composer a file
-// says of itself, the BPM and key a player asserts, and the file's NAME,
+// says of itself; what the host holding it heard (sec 1457) -- the BPM,
+// the key, the first BEAT in seconds, the LOUDNESS in LUFS and the PEAK --
+// and the ACOUSTID and RECORDING AcoustID named (sec 1459), as asserted, so
+// a player reads its grid and level here (sec 1462); and the file's NAME,
 // which a list shows where it has no title.
 struct music_row {
 	u8   root[32];
@@ -145,6 +148,16 @@ struct music_row {
 	u8   bpm[bpm_len];
 	u8   key_len [max = 16];
 	u8   key[key_len];
+	u8   beat_len [max = 16];
+	u8   beat[beat_len];
+	u8   loudness_len [max = 16];
+	u8   loudness[loudness_len];
+	u8   peak_len [max = 16];
+	u8   peak[peak_len];
+	u8   acoustid_len [max = 36];
+	u8   acoustid[acoustid_len];
+	u8   recording_len [max = 36];
+	u8   recording[recording_len];
 	u8   name_len;
 	u8   name[name_len];
 }

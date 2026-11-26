@@ -55,10 +55,10 @@ struct library_row size=55..374
   ~         1         u8         name_len
   ~         0..255    u8         name  sized-by=name_len
 
-struct message size=2..1881
+struct message size=2..2006
   @0x0000   1         u8         cmd  must_eq=1
   @0x0001   1         op         op
-  @0x0002   0..1879   variant    body
+  @0x0002   0..2004   variant    body
   body switch: op
   body case 128: library nothing
   body case 129: library_row library_row
@@ -82,7 +82,7 @@ struct message size=2..1881
   body case 147: sound_done sound_done
   body case default: error
 
-struct music_row size=62..1879
+struct music_row size=67..2004
   @0x0000   32        u8         root  big
   @0x0020   8         u64        duration_ms  big
   @0x0028   2         u16        holders  big
@@ -108,6 +108,16 @@ struct music_row size=62..1879
   ~         0..16     u8         bpm  sized-by=bpm_len
   ~         1         u8         key_len  max=16
   ~         0..16     u8         key  sized-by=key_len
+  ~         1         u8         beat_len  max=16
+  ~         0..16     u8         beat  sized-by=beat_len
+  ~         1         u8         loudness_len  max=16
+  ~         0..16     u8         loudness  sized-by=loudness_len
+  ~         1         u8         peak_len  max=16
+  ~         0..16     u8         peak  sized-by=peak_len
+  ~         1         u8         acoustid_len  max=36
+  ~         0..36     u8         acoustid  sized-by=acoustid_len
+  ~         1         u8         recording_len  max=36
+  ~         0..36     u8         recording  sized-by=recording_len
   ~         1         u8         name_len
   ~         0..255    u8         name  sized-by=name_len
 

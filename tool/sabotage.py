@@ -747,8 +747,8 @@ SABOTAGES = [
 	(
 		"library-binary-music-total-lost",
 		"node/library_binary.c",
-		"(uint16_t)leading(v[8], l[8], 0xffffu), (uint16_t)total_of(v[8], l[8], 0xffffu),",
-		"(uint16_t)leading(v[8], l[8], 0xffffu), (uint16_t)0u,",
+		"(uint16_t)leading(v[13], l[13], 0xffffu), (uint16_t)total_of(v[13], l[13], 0xffffu),",
+		"(uint16_t)leading(v[13], l[13], 0xffffu), (uint16_t)0u,",
 		"a track's \"3/12\" is 3 of 12 -- sec 1449",
 	),
 	(
@@ -19471,6 +19471,20 @@ SABOTAGES = [
 		"\t\t\twhile (!complete && whole <= THUMB_DECODE_MAX) {\n",
 		"\t\t\twhile (!complete) {\n",
 		"a photograph of any size is read whole for its thumbnail -- sec 1461",
+	),
+	(
+		"library-binary-heard-unbounded",
+		"node/library_binary.c",
+		"\t\t\tif ((l[i] = word_of(set, n, names[i], &v[i])) > most[i])\n",
+		"\t\t\tif ((l[i] = word_of(set, n, names[i], &v[i])) > 255u)\n",
+		"a value past its field's bound is handed to the row, which then will not build, and the song is not listed -- sec 1462",
+	),
+	(
+		"library-binary-beat-not-carried",
+		"node/library_binary.c",
+		"v[8], (uint32_t)l[8], v[9]",
+		"v[8], 0u, v[9]",
+		"a player reading the catalogue has a tempo and no first beat, and no grid -- sec 1462",
 	),
 	(
 		"ulaw-without-bias",

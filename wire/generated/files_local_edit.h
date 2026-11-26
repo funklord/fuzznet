@@ -200,6 +200,21 @@ typedef struct {
 	uint8_t key_len;
 	const uint8_t *key;	/* into your backing */
 	uint32_t key_span;
+	uint8_t beat_len;
+	const uint8_t *beat;	/* into your backing */
+	uint32_t beat_span;
+	uint8_t loudness_len;
+	const uint8_t *loudness;	/* into your backing */
+	uint32_t loudness_span;
+	uint8_t peak_len;
+	const uint8_t *peak;	/* into your backing */
+	uint32_t peak_span;
+	uint8_t acoustid_len;
+	const uint8_t *acoustid;	/* into your backing */
+	uint32_t acoustid_span;
+	uint8_t recording_len;
+	const uint8_t *recording;	/* into your backing */
+	uint32_t recording_span;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
 	uint32_t name_span;
@@ -224,6 +239,11 @@ static inline situ_err_t fzn_files_local_music_row_edit_backing(const situ_msg_t
 	*need += fzn_files_local_music_row_composer_len(view);
 	*need += fzn_files_local_music_row_bpm_len(view);
 	*need += fzn_files_local_music_row_key_len(view);
+	*need += fzn_files_local_music_row_beat_len(view);
+	*need += fzn_files_local_music_row_loudness_len(view);
+	*need += fzn_files_local_music_row_peak_len(view);
+	*need += fzn_files_local_music_row_acoustid_len(view);
+	*need += fzn_files_local_music_row_recording_len(view);
 	*need += fzn_files_local_music_row_name_len(view);
 	return SITU_OK;
 }
@@ -315,6 +335,41 @@ static inline situ_err_t fzn_files_local_music_row_edit_decode(const situ_msg_t 
 		backing[at + i] = fzn_files_local_music_row_key_ptr(view)[i];
 	}
 	at += out->key_span;
+	out->beat_len = fzn_files_local_music_row_beat_len_get(view);
+	out->beat_span = fzn_files_local_music_row_beat_len(view);
+	out->beat     = backing + at;
+	for (uint32_t i = 0u; i < out->beat_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_beat_ptr(view)[i];
+	}
+	at += out->beat_span;
+	out->loudness_len = fzn_files_local_music_row_loudness_len_get(view);
+	out->loudness_span = fzn_files_local_music_row_loudness_len(view);
+	out->loudness     = backing + at;
+	for (uint32_t i = 0u; i < out->loudness_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_loudness_ptr(view)[i];
+	}
+	at += out->loudness_span;
+	out->peak_len = fzn_files_local_music_row_peak_len_get(view);
+	out->peak_span = fzn_files_local_music_row_peak_len(view);
+	out->peak     = backing + at;
+	for (uint32_t i = 0u; i < out->peak_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_peak_ptr(view)[i];
+	}
+	at += out->peak_span;
+	out->acoustid_len = fzn_files_local_music_row_acoustid_len_get(view);
+	out->acoustid_span = fzn_files_local_music_row_acoustid_len(view);
+	out->acoustid     = backing + at;
+	for (uint32_t i = 0u; i < out->acoustid_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_acoustid_ptr(view)[i];
+	}
+	at += out->acoustid_span;
+	out->recording_len = fzn_files_local_music_row_recording_len_get(view);
+	out->recording_span = fzn_files_local_music_row_recording_len(view);
+	out->recording     = backing + at;
+	for (uint32_t i = 0u; i < out->recording_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_recording_ptr(view)[i];
+	}
+	at += out->recording_span;
 	out->name_len = fzn_files_local_music_row_name_len_get(view);
 	out->name_span = fzn_files_local_music_row_name_len(view);
 	out->name     = backing + at;

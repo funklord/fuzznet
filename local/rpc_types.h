@@ -1169,9 +1169,17 @@ typedef struct fzn_rpc_library_list_entry {
 /*
  * THE MUSIC CATALOGUE, sec 1449: every file this user's hosts hold that is
  * music, as `fzn_rpc_music_list` gathers it. The words are what the file
- * says of itself (sec 1447), or a player asserted, NUL-terminated and raw;
- * a number is 0 where none was said. `name` is the file's, for a list to
- * show where there is no title.
+ * says of itself (sec 1447), NUL-terminated and raw; a number is 0 where
+ * none was said. `name` is the file's, for a list to show where there is
+ * no title.
+ *
+ * WHAT ITS HOST HEARD, sec 1457, as text the way it was asserted, empty
+ * where nothing was: `bpm` "128.00", `beat` the first beat in seconds
+ * "0.098", `key` "8A Am" (fzn_media_key_parse reads it), `loudness` in
+ * LUFS "-9.3", `peak` "0.981"; and AcoustID's `acoustid` and MusicBrainz's
+ * `recording` (sec 1459). A player's grid is 60 * rate / bpm frames a beat
+ * from beat * rate, and its level match from the loudness and peak
+ * (sec 1462).
  */
 typedef struct fzn_rpc_music_entry {
 	uint8_t root[32];
@@ -1181,6 +1189,8 @@ typedef struct fzn_rpc_music_entry {
 	uint16_t track, track_total, disc, disc_total, year;
 	char title[256], artist[256], album[256], album_artist[256], genre[256], composer[256];
 	char bpm[17], key[17];
+	char beat[17], loudness[17], peak[17];
+	char acoustid[37], recording[37];
 	char name[256];
 } fzn_rpc_music_entry_t;
 
