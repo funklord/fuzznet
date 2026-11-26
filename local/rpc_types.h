@@ -1191,6 +1191,12 @@ typedef struct fzn_rpc_music_entry {
 	char bpm[17], key[17];
 	char beat[17], loudness[17], peak[17];
 	char acoustid[37], recording[37];
+	/* ITS COMPANIONS, sec 1472: the roots of its music video, tracklist,
+	 * lyrics and beatmap, each a library file of its own -- played,
+	 * fetched or streamed by root as any other -- and `has_*` 1 where one
+	 * is named. */
+	uint8_t video[32], tracklist[32], lyrics[32], beatmap[32];
+	uint8_t has_video, has_tracklist, has_lyrics, has_beatmap;
 	char name[256];
 } fzn_rpc_music_entry_t;
 

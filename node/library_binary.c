@@ -236,6 +236,30 @@ static size_t word_of(const fzn_catalog_assertion_t *set, size_t n, const char *
 	return 0;
 }
 
+/* A COMPANION, sec 1472: the root another file names it by, 64 lower-case
+ * hex digits, into `out`: 32, or 0 where none is named or the value is no
+ * root. */
+static uint32_t companion_of(const fzn_catalog_assertion_t *set, size_t n, const char *name, uint8_t out[32])
+{
+	const uint8_t *v;
+	size_t i;
+
+	if (word_of(set, n, name, &v) != 64u)
+		return 0;
+	for (i = 0; i < 64u; i++) {
+		const uint8_t c = v[i];
+		const int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+
+		if (d < 0)
+			return 0;
+		if (i & 1u)
+			out[i / 2u] = (uint8_t)(out[i / 2u] | d);
+		else
+			out[i / 2u] = (uint8_t)(d << 4);
+	}
+	return 32u;
+}
+
 /* The leading digits of a value as a number, at most `max`: "3/12" is 3,
  * "1961-06-25" is 1961. 0 for none, or one past `max`. */
 static uint32_t leading(const uint8_t *p, size_t len, uint32_t max)
@@ -313,6 +337,11 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
 		static const size_t most[14] = { 255u, 255u, 255u, 255u, 255u, 255u, 16u, 16u, 16u, 16u, 16u, 36u, 36u, 255u };
 		const uint8_t *disc, *year;
 		size_t disc_len, year_len, i;
+		uint8_t video[32], tracklist[32], lyrics[32], beatmap[32];
+		const uint32_t video_len = companion_of(set, n, "video", video);
+		const uint32_t tracklist_len = companion_of(set, n, "tracklist", tracklist);
+		const uint32_t lyrics_len = companion_of(set, n, "lyrics", lyrics);
+		const uint32_t beatmap_len = companion_of(set, n, "beatmap", beatmap);
 
 		for (i = 0; i < 14u; i++)
 			if ((l[i] = word_of(set, n, names[i], &v[i])) > most[i])
@@ -328,7 +357,8 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
 		             (uint16_t)leading(year, year_len, 0xffffu), v[0], (uint32_t)l[0], v[1], (uint32_t)l[1], v[2],
 		             (uint32_t)l[2], v[3], (uint32_t)l[3], v[4], (uint32_t)l[4], v[5], (uint32_t)l[5], v[6],
 		             (uint32_t)l[6], v[7], (uint32_t)l[7], v[8], (uint32_t)l[8], v[9], (uint32_t)l[9], v[10],
-		             (uint32_t)l[10], v[11], (uint32_t)l[11], v[12], (uint32_t)l[12], r->name, (uint32_t)r->name_len,
+		             (uint32_t)l[10], v[11], (uint32_t)l[11], v[12], (uint32_t)l[12], video, video_len, tracklist,
+		             tracklist_len, lyrics, lyrics_len, beatmap, beatmap_len, r->name, (uint32_t)r->name_len,
 		             &row_len)
 		             == SITU_OK
 		     && fzn_files_local_message_build_music_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,

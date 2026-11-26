@@ -25,6 +25,10 @@ its files as a library does it:
     i  a phone's video (sec 1460), QuickTime's: when, how large, which way
        up and where, read where its bytes are, and listed among the
        photographs marked a video, with its length
+    j  a tune's companions (sec 1472): its lyrics, cue sheet and video,
+       files of their own named as the tune is, linked on the tune by
+       their roots when either is read where both are held; a companion
+       that is no other file's root refused
 
 Against a daemon without the verb, phase a reads `malformed`; against one
 that asserts what it read again each time, phase b counts it.
@@ -94,6 +98,17 @@ def main(argv):
 				rows += len(reply) - 3
 				if rows >= int(reply[1]) or len(reply) == 3:
 					return out
+
+		def put_bytes(name, data):
+			path = os.path.join(scratch, name)
+			with open(path, "wb") as fh:
+				fh.write(data)
+			reply = ask(sock, "put file " + path)
+			if not reply.startswith("ok "):
+				raise failed("put file %s answered %r" % (name, reply))
+			root = reply.split()[1][:64]
+			expect(sock, "put", "add catalog %s name %s" % (root, name), "ok")
+			return root
 
 		def tags(word):
 			reply = ask(sock, "add tags " + word)
@@ -220,6 +235,30 @@ def main(argv):
 				raise failed("i: the video's row was %r" % (row,))
 			print("livecheck: i: a phone's video read for when, its size, its turn and where, "
 			      "and listed among the photographs as a video")
+
+			# j: the M4A's companions, files of their own beside it.
+			expect(sock, "j", "add catalog %s kind audio/mp4" % m4a, "ok")
+			lyrics = put_bytes("song.lrc", b"[00:01.00]Midnight sun, rising\n")
+			sheet = put_bytes("song.cue", b'FILE "song.m4a" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n')
+			film = put_bytes("song.webm", b"\x1a\x45\xdf\xa3 a music video's bytes")
+			expect(sock, "j", "add catalog %s kind video/webm" % film, "ok")
+			other = put_bytes("sung.lrc", b"[00:01.00]not this song\n")
+			tags(lyrics)
+			if listed(m4a).get("lyrics") != lyrics:
+				raise failed("j: lyrics read beside their tune were not linked: %r" % listed(m4a))
+			tags(m4a)
+			got = listed(m4a)
+			if got.get("tracklist") != sheet or got.get("video") != film or got.get("lyrics") != lyrics:
+				raise failed("j: the tune read did not link its cue sheet and video: %r" % got)
+			tags(other)
+			if listed(m4a).get("lyrics") != lyrics:
+				raise failed("j: another name's lyrics were linked: %r" % listed(m4a))
+			for bad in ("nothex", m4a, lyrics.upper()):
+				reply = ask(sock, "add catalog %s lyrics %s" % (m4a, bad))
+				if not reply.startswith("malformed"):
+					raise failed("j: a companion %r answered %r" % (bad, reply))
+			print("livecheck: j: a tune's lyrics, cue sheet and video linked on it by their roots, "
+			      "where both are held; a companion that is no other root refused")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

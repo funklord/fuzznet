@@ -985,11 +985,11 @@ situ_err_t fzn_files_local_sound_done_validate(situ_view_t view);
 
 /* ---- struct music_row ---- */
 
-#define FZN_FILES_LOCAL_MUSIC_ROW_SIZE_MIN   67u
-#define FZN_FILES_LOCAL_MUSIC_ROW_SIZE_MAX   2004u
+#define FZN_FILES_LOCAL_MUSIC_ROW_SIZE_MIN   71u
+#define FZN_FILES_LOCAL_MUSIC_ROW_SIZE_MAX   2136u
 
 /* INVALIDATION: a music_row view, and every view derived from
- * it, is invalidated by writing `acoustid_len`, `album_artist_len`, `album_len`, `artist_len`, `beat_len`, `bpm_len`, `composer_len`, `genre_len`, `key_len`, `loudness_len`, `name_len`, `peak_len`, `recording_len`, `title_len` -- those decide where the
+ * it, is invalidated by writing `acoustid_len`, `album_artist_len`, `album_len`, `artist_len`, `beat_len`, `beatmap_len`, `bpm_len`, `composer_len`, `genre_len`, `key_len`, `loudness_len`, `lyrics_len`, `name_len`, `peak_len`, `recording_len`, `title_len`, `tracklist_len`, `video_len` -- those decide where the
  * members after them start. Use the setters at the end of this
  * struct's section, which bump the message generation; a stale view
  * is then caught on use in a SITU_CHECKED build.
@@ -2122,12 +2122,400 @@ static inline uint8_t *fzn_files_local_music_row_recording_ptr(situ_view_t view)
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
 
+#define FZN_FILES_LOCAL_MUSIC_ROW_VIDEO_LEN_VALUE_MAX 32u
+
+/** music_row.video_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_files_local_music_row_video_len_offset(situ_view_t view)
+{
+	return fzn_files_local_music_row_walked(view, 12u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_files_local_music_row_video_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_files_local_music_row_video_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_files_local_music_row_video_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_files_local_music_row_video_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_video_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_files_local_music_row_video_len_offset(view));
+}
+/* No plain setter: `video_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_files_local_music_row_video_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** music_row.video : u8  at Dynamic
+ * size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_files_local_music_row_video_offset(situ_view_t view)
+{
+	uint32_t offset = 54u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_genre_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_composer_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_bpm_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_key_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beat_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_loudness_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_files_local_music_row_video_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view))),
+		situ_remaining_u32(view.limit, fzn_files_local_music_row_video_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_video_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_files_local_music_row_video_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_FILES_LOCAL_MUSIC_ROW_TRACKLIST_LEN_VALUE_MAX 32u
+
+/** music_row.tracklist_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_files_local_music_row_tracklist_len_offset(situ_view_t view)
+{
+	return fzn_files_local_music_row_walked(view, 13u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_files_local_music_row_tracklist_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_files_local_music_row_tracklist_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_files_local_music_row_tracklist_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_files_local_music_row_tracklist_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_tracklist_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_files_local_music_row_tracklist_len_offset(view));
+}
+/* No plain setter: `tracklist_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_files_local_music_row_tracklist_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** music_row.tracklist : u8  at Dynamic
+ * size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_files_local_music_row_tracklist_offset(situ_view_t view)
+{
+	uint32_t offset = 54u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_genre_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_composer_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_bpm_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_key_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beat_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_loudness_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_files_local_music_row_tracklist_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view))),
+		situ_remaining_u32(view.limit, fzn_files_local_music_row_tracklist_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_tracklist_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_files_local_music_row_tracklist_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_FILES_LOCAL_MUSIC_ROW_LYRICS_LEN_VALUE_MAX 32u
+
+/** music_row.lyrics_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_files_local_music_row_lyrics_len_offset(situ_view_t view)
+{
+	return fzn_files_local_music_row_walked(view, 14u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_files_local_music_row_lyrics_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_files_local_music_row_lyrics_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_files_local_music_row_lyrics_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_files_local_music_row_lyrics_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_lyrics_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_files_local_music_row_lyrics_len_offset(view));
+}
+/* No plain setter: `lyrics_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_files_local_music_row_lyrics_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** music_row.lyrics : u8  at Dynamic
+ * size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_files_local_music_row_lyrics_offset(situ_view_t view)
+{
+	uint32_t offset = 54u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_genre_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_composer_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_bpm_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_key_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beat_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_loudness_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_files_local_music_row_lyrics_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_lyrics_len_get(view))),
+		situ_remaining_u32(view.limit, fzn_files_local_music_row_lyrics_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_lyrics_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_files_local_music_row_lyrics_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_FILES_LOCAL_MUSIC_ROW_BEATMAP_LEN_VALUE_MAX 32u
+
+/** music_row.beatmap_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_files_local_music_row_beatmap_len_offset(situ_view_t view)
+{
+	return fzn_files_local_music_row_walked(view, 15u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_files_local_music_row_beatmap_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_files_local_music_row_beatmap_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_files_local_music_row_beatmap_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_files_local_music_row_beatmap_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_beatmap_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_files_local_music_row_beatmap_len_offset(view));
+}
+/* No plain setter: `beatmap_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_files_local_music_row_beatmap_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** music_row.beatmap : u8  at Dynamic
+ * size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_files_local_music_row_beatmap_offset(situ_view_t view)
+{
+	uint32_t offset = 54u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_artist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_genre_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_composer_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_bpm_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_key_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beat_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_loudness_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_lyrics_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_files_local_music_row_beatmap_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beatmap_len_get(view))),
+		situ_remaining_u32(view.limit, fzn_files_local_music_row_beatmap_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_files_local_music_row_beatmap_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_files_local_music_row_beatmap_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
 /** music_row.name_len : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
 static inline uint32_t fzn_files_local_music_row_name_len_offset(situ_view_t view)
 {
-	return fzn_files_local_music_row_walked(view, 12u);
+	return fzn_files_local_music_row_walked(view, 16u);
 }
 /** Zero where the member does not fit the view: its offset is a sum of
  * lengths the message chose, so the frame is not known to hold it, and
@@ -2191,6 +2579,14 @@ static inline uint32_t fzn_files_local_music_row_name_offset(situ_view_t view)
 	offset = situ_advance_u32(offset, (1u), view.limit);
 	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_lyrics_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beatmap_len_get(view)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
@@ -2217,7 +2613,7 @@ static inline uint8_t *fzn_files_local_music_row_name_ptr(situ_view_t view)
  */
 static inline uint32_t fzn_files_local_music_row_walked(situ_view_t view, uint32_t index)
 {
-	uint32_t marks[13];
+	uint32_t marks[17];
 	uint32_t at = 0u;
 
 	marks[0] = view.limit;
@@ -2233,6 +2629,10 @@ static inline uint32_t fzn_files_local_music_row_walked(situ_view_t view, uint32
 	marks[10] = view.limit;
 	marks[11] = view.limit;
 	marks[12] = view.limit;
+	marks[13] = view.limit;
+	marks[14] = view.limit;
+	marks[15] = view.limit;
+	marks[16] = view.limit;
 	at = situ_advance_u32(at, 54u, view.limit);
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u]))), view.limit);
 	marks[0] = at;
@@ -2272,6 +2672,18 @@ static inline uint32_t fzn_files_local_music_row_walked(situ_view_t view, uint32
 	at = situ_advance_u32(at, 1u, view.limit);
 	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get_from(view, marks[11])))), view.limit);
 	marks[12] = at;
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get_from(view, marks[12])))), view.limit);
+	marks[13] = at;
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get_from(view, marks[13])))), view.limit);
+	marks[14] = at;
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_lyrics_len_get_from(view, marks[14])))), view.limit);
+	marks[15] = at;
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beatmap_len_get_from(view, marks[15])))), view.limit);
+	marks[16] = at;
 	return marks[index];
 }
 
@@ -2284,11 +2696,11 @@ static inline uint32_t fzn_files_local_music_row_walked(situ_view_t view, uint32
  */
 static inline uint32_t fzn_files_local_music_row_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 67u)) {
-		return 67u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 71u)) {
+		return 71u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 67u;
+	uint32_t extent = 71u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[53u])));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_artist_len_get(view))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_album_len_get(view))));
@@ -2302,6 +2714,10 @@ static inline uint32_t fzn_files_local_music_row_extent(situ_view_t view)
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_peak_len_get(view))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_acoustid_len_get(view))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_recording_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_video_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_lyrics_len_get(view))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_beatmap_len_get(view))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint64_t)fzn_files_local_music_row_name_len_get(view))));
 	return extent;
 }
@@ -2317,7 +2733,7 @@ static inline uint32_t fzn_files_local_music_row_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_files_local_music_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 67u;
+	uint32_t at = 71u;
 	uint32_t pos = 54u;
 	situ_view_t view;
 
@@ -2510,6 +2926,62 @@ static inline situ_err_t fzn_files_local_music_row_required(const uint8_t *data,
 	}
 	pos = situ_need_u32(pos, 1u);
 
+	/* music_row.video: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_music_row_video_len_get(view)));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* music_row.tracklist: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_music_row_tracklist_len_get(view)));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* music_row.lyrics: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_music_row_lyrics_len_get(view)));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* music_row.beatmap: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint64_t)fzn_files_local_music_row_beatmap_len_get(view)));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
 	/* music_row.name: reading its length means reading bytes that
 	 * have to be here first. */
 	if (have < pos) {
@@ -2571,6 +3043,14 @@ static inline void fzn_files_local_music_row_beat_len_set(situ_msg_t *msg, situ_
 	((situ_base(view) + fzn_files_local_music_row_beat_len_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
+static inline void fzn_files_local_music_row_beatmap_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_files_local_music_row_beatmap_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_files_local_music_row_beatmap_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
 static inline void fzn_files_local_music_row_bpm_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
 	if (!(situ_in_bounds(view, fzn_files_local_music_row_bpm_len_offset(view), 1u))) {
@@ -2611,6 +3091,14 @@ static inline void fzn_files_local_music_row_loudness_len_set(situ_msg_t *msg, s
 	((situ_base(view) + fzn_files_local_music_row_loudness_len_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
+static inline void fzn_files_local_music_row_lyrics_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_files_local_music_row_lyrics_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_files_local_music_row_lyrics_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
 static inline void fzn_files_local_music_row_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
 	if (!(situ_in_bounds(view, fzn_files_local_music_row_name_len_offset(view), 1u))) {
@@ -2638,6 +3126,22 @@ static inline void fzn_files_local_music_row_recording_len_set(situ_msg_t *msg, 
 static inline void fzn_files_local_music_row_title_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[53u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+static inline void fzn_files_local_music_row_tracklist_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_files_local_music_row_tracklist_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_files_local_music_row_tracklist_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+static inline void fzn_files_local_music_row_video_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_files_local_music_row_video_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_files_local_music_row_video_len_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
 
@@ -2681,8 +3185,16 @@ situ_err_t fzn_files_local_music_row_check(situ_view_t view, uint32_t *which);
 #define FZN_FILES_LOCAL_MUSIC_ROW_ACOUSTID_CHECK 23u
 #define FZN_FILES_LOCAL_MUSIC_ROW_RECORDING_LEN_CHECK 24u
 #define FZN_FILES_LOCAL_MUSIC_ROW_RECORDING_CHECK 25u
-#define FZN_FILES_LOCAL_MUSIC_ROW_NAME_LEN_CHECK 26u
-#define FZN_FILES_LOCAL_MUSIC_ROW_NAME_CHECK 27u
+#define FZN_FILES_LOCAL_MUSIC_ROW_VIDEO_LEN_CHECK 26u
+#define FZN_FILES_LOCAL_MUSIC_ROW_VIDEO_CHECK 27u
+#define FZN_FILES_LOCAL_MUSIC_ROW_TRACKLIST_LEN_CHECK 28u
+#define FZN_FILES_LOCAL_MUSIC_ROW_TRACKLIST_CHECK 29u
+#define FZN_FILES_LOCAL_MUSIC_ROW_LYRICS_LEN_CHECK 30u
+#define FZN_FILES_LOCAL_MUSIC_ROW_LYRICS_CHECK 31u
+#define FZN_FILES_LOCAL_MUSIC_ROW_BEATMAP_LEN_CHECK 32u
+#define FZN_FILES_LOCAL_MUSIC_ROW_BEATMAP_CHECK 33u
+#define FZN_FILES_LOCAL_MUSIC_ROW_NAME_LEN_CHECK 34u
+#define FZN_FILES_LOCAL_MUSIC_ROW_NAME_CHECK 35u
 
 /* ---- struct photo_row ---- */
 
@@ -3714,7 +4226,7 @@ situ_err_t fzn_files_local_library_row_check(situ_view_t view, uint32_t *which);
 /* ---- struct message ---- */
 
 #define FZN_FILES_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_FILES_LOCAL_MESSAGE_SIZE_MAX   2006u
+#define FZN_FILES_LOCAL_MESSAGE_SIZE_MAX   2138u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -3772,7 +4284,7 @@ static inline fzn_files_local_op_t fzn_files_local_message_op_get(situ_view_t vi
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 2004) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 2136) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /** `body` is a variant: exactly one of `library`, `library_row`, `library_file`, `file`, `file_row`, `remove`, `share`, `shares`, `share_row`, `catalog_add`, `tags`, `tags_page`, `tags_done`, `music`, `music_row`, `photos`, `photo_row`, `sound`, `sound_page`, `sound_done` is
  * present, and which one is in the discriminant. The variant has no
@@ -4129,6 +4641,14 @@ static inline situ_err_t fzn_files_local_message_body_music_row_view(situ_view_t
 #define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_ACOUSTID_LEN_VALUE_MAX 36u
 
 #define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_RECORDING_LEN_VALUE_MAX 36u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_VIDEO_LEN_VALUE_MAX 32u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_TRACKLIST_LEN_VALUE_MAX 32u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_LYRICS_LEN_VALUE_MAX 32u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_MUSIC_ROW_BEATMAP_LEN_VALUE_MAX 32u
 
 /** message.body.photos, present when the discriminant selects `op.photos`.
  *

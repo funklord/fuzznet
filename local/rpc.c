@@ -5687,6 +5687,16 @@ static void media_each(void *ctx, const uint8_t *msg, size_t len) {
 		WORDS(recording);
 		WORDS(name);
 #undef WORDS
+#define COMPANION(f)                                                                                  \
+	if (fzn_files_local_music_row_##f##_len_get(b) == 32u) {                                         \
+		memcpy(e->f, fzn_files_local_music_row_##f##_ptr(b), 32);                                 \
+		e->has_##f = 1;                                                                           \
+	}
+		COMPANION(video)
+		COMPANION(tracklist)
+		COMPANION(lyrics)
+		COMPANION(beatmap)
+#undef COMPANION
 		return;
 	}
 	fzn_rpc_photo_list_t *all = a->photos;

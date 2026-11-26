@@ -77277,3 +77277,50 @@ The sabotage entry that broke the scan's depth test (`depth == 1u`) is
 retired: no line now hands a nested member to the note's reader. Three
 others follow the lines they guard; `json-walk-unvalidated` holds the
 validation every reader relies on and is caught by `tpv_test`'s `1.`.
+
+## 1472. A tune's companions: its video, tracklist, lyrics and beatmap, files of their own, 2026-11-26
+
+**The holder, 2026-11-26** (the /go focus): "fuzznet should have the
+ability to store music, video, tracklist, lyrics, beatmap, in separate
+files, and some files like video should be configurable to not propagate
+to every music node, but still streamable (all media should be
+accessible from any node, either directly or via streaming)." Three
+parts: the files linked (this section), then where copies go and
+playing what a host does not keep, in the sections after it.
+
+**Each is a library file of its own** -- its own root, fetched, shared and
+let go as any other -- and **the tune names it**, by four catalogue
+labels whose value is the companion's root in 64 lower-case hex:
+`video`, `tracklist` (a cue sheet, or FFmpeg's chapters file, the two
+snurra reads), `lyrics` (an `.lrc`), `beatmap` (a beat grid). On the
+tune rather than on the companion, so the music row carries all four
+with no second lookup and a companion serves one tune or several alike.
+Labels, DISTINCT as any (sec 1447): two hosts linking differently both
+show. Rejected: one attribute `companions` holding a list (a value is 255
+bytes, four roots are 256 in hex), and a `of` label on the companion
+(the music listing would have to search every file for the ones naming
+each tune).
+
+**Linked where the bytes are, by name**, as a player's folder holds them:
+when a host reads a file's tags (`library add`, `add tags`), a file whose
+name has the tune's stem and ends `.lrc` is its lyrics; `.cue`,
+`.ffmetadata`, `.ffmeta` or `.chapters` its tracklist; `.beats` or
+`.beatmap` its beatmap; and a `video/` of that stem its video -- `song.mp3`
+beside `song.lrc`, `song.cue` and `song.mp4`. Either one read links the
+pair, and only where this host holds both, the link being the tune's
+holder's assertion (C5e). `add catalog TUNE lyrics ROOT` links by hand;
+the verb refuses a companion that is not another file's root.
+
+**Listed**: the music row (`node/files_local.situ`) carries the four roots,
+32 bytes each where named; `fzn_rpc_music_entry_t` has `video`,
+`tracklist`, `lyrics`, `beatmap` and their `has_*`.
+
+**Assumed, the holder's to move**: the endings above. A beatmap has no
+common format; `.beats` and `.beatmap` are this tree's choice until one
+is named.
+
+Tests: `library_binary_test` -- a root named listed, one in capitals or a
+digit short not; `live_tags` j -- lyrics, cue sheet and video linked on
+the real daemon from either side, `sung.lrc` of the same length not, and
+three companions that are no other root refused. Sabotage: four entries,
+each caught.

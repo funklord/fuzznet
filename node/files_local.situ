@@ -158,6 +158,18 @@ struct music_row {
 	u8   acoustid[acoustid_len];
 	u8   recording_len [max = 36];
 	u8   recording[recording_len];
+	// ITS COMPANIONS, sec 1472: the roots of the files that go with it --
+	// its music video, its tracklist (a cue sheet or FFmpeg's chapters),
+	// its lyrics, its beatmap -- each a library file of its own, 32 bytes
+	// where one is named and none where none is.
+	u8   video_len [max = 32];
+	u8   video[video_len];
+	u8   tracklist_len [max = 32];
+	u8   tracklist[tracklist_len];
+	u8   lyrics_len [max = 32];
+	u8   lyrics[lyrics_len];
+	u8   beatmap_len [max = 32];
+	u8   beatmap[beatmap_len];
 	u8   name_len;
 	u8   name[name_len];
 }

@@ -662,6 +662,14 @@ static inline situ_err_t fzn_files_local_music_row_build(
 		uint32_t acoustid__len,
 		const uint8_t *recording_,
 		uint32_t recording__len,
+		const uint8_t *video_,
+		uint32_t video__len,
+		const uint8_t *tracklist_,
+		uint32_t tracklist__len,
+		const uint8_t *lyrics_,
+		uint32_t lyrics__len,
+		const uint8_t *beatmap_,
+		uint32_t beatmap__len,
 		const uint8_t *name_,
 		uint32_t name__len,
 		uint32_t *situ_wrote)
@@ -1011,6 +1019,90 @@ static inline situ_err_t fzn_files_local_music_row_build(
 		situ_put(situ_out + situ_at, recording_, recording__len);
 	}
 	situ_at += recording__len;
+
+	/* video_len: the length of `video_`, which the schema states. */
+	if (video__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)video__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < video__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (video__len != 0u) {
+		if (video_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, video_, video__len);
+	}
+	situ_at += video__len;
+
+	/* tracklist_len: the length of `tracklist_`, which the schema states. */
+	if (tracklist__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)tracklist__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < tracklist__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (tracklist__len != 0u) {
+		if (tracklist_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, tracklist_, tracklist__len);
+	}
+	situ_at += tracklist__len;
+
+	/* lyrics_len: the length of `lyrics_`, which the schema states. */
+	if (lyrics__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)lyrics__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < lyrics__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (lyrics__len != 0u) {
+		if (lyrics_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, lyrics_, lyrics__len);
+	}
+	situ_at += lyrics__len;
+
+	/* beatmap_len: the length of `beatmap_`, which the schema states. */
+	if (beatmap__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)beatmap__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < beatmap__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (beatmap__len != 0u) {
+		if (beatmap_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, beatmap_, beatmap__len);
+	}
+	situ_at += beatmap__len;
 
 	/* name_len: the length of `name_`, which the schema states. */
 	if (name__len > 255u) {

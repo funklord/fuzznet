@@ -215,6 +215,18 @@ typedef struct {
 	uint8_t recording_len;
 	const uint8_t *recording;	/* into your backing */
 	uint32_t recording_span;
+	uint8_t video_len;
+	const uint8_t *video;	/* into your backing */
+	uint32_t video_span;
+	uint8_t tracklist_len;
+	const uint8_t *tracklist;	/* into your backing */
+	uint32_t tracklist_span;
+	uint8_t lyrics_len;
+	const uint8_t *lyrics;	/* into your backing */
+	uint32_t lyrics_span;
+	uint8_t beatmap_len;
+	const uint8_t *beatmap;	/* into your backing */
+	uint32_t beatmap_span;
 	uint8_t name_len;
 	const uint8_t *name;	/* into your backing */
 	uint32_t name_span;
@@ -244,6 +256,10 @@ static inline situ_err_t fzn_files_local_music_row_edit_backing(const situ_msg_t
 	*need += fzn_files_local_music_row_peak_len(view);
 	*need += fzn_files_local_music_row_acoustid_len(view);
 	*need += fzn_files_local_music_row_recording_len(view);
+	*need += fzn_files_local_music_row_video_len(view);
+	*need += fzn_files_local_music_row_tracklist_len(view);
+	*need += fzn_files_local_music_row_lyrics_len(view);
+	*need += fzn_files_local_music_row_beatmap_len(view);
 	*need += fzn_files_local_music_row_name_len(view);
 	return SITU_OK;
 }
@@ -370,6 +386,34 @@ static inline situ_err_t fzn_files_local_music_row_edit_decode(const situ_msg_t 
 		backing[at + i] = fzn_files_local_music_row_recording_ptr(view)[i];
 	}
 	at += out->recording_span;
+	out->video_len = fzn_files_local_music_row_video_len_get(view);
+	out->video_span = fzn_files_local_music_row_video_len(view);
+	out->video     = backing + at;
+	for (uint32_t i = 0u; i < out->video_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_video_ptr(view)[i];
+	}
+	at += out->video_span;
+	out->tracklist_len = fzn_files_local_music_row_tracklist_len_get(view);
+	out->tracklist_span = fzn_files_local_music_row_tracklist_len(view);
+	out->tracklist     = backing + at;
+	for (uint32_t i = 0u; i < out->tracklist_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_tracklist_ptr(view)[i];
+	}
+	at += out->tracklist_span;
+	out->lyrics_len = fzn_files_local_music_row_lyrics_len_get(view);
+	out->lyrics_span = fzn_files_local_music_row_lyrics_len(view);
+	out->lyrics     = backing + at;
+	for (uint32_t i = 0u; i < out->lyrics_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_lyrics_ptr(view)[i];
+	}
+	at += out->lyrics_span;
+	out->beatmap_len = fzn_files_local_music_row_beatmap_len_get(view);
+	out->beatmap_span = fzn_files_local_music_row_beatmap_len(view);
+	out->beatmap     = backing + at;
+	for (uint32_t i = 0u; i < out->beatmap_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_beatmap_ptr(view)[i];
+	}
+	at += out->beatmap_span;
 	out->name_len = fzn_files_local_music_row_name_len_get(view);
 	out->name_span = fzn_files_local_music_row_name_len(view);
 	out->name     = backing + at;

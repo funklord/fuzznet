@@ -195,6 +195,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/resource.h>
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -17236,6 +17237,38 @@ static void index_catalog(void)
 	}
 }
 
+/* THE COMPANIONS OF A TUNE, sec 1472: the files that go with it, each a
+ * library file of its own, named on the tune by its root. */
+static const char *const companion_names[] = { "video", "tracklist", "lyrics", "beatmap" };
+
+static int companion_name(const uint8_t *name, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(companion_names) / sizeof(companion_names[0]); i++)
+		if (len == strlen(companion_names[i]) && !memcmp(name, companion_names[i], len))
+			return 1;
+	return 0;
+}
+
+/* A companion's value: another file's root, 64 lower-case hex digits. */
+static int companion_root(const uint8_t *v, size_t len, const uint8_t self[FZN_PUBKEY_LEN])
+{
+	uint8_t other[FZN_PUBKEY_LEN];
+	size_t i;
+
+	if (len != 2u * FZN_PUBKEY_LEN)
+		return 0;
+	for (i = 0; i < len; i++) {
+		const int d = v[i] >= '0' && v[i] <= '9' ? v[i] - '0' : v[i] >= 'a' && v[i] <= 'f' ? v[i] - 'a' + 10 : -1;
+
+		if (d < 0)
+			return 0;
+		other[i / 2u] = (uint8_t)(i & 1u ? other[i / 2u] | d : d << 4);
+	}
+	return memcmp(other, self, FZN_PUBKEY_LEN) != 0;
+}
+
 /* THE CATALOGUE VERBS, the node's own user's, sec 633:
  *
  *     add catalog ROOT NAME VALUE   this host asserts NAME of a file it
@@ -17455,6 +17488,12 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 				return (size_t)snprintf(reply, cap,
 				                        "malformed a duration is whole milliseconds\n");
 		}
+		/* A COMPANION, sec 1472 -- its video, tracklist, lyrics or
+		 * beatmap -- is another file, named by its root, and never this
+		 * one. */
+		if (companion_name(name, name_len) && !companion_root(plain, plain_len, root))
+			return (size_t)snprintf(reply, cap, "malformed a companion is another file's root, "
+			                                    "64 lower-case hex digits\n");
 		memset(&a, 0, sizeof(a));
 		a.name = name;
 		a.name_len = name_len;
@@ -17690,6 +17729,119 @@ static size_t tags_range(void *ctx, uint64_t offset, uint8_t *buf, size_t len)
 
 /* One held file read and its tags asserted: how many were new, or -1 where
  * it is not held whole here or would not open. */
+/* A FILE'S PART BESIDE A TUNE, sec 1472, by how its name ends, as a
+ * player's folder holds them: `song.lrc` the lyrics of `song.mp3`, a cue
+ * sheet or FFmpeg's chapters its tracklist, a beat grid its beatmap. A
+ * `video/` is the tune's video; NULL for none of these. */
+static const char *companion_role(const uint8_t *name, size_t len, const uint8_t *kind, size_t kind_len,
+                                  size_t *stem)
+{
+	static const struct {
+		const char *ending, *role;
+	} endings[] = {
+		{ ".lrc", "lyrics" },        { ".cue", "tracklist" },     { ".ffmetadata", "tracklist" },
+		{ ".ffmeta", "tracklist" },  { ".chapters", "tracklist" }, { ".beats", "beatmap" },
+		{ ".beatmap", "beatmap" },
+	};
+	const uint8_t *dot = NULL;
+	size_t i, k;
+
+	for (i = 0; i < len; i++)
+		if (name[i] == '.')
+			dot = name + i;
+	if (!dot || dot == name)
+		return NULL;
+	*stem = (size_t)(dot - name);
+	for (k = 0; k < sizeof(endings) / sizeof(endings[0]); k++) {
+		const size_t n = strlen(endings[k].ending);
+
+		if (len - *stem == n && !strncasecmp((const char *)dot, endings[k].ending, n))
+			return endings[k].role;
+	}
+	if (kind_len > 6u && !memcmp(kind, "video/", 6u))
+		return "video";
+	if (kind_len > 6u && !memcmp(kind, "audio/", 6u))
+		return "";
+	return NULL;
+}
+
+/* A FILE'S NAME AND KIND as catalogued, anybody's: 1 with the name. */
+static int name_and_kind(const uint8_t root[FZN_PUBKEY_LEN], const uint8_t **name, size_t *name_len,
+                         const uint8_t **kind, size_t *kind_len)
+{
+	size_t i;
+
+	*name = *kind = NULL;
+	*name_len = *kind_len = 0;
+	for (i = 0; i < node_catalog.count; i++) {
+		const fzn_node_catalog_entry_t *e = &node_catalog.entries[i];
+
+		if (!e->live || !e->value_len || memcmp(e->entity, root, FZN_PUBKEY_LEN) != 0)
+			continue;
+		if (e->name_len == 4u && !memcmp(e->name, "name", 4u) && !*name) {
+			*name = e->value;
+			*name_len = e->value_len;
+		} else if (e->name_len == 4u && !memcmp(e->name, "kind", 4u) && !*kind) {
+			*kind = e->value;
+			*kind_len = e->value_len;
+		}
+	}
+	return *name != NULL;
+}
+
+/* THE TUNE AND ITS COMPANIONS LINKED, sec 1472: `root` read here, and every
+ * other file held here whose name has the same stem -- one the tune, the
+ * other its lyrics, tracklist, beatmap or video -- asserted on the tune by
+ * the companion's root, as `add catalog TUNE lyrics ROOT` would. A host
+ * links only what it holds both of, the tune's assertion being its
+ * holder's (C5e). How many it asserted. */
+static int link_companions(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	const uint8_t *name, *kind, *o_name, *o_kind;
+	size_t name_len, kind_len, o_name_len, o_kind_len, stem = 0, o_stem = 0, i;
+	const char *role, *o_role;
+	uint64_t length;
+	int put = 0;
+
+	if (!name_and_kind(root, &name, &name_len, &kind, &kind_len)
+	    || !(role = companion_role(name, name_len, kind, kind_len, &stem)))
+		return 0;
+	for (i = 0; i < node_catalog.count; i++) {
+		const fzn_node_catalog_entry_t *e = &node_catalog.entries[i];
+		const uint8_t *tune, *part;
+		const char *as;
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+
+		/* The stem compared first, so only a file of the same stem is
+		 * looked up whole: a library is walked once a file read. */
+		if (!e->live || e->name_len != 4u || memcmp(e->name, "name", 4u) != 0 || e->value_len <= stem
+		    || e->value[stem] != '.' || memcmp(e->value, name, stem) != 0
+		    || !memcmp(e->entity, root, FZN_PUBKEY_LEN)
+		    || !name_and_kind(e->entity, &o_name, &o_name_len, &o_kind, &o_kind_len) || o_name != e->value
+		    || !(o_role = companion_role(o_name, o_name_len, o_kind, o_kind_len, &o_stem)) || o_stem != stem)
+			continue;
+		/* One the tune, the other its part. */
+		if (!*role && *o_role) {
+			tune = root;
+			part = e->entity;
+			as = o_role;
+		} else if (*role && !*o_role) {
+			tune = e->entity;
+			part = root;
+			as = role;
+		} else {
+			continue;
+		}
+		if (fzn_node_files_held(&files, tune, &length) != FZN_NODE_FILES_OK
+		    || fzn_node_files_held(&files, part, &length) != FZN_NODE_FILES_OK)
+			continue;
+		hex_of(part, FZN_PUBKEY_LEN, hex);
+		if (!catalog_says(tune, as, hex, 2u * FZN_PUBKEY_LEN) && catalog_put(tune, as, hex, 2u * FZN_PUBKEY_LEN))
+			put++;
+	}
+	return put;
+}
+
 static int tags_of(const uint8_t root[FZN_PUBKEY_LEN])
 {
 	static fzn_media_tags_t found;
@@ -17717,7 +17869,7 @@ static int tags_of(const uint8_t root[FZN_PUBKEY_LEN])
 			put++;
 	}
 	fzn_wipe(&found, sizeof(found));
-	return put;
+	return put + link_companions(root);
 }
 
 static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)

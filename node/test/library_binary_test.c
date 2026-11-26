@@ -497,6 +497,11 @@ static void test_music_and_photos(void)
 	say(host_b, song, "peak", "0.981");
 	say(host_b, song, "acoustid", "0b1cf1a2-2222-4b4b-8c8c-000000000002");
 	say(host_b, song, "musicbrainz_recording", "bbbbbbbb-0000-4000-8000-000000000002-and-more");
+	/* ITS COMPANIONS, sec 1472: lyrics named by a root; a video in
+	 * capitals and a beatmap a digit short name none. */
+	say(host_a, song, "lyrics", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1");
+	say(host_a, song, "video", "A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1");
+	say(host_a, song, "beatmap", "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a");
 	say(host_a, bare, "artist", "Bill Evans");
 	say(host_a, photo, "kind", "image/jpeg");
 	say(host_a, photo, "taken", "2023-07-14T21:45:30");
@@ -537,6 +542,17 @@ static void test_music_and_photos(void)
 	              && fzn_files_local_music_row_recording_len(b) == 0u
 	              && fzn_files_local_music_row_name_len(b) == 12u,
 	      "a song's row did not carry its words and their numbers");
+	{
+		uint8_t lyrics[32];
+
+		memset(lyrics, 0xa1, sizeof(lyrics));
+		CHECK(fzn_files_local_music_row_lyrics_len_get(b) == 32u
+		              && memcmp(fzn_files_local_music_row_lyrics_ptr(b), lyrics, 32u) == 0
+		              && fzn_files_local_music_row_video_len_get(b) == 0u
+		              && fzn_files_local_music_row_beatmap_len_get(b) == 0u
+		              && fzn_files_local_music_row_tracklist_len_get(b) == 0u,
+		      "a song's companions were not its roots, or a value that is no root was one");
+	}
 	memcpy(copy, said[1], said_len[1]);
 	situ_msg_init(&m, copy, (uint32_t)said_len[1]);
 	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[1], &v) == SITU_OK
