@@ -962,6 +962,20 @@ SABOTAGES = [
 		"an offer ended from the view is ended at the node -- sec 1486",
 	),
 	(
+		"music-view-album-choice-dropped",
+		"gui/music_view.cpp",
+		"\t\tif (!kept_group.isEmpty() && !again && head->text(0) + QLatin1Char('\\x1f') + head->text(1) == kept_group)\n",
+		"\t\tif (0)\n",
+		"a chosen album stays chosen across a refresh, so a host's poll does not take its Play away -- sec 1487",
+	),
+	(
+		"photo-view-month-choice-dropped",
+		"gui/photo_view.cpp",
+		"\t\t\tif (!kept_month.isEmpty() && !again && month->text(0) == kept_month)\n",
+		"\t\t\tif (0)\n",
+		"a chosen month stays chosen across a refresh -- sec 1487",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

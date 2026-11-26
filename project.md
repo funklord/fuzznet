@@ -77713,3 +77713,20 @@ headless test.
 
 Tests: `devices_view_test` -- an offer opened and then ended, asked as
 `remove offer` and said. Sabotage: one entry, caught.
+
+## 1487. A chosen album, or month, stays chosen across a refresh, 2026-11-26
+
+**fuzzypickles' report** (its inbox 20261126T2117Z): its window refreshes
+the page shown every two seconds, and the music view's `rebuild` kept
+the choice only for a track -- `chosen()->parent()` required -- so a
+chosen **album** was dropped by the next poll and its Play greyed out
+before the tap arrived, seen on the Android emulator. A group is now
+kept by what it says, as a track is kept by its root: an album's title
+and whom it is by, or the tempo, key or artist a group is in the other
+orders. The photo view had the same shape for a month, losing only the
+highlight; it keeps a month by its name. `chosen_row()` on the photo
+view says which row is chosen, for its test.
+
+Tests: `music_view_test` -- an album chosen, a refresh, and Play plays it
+in its track order; `photo_view_test` -- a month chosen and still
+chosen after a refresh. Sabotage: one entry each, caught.

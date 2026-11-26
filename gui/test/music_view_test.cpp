@@ -216,6 +216,9 @@ int main(int argc, char **argv)
 	v.select(6);
 	CHECK(v.play() && played == QByteArray(32, 0x11), "a track was not handed to the host's player");
 	v.select(4);
+	/* A HOST'S POLL BETWEEN THE CHOICE AND THE TAP, sec 1487: the album
+	 * stays chosen across a refresh, as a track does. */
+	CHECK(v.refresh(), "fixture: the music refreshed");
 	CHECK(v.play() && album_played.size() == 2 && album_played[0].first == QByteArray(32, 0x12)
 	              && album_played[1].first == QByteArray(32, 0x11),
 	      "an album was not played in its track order");

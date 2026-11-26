@@ -188,6 +188,9 @@ bool fzn_photo_view::refresh()
 		return c ? c > 0 : memcmp(a->root, b->root, 32) < 0;
 	});
 	const QByteArray kept = chosen() && chosen()->parent() ? chosen()->data(0, ROLE_ROOT).toByteArray() : QByteArray();
+	/* A CHOSEN MONTH KEPT by what it says, as the music view keeps an
+	 * album (sec 1487): a host's poll took the highlight away. */
+	const QString kept_month = chosen() && !chosen()->parent() ? chosen()->text(0) : QString();
 	m_tree->clear();
 	m_thumbs_wanted.clear();
 	QTreeWidgetItem *month = nullptr, *again = nullptr;
@@ -201,6 +204,8 @@ bool fzn_photo_view::refresh()
 			month_key = key;
 			const QDate d = QDate::fromString(key + QStringLiteral("-01"), QStringLiteral("yyyy-MM-dd"));
 			month->setText(0, d.isValid() ? QLocale().toString(d, QStringLiteral("MMMM yyyy")) : tr("When unknown"));
+			if (!kept_month.isEmpty() && !again && month->text(0) == kept_month)
+				again = month;
 		}
 		auto *p = new QTreeWidgetItem(month);
 		const unsigned others = e->holders - (e->held_here && e->holders ? 1u : 0u);
@@ -486,6 +491,11 @@ bool fzn_photo_view::fetch()
 	}
 	m_status->setText(tr("Getting it from another host."));
 	return true;
+}
+
+int fzn_photo_view::chosen_row() const
+{
+	return chosen() ? (int)shown().indexOf(chosen()) : -1;
 }
 
 QStringList fzn_photo_view::rows() const

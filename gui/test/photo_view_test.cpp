@@ -243,6 +243,10 @@ int main(int argc, char **argv)
 
 	/* SHOWN, turned as its EXIF says: 16 by 12 at orientation 6 is shown
 	 * taller than wide. */
+	/* A CHOSEN MONTH KEPT ACROSS A REFRESH, sec 1487, as a host's poll
+	 * would call it. */
+	v.select(0);
+	CHECK(v.refresh() && v.chosen_row() == 0, "a chosen month was dropped by a refresh");
 	v.select(5);
 	const QImage shown = v.shown_picture();
 	CHECK(!shown.isNull() && ranges_read > 0 && shown.height() > shown.width(),

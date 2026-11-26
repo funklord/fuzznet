@@ -86,6 +86,8 @@ public:
 	 * video's SIZE "W x H, M:SS video"; the picture shown, null for none;
 	 * and the status line. */
 	QStringList rows() const;
+	/* The chosen row's place among those shown, -1 for none. */
+	int chosen_row() const;
 	QImage shown_picture() const;
 	QString status() const;
 

@@ -320,6 +320,13 @@ void fzn_music_view::rebuild()
 			years[g] = e->year;
 	}
 	const QByteArray kept = chosen() && chosen()->parent() ? chosen()->data(0, ROLE_ROOT).toByteArray() : QByteArray();
+	/* A CHOSEN GROUP KEPT TOO, by what it says -- an album and whom it is
+	 * by, or a tempo, key or artist -- as a track is kept by its root: a
+	 * host refreshing every two seconds took an album's Play away before
+	 * the tap arrived (fuzzypickles, inbox 20261126T2117Z, sec 1487). */
+	const QString kept_group = chosen() && !chosen()->parent()
+	                                   ? chosen()->text(0) + QLatin1Char('\x1f') + chosen()->text(1)
+	                                   : QString();
 	m_tree->clear();
 	QTreeWidgetItem *again = nullptr;
 	for (auto a = groups.begin(); a != groups.end(); ++a) {
@@ -346,6 +353,8 @@ void fzn_music_view::rebuild()
 		} else {
 			head->setText(0, a.key().title);
 		}
+		if (!kept_group.isEmpty() && !again && head->text(0) + QLatin1Char('\x1f') + head->text(1) == kept_group)
+			again = head;
 		for (const fzn_rpc_music_entry_t *e : tracks) {
 			auto *t = new QTreeWidgetItem(head);
 			const QString title = words(e->title[0] ? e->title : e->name);
