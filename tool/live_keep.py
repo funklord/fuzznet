@@ -11,6 +11,14 @@ pulling from A.
     b  set to keep music and video, B fetches the video too, and still not
        the photograph
     c  a setting naming no class, or one twice, is refused
+    d  the photograph, which B does not keep, streamed from its playhead
+       (sec 1474): fetched whole for the player, then, nothing reading it,
+       let go -- and A's copy untouched
+    e  streamed again and then asked for plainly, it is kept: a plain fetch
+       is a host asking to keep a copy
+
+Needs the faults build, `make fuzznetd-faults`: phase d shortens the idle
+time a streamed copy is kept to two seconds (FZN_TEST_STREAM_IDLE_S).
 
 BOUNDED FROM INSIDE as live_catalog.py is, whose daemon handling this
 reuses: one deadline, the daemons in their own process groups, checked
@@ -31,7 +39,8 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 360.0
+live_trim.DEADLINE = time.monotonic() + 480.0
+os.environ["FZN_TEST_STREAM_IDLE_S"] = "2"
 PREKEY_HOST = slice(4, 68)
 ROUNDS = 6
 
@@ -133,6 +142,29 @@ def main(argv):
 				if reply.startswith("ok"):
 					raise failed("c: library/keep %r was taken" % bad)
 			print("livecheck: c: a setting naming no class, or one twice, refused")
+
+			# d: streamed, not kept.
+			expect(socks["b"], "d", "fetch file %s at 1000" % photo, "ok")
+			until(lambda: whole("b", photo), "d-whole")
+			time.sleep(3)
+			until(lambda: not ask(socks["b"], "get file " + photo).startswith("ok "), "d-gone")
+			if not whole("a", photo):
+				raise failed("d: A's copy went with B's streamed one")
+			print("livecheck: d: the photograph streamed to B, which does not keep it, "
+			      "and let go once idle")
+
+			# e: streamed, then asked for: kept.
+			expect(socks["b"], "e", "fetch file %s at 0" % photo, "ok")
+			expect(socks["b"], "e", "fetch file " + photo, "ok")
+			until(lambda: whole("b", photo), "e-whole")
+			time.sleep(3)
+			for who in ("a", "b"):
+				turn(who, who + "-e-idle")
+			time.sleep(3)
+			turn("b", "b-e-idle2")
+			if not whole("b", photo):
+				raise failed("e: a copy asked for after its stream was let go")
+			print("livecheck: e: streamed and then asked for plainly, the photograph is kept")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

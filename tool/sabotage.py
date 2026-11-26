@@ -850,6 +850,27 @@ SABOTAGES = [
 		"library/keep names a class of files; live_keep c -- sec 1473",
 	),
 	(
+		"stream-never-marked",
+		"node/daemon.c",
+		"\t\t\t\tif (fresh)\n\t\t\t\t\tstream_mark(which);\n",
+		"\t\t\t\t(void)fresh;\n",
+		"a file streamed and not kept is let go once idle; live_keep d (faults build) -- sec 1474",
+	),
+	(
+		"stream-kept-when-asked-ignored",
+		"node/daemon.c",
+		"\t\t\t} else if (request->parsed == FZN_VERB_FETCH) {\n\t\t\t\tstream_forget(which);\n",
+		"\t\t\t} else if (request->parsed == FZN_VERB_FETCH) {\n",
+		"a plain fetch after a stream keeps the copy; live_keep e (faults build) -- sec 1474",
+	),
+	(
+		"stream-idle-from-restart",
+		"node/daemon.c",
+		"\t\t\tstreamed[n_streamed++].last = last && last <= now ? last : now;\n",
+		"\t\t\tstreamed[n_streamed++].last = now;\n",
+		"a restart does not make a streamed copy fresh again; live_keep d (faults build) -- sec 1474",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

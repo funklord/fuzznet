@@ -18532,6 +18532,180 @@ static int keep_one(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
 	return 1;
 }
 
+/* ---- what a host streams and does not keep, sec 1474 -----------------------------
+ *
+ * A file this host does not keep (`library/keep`) is still played here: a
+ * player's `fetch file ROOT at OFFSET` fetches it from its playhead, and
+ * the player reads it as it arrives. Such a copy -- begun by a stream, of
+ * a file neither held nor being fetched before -- is STREAMED: let go once
+ * nothing has read it for ten minutes, unless it has come to be kept since
+ * (its class kept, a plain `fetch file ROOT` asking for it, or it shared).
+ * The roots are kept in `streamed` in the state directory with when each
+ * was last read, written at most once a minute a read, so a restart lets
+ * go what it would have. */
+#define STREAM_MAX 256u
+#define STREAM_IDLE_S 600u
+
+static struct {
+	uint8_t root[FZN_PUBKEY_LEN];
+	uint64_t last;
+} streamed[STREAM_MAX];
+static size_t n_streamed;
+static int streamed_loaded;
+static uint64_t streamed_saved;
+
+static int streamed_path(char *out, size_t cap)
+{
+	const int n = state_core_dir ? snprintf(out, cap, "%s/streamed", state_core_dir) : -1;
+
+	return n > 0 && (size_t)n < cap;
+}
+
+static void streamed_save(void)
+{
+	char path[1100], tmp[1110], hex[2u * FZN_PUBKEY_LEN + 1u];
+	FILE *f;
+	size_t i;
+
+	if (!streamed_path(path, sizeof(path)) || snprintf(tmp, sizeof(tmp), "%s.new", path) >= (int)sizeof(tmp))
+		return;
+	if (!n_streamed) {
+		(void)unlink(path);
+		return;
+	}
+	if (!(f = fopen(tmp, "w")))
+		return;
+	for (i = 0; i < n_streamed; i++) {
+		hex_of(streamed[i].root, FZN_PUBKEY_LEN, hex);
+		fprintf(f, "%s %llu\n", hex, (unsigned long long)streamed[i].last);
+	}
+	streamed_saved = wall_clock();
+	if (fclose(f) == 0)
+		(void)rename(tmp, path);
+	else
+		(void)unlink(tmp);
+}
+
+static void streamed_load(void)
+{
+	char path[1100], line[2u * FZN_PUBKEY_LEN + 32u];
+	const uint64_t now = wall_clock();
+	FILE *f;
+
+	if (streamed_loaded)
+		return;
+	streamed_loaded = 1;
+	if (!streamed_path(path, sizeof(path)) || !(f = fopen(path, "r")))
+		return;
+	while (n_streamed < STREAM_MAX && fgets(line, sizeof(line), f))
+		if (unhex32((const uint8_t *)line, 2u * FZN_PUBKEY_LEN, streamed[n_streamed].root)) {
+			const uint64_t last = line[2u * FZN_PUBKEY_LEN] == ' '
+			                              ? strtoull(line + 2u * FZN_PUBKEY_LEN + 1u, NULL, 10)
+			                              : now;
+
+			/* A TIME TO COME is no time read: idle from now. */
+			streamed[n_streamed++].last = last && last <= now ? last : now;
+		}
+	fclose(f);
+}
+
+static size_t streamed_at(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < n_streamed; i++)
+		if (!memcmp(streamed[i].root, root, FZN_PUBKEY_LEN))
+			return i;
+	return SIZE_MAX;
+}
+
+/* A STREAM BEGUN of a file neither held nor being fetched here. */
+static void stream_mark(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	streamed_load();
+	if (streamed_at(root) != SIZE_MAX || n_streamed == STREAM_MAX)
+		return;
+	memcpy(streamed[n_streamed].root, root, FZN_PUBKEY_LEN);
+	streamed[n_streamed++].last = wall_clock();
+	streamed_save();
+	say(FZN_ENTRY_INFO, "library", "streaming a file this host does not keep; let go once idle");
+}
+
+/* ASKED FOR TO KEEP, or gone: no longer streamed. */
+static void stream_forget(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	streamed_load();
+	if ((i = streamed_at(root)) == SIZE_MAX)
+		return;
+	streamed[i] = streamed[--n_streamed];
+	streamed_save();
+}
+
+/* READ, by a player: idle from now. */
+static void stream_touch(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	streamed_load();
+	if ((i = streamed_at(root)) == SIZE_MAX)
+		return;
+	streamed[i].last = wall_clock();
+	if (streamed[i].last >= streamed_saved + 60u)
+		streamed_save();
+}
+
+static uint64_t stream_idle_s(void)
+{
+#ifdef FZN_TEST_FAULTS
+	const char *s = getenv("FZN_TEST_STREAM_IDLE_S");
+
+	if (s && *s)
+		return strtoull(s, NULL, 10);
+#endif
+	return STREAM_IDLE_S;
+}
+
+/* EVERY STREAMED COPY looked at: kept now, forgotten; idle past its time
+ * and not shared, let go as `remove file ROOT` does, this host's claims
+ * about it with it. */
+static void stream_sweep(uint64_t now, unsigned classes)
+{
+	static char reply[FZN_REPLY_MAX + 1u];
+	char arg[8u + 2u * FZN_PUBKEY_LEN + 1u], hex[2u * FZN_PUBKEY_LEN + 1u];
+	fzn_node_file_status_t st;
+	fzn_request_t req;
+	size_t i = 0, n;
+
+	streamed_load();
+	while (i < n_streamed) {
+		const uint8_t *root = streamed[i].root;
+
+		if ((classes & KEEP_ALL) || (keep_class_of(root) & classes)
+		    || fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || st.public_ || st.shares) {
+			stream_forget(root);
+			continue;
+		}
+		if (st.busy || now - streamed[i].last < stream_idle_s()) {
+			i++;
+			continue;
+		}
+		hex_of(root, FZN_PUBKEY_LEN, hex);
+		n = (size_t)snprintf(arg, sizeof(arg), "file %s", hex);
+		memset(&req, 0, sizeof(req));
+		req.parsed = FZN_VERB_REMOVE;
+		req.arg = (const uint8_t *)arg;
+		req.arg_len = n;
+		n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, FZN_ORIGIN_SAME_USER, NULL, &req, reply,
+		                 sizeof(reply) - 1u);
+		reply[n] = '\0';
+		say(FZN_ENTRY_INFO, "library", "a streamed copy idle, let go, %.16s...: %.*s", hex,
+		    (int)strcspn(reply, "\n"), reply);
+		stream_forget(root);
+	}
+}
+
 static void keep_tick(void)
 {
 	const uint64_t now = wall_clock();
@@ -18545,7 +18719,13 @@ static void keep_tick(void)
 		return;
 	kept_copies.next = now + KEEP_EVERY_S;
 	kept_copies.changed = node_catalog.changed;
-	if (!files_on || !running_admin || !contact_id || !journal_on || !(classes = keep_classes())) {
+	if (!files_on || !running_admin || !contact_id || !journal_on)
+		return;
+	classes = keep_classes();
+	/* WHAT IS STREAMED AND NOT KEPT, let go once idle -- on every host,
+	 * whatever it keeps (sec 1474). */
+	stream_sweep(now, classes);
+	if (!classes) {
 		kept_copies.fetching = 0;
 		return;
 	}
@@ -18588,6 +18768,21 @@ static void keep_tick(void)
 #else
 static void keep_tick(void)
 {
+}
+
+static void stream_mark(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	(void)root;
+}
+
+static void stream_forget(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	(void)root;
+}
+
+static void stream_touch(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	(void)root;
 }
 #endif
 
@@ -18811,7 +19006,27 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 			req.arg_len = n;
 		}
 	}
-	n = fzn_node_files_local(ctx, origin, &req, reply, reply_cap);
+	/* WHAT A STREAM IS, sec 1474: a fetch from a playhead of a file
+	 * neither held nor being fetched here. */
+	{
+		fzn_node_file_status_t before;
+		uint8_t which[FZN_BLOB_HASH_LEN];
+		const int named = unhex_n(w, w_len, ref, sizeof(ref)) ? (memcpy(which, ref, sizeof(which)), 1)
+		                                                         : unhex_n(w, w_len, which, sizeof(which));
+		const int fresh = named && files_on && fzn_node_files_status(&files, which, &before) != FZN_NODE_FILES_OK;
+
+		n = fzn_node_files_local(ctx, origin, &req, reply, reply_cap);
+		if (named && n >= 2u && reply[0] == 'o' && reply[1] == 'k') {
+			if (request->parsed == FZN_VERB_FETCH && left >= 4u && !memcmp(at, " at ", 4u)) {
+				if (fresh)
+					stream_mark(which);
+			} else if (request->parsed == FZN_VERB_FETCH) {
+				stream_forget(which);
+			}
+		}
+		if (named && request->parsed == FZN_VERB_GET && left > 0u && !(left == 6u && !memcmp(at, " check", 6u)))
+			stream_touch(which);
+	}
 #ifdef FZN_CATALOG_ON
 	/* REMOVED, AND ITS CLAIMS WITH IT, sec 1009. */
 	if (request->parsed == FZN_VERB_REMOVE && n >= 2u && reply[0] == 'o' && reply[1] == 'k'

@@ -8380,7 +8380,6 @@ endif
 	@timeout 60 python3 tool/live_help.py $(FUZZNETD) $(BRIDGE)
 	@timeout 150 python3 tool/live_tags.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_sound.py $(FUZZNETD)
-	@timeout 400 python3 tool/live_keep.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 170 python3 tool/live_location.py $(FUZZNETD)
@@ -8449,6 +8448,7 @@ livecheck-faults: fuzznetd-faults
 	@# every host of a user (sec 1071): run by hand only until then.
 	@timeout 900 python3 tool/live_chat.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 300 python3 tool/live_identify.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 600 python3 tool/live_keep.py $(BUILD_DIR)/faults/fuzznetd
 
 # FUZZYPICKLES' CLIENT OVER fuzznetd, sec 710: its `fzp --node-socket`
 # driving the subset across fault-build daemons. Not part of

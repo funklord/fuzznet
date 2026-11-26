@@ -77379,3 +77379,48 @@ A's tune and its kindless lyrics and neither the video nor the
 photograph; keeping `music video`, the video and still not the
 photograph; `music bogus`, `music music`, a double space and a trailing
 one refused. Sabotage: four entries.
+
+## 1474. What a host streams and does not keep is let go once idle, 2026-11-26
+
+The third part of sec 1472's focus: "still streamable (all media should
+be accessible from any node, either directly or via streaming)". Every
+file the estate catalogues was already reachable from any host: a player
+asks `fetch file ROOT at OFFSET` (sec 998), the fetch runs from that
+playhead, and the player reads what has arrived. **What was missing was
+the other half of "not propagate"**: the copy a stream made stayed for
+good, so a phone that played one video once held it like a media server.
+
+**A streamed copy**: a `fetch file ... at OFFSET` of a file neither held
+nor being fetched here before it. It is **let go once nothing has read it
+for ten minutes** -- `remove file ROOT`, this host's claims about it with
+it -- **unless it has come to be kept** since: its class kept by
+`library/keep` (sec 1473), a plain `fetch file ROOT` (a person asking to
+keep a copy), or it shared with a contact or everyone. A read of it --
+the player's slices, an export -- is what counts as use. Every host
+sweeps, whatever it keeps: a host that keeps nothing is the commonest
+streamer.
+
+**Kept across a restart**: the roots and when each was last read are in
+`streamed` in the state directory, written as one is marked or let go and
+at most once a minute as it is read, so a phone restarting every few
+minutes still lets go what it streamed. A time to come in the file reads
+as now.
+
+Rejected: a per-host cache with a byte budget, evicting the least
+recently read (the right shape for a heavy streamer, and a policy with a
+number to choose -- ten minutes idle is the simpler rule until one is
+asked for); letting go at the end of a play (a player pausing, seeking
+back or playing it twice would fetch it again).
+
+**Found on the way**: `make faults/fuzznetd` names no rule and rebuilds
+nothing -- `make fuzznetd-faults` does, into `faults/` -- so the faults
+daemon here was from the morning, and the `live_identify` runs cited for
+secs 1469 and 1470 were against a daemon from before the JSON reader
+moved. Run again on a fresh build, all its phases pass.
+
+Tests: `live_keep` d -- B, keeping music and video, streams A's
+photograph from a playhead, holds it whole for the player, and lets it
+go once idle (two seconds under FZN_TEST_STREAM_IDLE_S, so the script
+needs the faults build and moves to that section), A's copy untouched;
+e -- streamed again and asked for plainly, it stays across idle restarts.
+Sabotage: three entries, each caught.
