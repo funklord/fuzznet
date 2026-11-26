@@ -934,6 +934,13 @@ SABOTAGES = [
 		"a filter typed in the search words reaches the search -- sec 1482",
 	),
 	(
+		"conversations-view-group-not-made",
+		"gui/conversations_view.cpp",
+		"\tif (fzn_rpc_group_create(&m_rpc->c, n.constData(), (size_t)n.size(), &out) != FZN_RPC_OK) {\n",
+		"\tif ((void)out, 0) {\n",
+		"a group made from the view is asked of the node -- sec 1483",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

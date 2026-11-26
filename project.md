@@ -77621,3 +77621,20 @@ phone).
 Tests: `search_view_test` -- "heron label:home -kind:list" asked as
 `where label=home not kind=list heron`; a filter alone refused; "10:30"
 a word. Sabotage: one entry, caught.
+
+## 1483. A group made from the conversations view, 2026-11-26
+
+The audit sec 1482 began found no view that **makes a group**: the
+conversations view and the group view add and remove members, make
+admins and delete, and `fzn_rpc_group_create` was the CLI's alone. So a
+person on the desktop could join a group someone else made and never
+start one. **A New group button** beside Refresh asks the name and makes
+it, this user its only member; the status says to add members from its
+menu, where they already are (sec 1246). `create_group(name)` is public
+for the headless test. A blank name is not asked; the node's own words
+are said where it refuses one.
+
+Tests: `conversations_view_test` -- "gardeners" asked as `add group
+gardeners` and said made; a blank name not asked; the view still fits
+320 px. Sabotage: one entry, caught.
+

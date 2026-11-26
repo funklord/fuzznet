@@ -24,6 +24,8 @@ extern "C" {
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSet>
@@ -175,10 +177,13 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	m_tree->setWordWrap(true);
 	m_tree->setAccessibleName(tr("Conversations"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	m_new_group = new QPushButton(tr("New group"), this);
+	m_new_group->setToolTip(tr("Make a group; add its members from its menu"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;
+	row->addWidget(m_new_group);
 	row->addWidget(m_refresh);
 	row->addStretch(1);
 	auto *col = new QVBoxLayout(this);
@@ -209,6 +214,13 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 		}
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_new_group, &QPushButton::clicked, [this]() {
+		bool ok = false;
+		const QString name = QInputDialog::getText(this, tr("New group"), tr("Its name:"), QLineEdit::Normal,
+		                                           QString(), &ok);
+		if (ok)
+			create_group(name);
+	});
 	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_tree, &QTreeWidget::customContextMenuRequested, [this](const QPoint &at) {
 		int group = 0, row = 0;
@@ -388,6 +400,24 @@ void fzn_conversations_view::resizeEvent(QResizeEvent *event)
 }
 
 bool fzn_conversations_view::flat() const { return m_flat; }
+
+bool fzn_conversations_view::create_group(const QString &name)
+{
+	const QByteArray n = name.trimmed().toUtf8();
+	fzn_rpc_group_create_resp_t out;
+
+	if (n.isEmpty()) {
+		m_status->setText(tr("Name the group."));
+		return false;
+	}
+	if (fzn_rpc_group_create(&m_rpc->c, n.constData(), (size_t)n.size(), &out) != FZN_RPC_OK) {
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		return false;
+	}
+	refresh();
+	m_status->setText(tr("Made the group %1; add its members from its menu.").arg(name.trimmed()));
+	return true;
+}
 
 bool fzn_conversations_view::refresh()
 {

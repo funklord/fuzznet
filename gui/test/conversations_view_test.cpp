@@ -125,6 +125,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		strcat(asked, "\n");
 		return (size_t)snprintf(reply, cap, !strcmp(line, "add admin family bob") ? "ok proposed 1 2\n" : "ok\n");
 	}
+	/* A GROUP MADE, sec 1483: its new id. */
+	if (!strcmp(line, "add group gardeners")) {
+		strncat(asked, line, sizeof asked - strlen(asked) - 2);
+		strcat(asked, "\n");
+		return (size_t)snprintf(reply, cap, "ok 6767676767676767676767676767676767676767676767676767676767676767\n");
+	}
 	if (!strcmp(line, "list group 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 family,3," FAMILY ",1\n");
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
@@ -280,6 +286,14 @@ int main(int argc, char **argv)
 		              && !v.act(1, 0, "Add a member") && v.status() == "only the group's admins change who is in it",
 		      "one who is not an admin was offered the members' changes, or not told why");
 		members_mode = 0;
+		/* A NEW GROUP, sec 1483: made by its name and said; a blank name not
+		 * asked. */
+		asked[0] = '\0';
+		CHECK(!v.create_group("   ") && !asked[0] && v.status() == "Name the group.",
+		      "a group of no name was asked for");
+		CHECK(v.create_group("gardeners") && strstr(asked, "add group gardeners")
+		              && v.status() == "Made the group gardeners; add its members from its menu.",
+		      "a new group was not made by its name, or not said");
 	}
 
 	/* CALL EVERYONE OFFERED DISABLED, SAYING WHY, sec 1232. */

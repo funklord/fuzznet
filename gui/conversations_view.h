@@ -55,6 +55,10 @@ public:
 
 	/* Ask for every conversation and show them. Whether the node answered. */
 	bool refresh();
+	/* A NEW GROUP named `name`, this user its only member until members are
+	 * added from its menu (sec 1483): whether the node made it, said either
+	 * way. The New group button asks the name and calls this. */
+	bool create_group(const QString &name);
 
 	/* WHAT TO DO WHEN ONE IS CHOSEN: given the contact's name, or `@NAME`. */
 	void on_open(std::function<void(const QString &)> open);
@@ -141,6 +145,7 @@ private:
 
 	QTreeWidget *m_tree;
 	QPushButton *m_refresh;
+	QPushButton *m_new_group;
 	QLabel *m_status;
 };
 
