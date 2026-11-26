@@ -7,8 +7,10 @@
  * its numbers are read as decimals and rounded half away from zero, where
  * theirs went through strtod.
  *
- * A FLAT KEY SCANNER, NOT A JSON PARSER: gpsd's TPV is one flat object of
- * numbers and short strings, and its keys do not recur in its values.
+ * READ AS JSON THROUGH SITU (`wire/json_walk.h`, sec 1470): the line
+ * framed and validated as one object, its top-level members walked once,
+ * the first of each name taken. Until sec 1470 a flat key scanner, which
+ * found a key anywhere in the line, nested or not.
  *
  * What a line gives:
  *   - nothing, for another class (SKY, VERSION, WATCH ...) or a TPV with

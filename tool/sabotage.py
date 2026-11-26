@@ -774,10 +774,17 @@ SABOTAGES = [
 	),
 	(
 		"acoustid-members-first-only",
-		"media/fingerprint.c",
+		"wire/json_walk.c",
 		"\t\tif (fzn_json_member_sep_get(member) != ',')\n",
 		"\t\tif (1)\n",
 		"every member of an answer's object is read, the run walked to its end -- sec 1469",
+	),
+	(
+		"json-walk-first-element-only",
+		"wire/json_walk.c",
+		"\t\tif (fzn_json_element_sep_get(element) != ',')\n",
+		"\t\tif (1)\n",
+		"every element of an array is walked to the run's end -- sec 1470",
 	),
 	(
 		"music-view-empty-album-shown",
@@ -20520,8 +20527,8 @@ SABOTAGES = [
 	(
 		"tpv-2d-has-no-altitude",
 		"location/tpv.c",
-		"\tif (mode >= 3 && (scaled(line, len, \"altHAE\", 0, &alt)",
-		"\tif ((scaled(line, len, \"altHAE\", 0, &alt)",
+		"\tif (mode >= 3 && (scaled(&t, K_ALT_HAE, 0, &alt)",
+		"\tif ((scaled(&t, K_ALT_HAE, 0, &alt)",
 		"sec 678: a 2D fix's altitude is no measurement, and flagging it present is the lie the flag exists to stop; tpv_test's 2D check catches it",
 	),
 	(
@@ -20534,7 +20541,7 @@ SABOTAGES = [
 	(
 		"tpv-no-exponent",
 		"location/tpv.c",
-		"\tif (v < end && (*v == 'e' || *v == 'E'))\n\t\treturn 0;\n",
+		"\tif (v != end)\n\t\treturn 0;\n",
 		"",
 		"sec 678: an exponent read as its mantissa is a wrong position; tpv_test's exponent check catches it",
 	),

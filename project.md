@@ -97,8 +97,8 @@ listener port spans (`150e3106`).
   nine hand-only grammars are its token cells (sec 1414), and the local
   permit's grammar is situ's (sec 1415), the remote permit's too (sec
   1440), and the group list's (sec 1441); the manifest's order is the
-  schema's (sec 1438); AcoustID's answer is read by situ's JSON (sec
-  1469). The erasure shape stays hand-written for the
+  schema's (sec 1438); AcoustID's answer and gpsd's TPV are read by
+  situ's JSON (secs 1469, 1470). The erasure shape stays hand-written for the
   reason given. The scheduler matches a reply
   after authentication through situ's driver (sec 1375). Reassembly stays
   `chunk/reassembly.c` assembles each message through situ's generated
@@ -77207,3 +77207,45 @@ the best of three results, the names' escapes, a title cut at a
 character's edge, an error, an empty answer, an id that is no UUID,
 every cut of the answer never read whole, every byte mangled three ways,
 an answer ten thousand deep refused.
+
+## 1470. gpsd's TPV read by situ's JSON; one walk for every JSON reader, 2026-11-26
+
+`location/tpv.c` read gpsd's TPV with a flat key scanner (sec 678),
+carried over from fuzzypickles: `"key"` found anywhere in the line, its
+value read where it stood. It said so -- "not a JSON parser", gpsd's TPV
+being one flat object -- and it had no situ to use: sec 1311 surveyed the
+binary layouts and never the three JSON readers this tree held. With situ
+framing empty containers (sec 1469) it moves too.
+
+**The line is framed and validated as one JSON object**, its top-level
+members walked once, the first of each name taken. Two things differ,
+both towards what gpsd sends:
+
+- **a key nested in another member's value is not the line's** -- the
+  scanner took the first `"class"` anywhere, so `{"device":{"class":
+  "TPV"},...}` read as a TPV;
+- **a line that is not JSON is -1**, "no line gpsd would send", where a
+  number such as `1.` made it 0 before. Only 1 is acted on (`gpsd.c`), so
+  no caller sees the difference.
+
+The numbers keep the file's own decimal reader -- to 1e-7 degrees,
+rounded half away from zero, an exponent refused -- run over the number's
+framed bytes rather than wherever the scanner stopped; the class and time
+are framed strings, an escape refused as before.
+
+**One walk for every JSON reader**: `wire/json_walk.h` frames and
+validates a document and walks an object's members and an array's
+elements, each run once (the generated `_entries_at` counts from the
+first on every call); a string's characters and a number's bytes are
+handed back as written, for the caller to read. AcoustID's reader (sec
+1469) moved onto it from its own copy. **Its header names situ's message
+and view by tag alone** (`struct situ_msg`, `struct situ_view`): every
+header here is installed and none includes a generated one --
+installcheck refused the first version, which did -- so a caller that
+walks includes `wire/generated/json.h` itself. **The third, the Google Keep
+import (`notes/import.c`), is next.**
+
+Tests: `tpv_test` adds the nested key and the line that is not JSON;
+`gpsd_test` and `fingerprint_test` unchanged and passing. Sabotage: the
+element walk and the member walk, each caught by `fingerprint_test`; the
+TPV entries re-pointed to the new lines, each caught.

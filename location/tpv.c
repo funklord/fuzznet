@@ -2,40 +2,49 @@
 
 #include <string.h>
 
-/* WHERE `key`'s VALUE STARTS in `s`: after `"key"`, blanks, a colon and
- * blanks; NULL when the key is not there. */
-static const char *value_of(const char *s, size_t len, const char *key)
-{
-	size_t k = strlen(key), i, j;
+#include "../wire/generated/json.h"
+#include "../wire/json_walk.h"
 
-	for (i = 0; i + k + 2u <= len; i++) {
-		if (s[i] != '"' || memcmp(s + i + 1, key, k) != 0 || s[i + 1u + k] != '"')
-			continue;
-		j = i + k + 2u;
-		while (j < len && (s[j] == ' ' || s[j] == '\t'))
-			j++;
-		if (j >= len || s[j] != ':')
-			continue;
-		j++;
-		while (j < len && (s[j] == ' ' || s[j] == '\t'))
-			j++;
-		return j < len ? s + j : NULL;
-	}
-	return NULL;
+/* THE KEYS READ, each the first member of its name in the object:
+ * gpsd's TPV is one flat object, walked once through situ's JSON (sec
+ * 1470); a key nested in another member's value is not one of these. */
+enum { K_CLASS, K_MODE, K_LAT, K_LON, K_TIME, K_ALT_HAE, K_ALT, K_TRACK, K_EPH, K_EPX, K_EPY, K_EPV, K_COUNT };
+static const char *const key_names[K_COUNT] = { "class", "mode", "lat", "lon", "time", "altHAE",
+	                                        "alt", "track", "eph", "epx", "epy", "epv" };
+
+struct tpv_values {
+	situ_view_t at[K_COUNT];
+	int have[K_COUNT];
+};
+
+static int take(const char *key, size_t len, const situ_view_t *held, void *ctx)
+{
+	struct tpv_values *t = ctx;
+	int k;
+
+	for (k = 0; k < K_COUNT; k++)
+		if (!t->have[k] && fzn_json_walk_key_is(key, len, key_names[k])) {
+			t->at[k] = *held;
+			t->have[k] = 1;
+			break;
+		}
+	return 1;
 }
 
 /* A NUMBER, to `places` decimals in `*out`, rounded half away from zero at
  * the first digit past them: 1, or 0 for no number there. An exponent, or
  * a magnitude past 10^12 at that scale, is no number gpsd sends. */
-static int scaled(const char *s, size_t len, const char *key, unsigned places, int64_t *out)
+static int scaled(const struct tpv_values *t, int key, unsigned places, int64_t *out)
 {
-	const char *v = value_of(s, len, key), *end = s + len;
+	const char *v, *end;
+	size_t len;
 	int64_t whole = 0;
 	unsigned taken = 0;
 	int negative = 0, digits = 0, round_up = 0;
 
-	if (!v)
+	if (!t->have[key] || !fzn_json_walk_number(&t->at[key], &v, &len))
 		return 0;
+	end = v + len;
 	if (v < end && *v == '-') {
 		negative = 1;
 		v++;
@@ -61,7 +70,9 @@ static int scaled(const char *s, size_t len, const char *key, unsigned places, i
 			}
 		}
 	}
-	if (v < end && (*v == 'e' || *v == 'E'))
+	/* The whole number read, or it was none -- an exponent among what
+	 * is left. */
+	if (v != end)
 		return 0;
 	if (taken > places)
 		taken = places;
@@ -73,23 +84,17 @@ static int scaled(const char *s, size_t len, const char *key, unsigned places, i
 }
 
 /* A SHORT STRING's characters, unescaped -- gpsd's class and time hold no
- * escapes -- into `out`, NUL ended: 1, or 0 for none, an unended one, or
- * one longer than `cap`. */
-static int string_of(const char *s, size_t len, const char *key, char *out, size_t cap)
+ * escapes -- into `out`, NUL ended: 1, or 0 for none, one holding an
+ * escape, or one longer than `cap`. */
+static int string_of(const struct tpv_values *t, int key, char *out, size_t cap)
 {
-	const char *v = value_of(s, len, key), *end = s + len;
-	size_t i = 0;
+	const char *v;
+	size_t len;
 
-	if (!v || *v != '"')
+	if (!t->have[key] || !fzn_json_walk_string(&t->at[key], &v, &len) || len + 1u > cap || memchr(v, '\\', len))
 		return 0;
-	for (v++; v < end && *v != '"'; v++) {
-		if (i + 1u >= cap || *v == '\\')
-			return 0;
-		out[i++] = *v;
-	}
-	if (v >= end)
-		return 0;
-	out[i] = '\0';
+	memcpy(out, v, len);
+	out[len] = '\0';
 	return 1;
 }
 
@@ -136,16 +141,23 @@ int fzn_location_tpv_parse(const char *line, size_t len, fzn_location_fix_t *out
 	char class_name[16], when[40];
 	int64_t mode, lat, lon, alt, track, eph, epx, epy, epv;
 	int have_eph, have_x, have_y;
+	struct tpv_values t;
+	situ_msg_t msg;
+	situ_view_t line_value;
 
-	if (!line || !out || !len)
+	memset(&t, 0, sizeof(t));
+	/* ONE JSON OBJECT, framed and validated: a line that is none -- cut,
+	 * mangled, `1.` for a number -- is no line gpsd would send. */
+	if (!line || !out || !len || !fzn_json_walk_frame(line, len, &msg, &line_value)
+	    || !fzn_json_walk_members(&line_value, take, &t))
 		return -1;
-	if (!string_of(line, len, "class", class_name, sizeof(class_name)))
+	if (!string_of(&t, K_CLASS, class_name, sizeof(class_name)))
 		return -1;
 	if (strcmp(class_name, "TPV") != 0)
 		return 0;
-	if (!scaled(line, len, "mode", 0, &mode) || mode < 2)
+	if (!scaled(&t, K_MODE, 0, &mode) || mode < 2)
 		return 0;
-	if (!scaled(line, len, "lat", 7, &lat) || !scaled(line, len, "lon", 7, &lon))
+	if (!scaled(&t, K_LAT, 7, &lat) || !scaled(&t, K_LON, 7, &lon))
 		return 0;
 	if (lat > FZN_LOCATION_LAT_E7_MAX || lat < -FZN_LOCATION_LAT_E7_MAX
 	    || lon > FZN_LOCATION_LON_E7_MAX || lon < -FZN_LOCATION_LON_E7_MAX)
@@ -153,23 +165,23 @@ int fzn_location_tpv_parse(const char *line, size_t len, fzn_location_fix_t *out
 	memset(out, 0, sizeof(*out));
 	out->lat_e7 = (int32_t)lat;
 	out->lon_e7 = (int32_t)lon;
-	if (!string_of(line, len, "time", when, sizeof(when)) || !iso_utc(when, &out->utc_s))
+	if (!string_of(&t, K_TIME, when, sizeof(when)) || !iso_utc(when, &out->utc_s))
 		out->utc_s = 0;
-	if (mode >= 3 && (scaled(line, len, "altHAE", 0, &alt) || scaled(line, len, "alt", 0, &alt))
+	if (mode >= 3 && (scaled(&t, K_ALT_HAE, 0, &alt) || scaled(&t, K_ALT, 0, &alt))
 	    && alt > -32768 && alt < 32767) {
 		out->alt_m = (int16_t)alt;
 		out->has_alt = 1;
 	}
 	/* A HEADING ONLY WHILE MOVING: gpsd leaves `track` out otherwise. */
-	if (scaled(line, len, "track", 0, &track) && track >= 0 && track < 360) {
+	if (scaled(&t, K_TRACK, 0, &track) && track >= 0 && track < 360) {
 		out->bearing = fzn_location_bearing_encode((uint16_t)track);
 		out->has_bearing = 1;
 	}
 	/* TWO AXES WHERE GIVEN, one claimed in both where only one is, and
 	 * unknown where none is -- never a figure made up. */
-	have_eph = scaled(line, len, "eph", 0, &eph) && eph >= 0;
-	have_x = scaled(line, len, "epx", 0, &epx) && epx >= 0;
-	have_y = scaled(line, len, "epy", 0, &epy) && epy >= 0;
+	have_eph = scaled(&t, K_EPH, 0, &eph) && eph >= 0;
+	have_x = scaled(&t, K_EPX, 0, &epx) && epx >= 0;
+	have_y = scaled(&t, K_EPY, 0, &epy) && epy >= 0;
 	if (!(have_x && have_y)) {
 		if (have_eph) {
 			epx = epy = eph;
@@ -186,7 +198,7 @@ int fzn_location_tpv_parse(const char *line, size_t len, fzn_location_fix_t *out
 	out->acc_n = epy < 0 ? (uint8_t)FZN_LOCATION_ACC_UNKNOWN
 	                     : fzn_location_acc_encode(epy > 0xffffffffLL ? 0xffffffffu : (uint32_t)epy);
 	if (out->has_alt)
-		out->acc_v = scaled(line, len, "epv", 0, &epv) && epv >= 0
+		out->acc_v = scaled(&t, K_EPV, 0, &epv) && epv >= 0
 		             ? fzn_location_acc_encode(epv > 0xffffffffLL ? 0xffffffffu : (uint32_t)epv)
 		             : (uint8_t)FZN_LOCATION_ACC_UNKNOWN;
 	return 1;

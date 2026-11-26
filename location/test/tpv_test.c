@@ -104,7 +104,15 @@ static void test_what_is_refused(void)
 	      "a coordinate out of range was read");
 	CHECK(parse("{\"class\":\"TPV\",\"mode\":3,\"lat\":1e1,\"lon\":2.0}", &f) == 0,
 	      "an exponent was read as a number");
-	CHECK(parse("{\"class\":\"TPV\",\"mode\":3,\"lat\":1.,\"lon\":2.0}", &f) == 0,
+	/* A KEY NESTED IN ANOTHER MEMBER'S VALUE is not the line's, sec 1470:
+	 * the flat scanner before it took the first "class" anywhere. */
+	CHECK(parse("{\"device\":{\"class\":\"TPV\"},\"mode\":3,\"lat\":1.0,\"lon\":2.0}", &f) == -1
+	              && parse("{\"class\":\"TPV\",\"x\":{\"lat\":9.0},\"mode\":2,\"lat\":1.0,\"lon\":2.0}", &f)
+	                         == 1
+	              && f.lat_e7 == 10000000,
+	      "a key nested in another member's value was read as the line's");
+	/* NOT JSON AT ALL, sec 1470: no line gpsd would send. */
+	CHECK(parse("{\"class\":\"TPV\",\"mode\":3,\"lat\":1.,\"lon\":2.0}", &f) == -1,
 	      "a point with no digit after it was read as a number");
 	CHECK(parse("{\"class\":\"TPV\",\"mode\":3,\"time\":\"2026-13-01T00:00:00Z\","
 	            "\"lat\":1.0,\"lon\":2.0}", &f) == 1 && f.utc_s == 0,

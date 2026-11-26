@@ -4,6 +4,7 @@
 #include "fingerprint.h"
 #include "analysis.h"
 #include "../wire/generated/json.h"
+#include "../wire/json_walk.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -149,93 +150,26 @@ static int json_text(const char *at, size_t len, char *out, size_t cap)
 }
 
 /* A value's string into `out`: 1, or 0 for a value that is no string. */
-static int value_text(situ_view_t value, char *out, size_t cap)
+static int value_text(const situ_view_t *value, char *out, size_t cap)
 {
-	situ_view_t t;
+	const char *chars;
+	size_t len;
 
-	return fzn_json_value_body_as_string_view(value, &t) == SITU_OK
-	       && json_text((const char *)fzn_json_text_chars_ptr(t), fzn_json_text_chars_len(t), out, cap);
+	return fzn_json_walk_string(value, &chars, &len) && json_text(chars, len, out, cap);
 }
 
 /* A value's number: 1, or 0 for a value that is no number this reads. */
-static int value_number(situ_view_t value, double *out)
+static int value_number(const situ_view_t *value, double *out)
 {
 	situ_view_t v;
 	int64_t n;
 	int32_t power;
 
-	if (fzn_json_value_body_as_number_view(value, &v) != SITU_OK || fzn_json_number_value_get(v, &n, &power) != SITU_OK
+	if (fzn_json_value_body_as_number_view(*value, &v) != SITU_OK || fzn_json_number_value_get(v, &n, &power) != SITU_OK
 	    || power < -18 || power > 18)
 		return 0;
 	*out = (double)n * pow(10.0, power);
 	return 1;
-}
-
-/* Each member of an object value, in order, handed to `each` with its key
- * (as framed: AcoustID's keys hold no escape) and its value; an empty
- * object has none. 1, or 0 for a value that is no object or an `each`
- * that refuses. The run walked once, each member measured where it
- * begins, not counted again from the first. */
-static int each_member(situ_view_t value, int (*each)(const char *key, size_t key_len, situ_view_t held, void *ctx),
-                       void *ctx)
-{
-	situ_view_t object, members;
-	uint32_t at = 0;
-
-	if (fzn_json_value_body_as_object_view(value, &object) != SITU_OK)
-		return 0;
-	if (fzn_json_object_next_get(object) == '}')
-		return 1;
-	if (fzn_json_object_body_as_members_view(object, &members) != SITU_OK)
-		return 0;
-	while (at < members.limit) {
-		situ_view_t rest, member, held;
-		uint32_t size;
-
-		if (situ_view_sub(members, at, members.limit - at, &rest) != SITU_OK
-		    || !(size = fzn_json_member_extent(rest)) || size > members.limit - at
-		    || situ_view_sub(members, at, size, &member) != SITU_OK
-		    || fzn_json_member_held_view(member, &held) != SITU_OK
-		    || !each((const char *)fzn_json_member_key_ptr(member), fzn_json_member_key_len(member), held, ctx))
-			return 0;
-		at += size;
-		if (fzn_json_member_sep_get(member) != ',')
-			break;
-	}
-	return 1;
-}
-
-/* Each element of an array value, likewise. */
-static int each_element(situ_view_t value, int (*each)(situ_view_t held, void *ctx), void *ctx)
-{
-	situ_view_t array, elements;
-	uint32_t at = 0;
-
-	if (fzn_json_value_body_as_array_view(value, &array) != SITU_OK)
-		return 0;
-	if (fzn_json_array_next_get(array) == ']')
-		return 1;
-	if (fzn_json_array_body_as_elements_view(array, &elements) != SITU_OK)
-		return 0;
-	while (at < elements.limit) {
-		situ_view_t rest, element, held;
-		uint32_t size;
-
-		if (situ_view_sub(elements, at, elements.limit - at, &rest) != SITU_OK
-		    || !(size = fzn_json_element_extent(rest)) || size > elements.limit - at
-		    || situ_view_sub(elements, at, size, &element) != SITU_OK
-		    || fzn_json_element_held_view(element, &held) != SITU_OK || !each(held, ctx))
-			return 0;
-		at += size;
-		if (fzn_json_element_sep_get(element) != ',')
-			break;
-	}
-	return 1;
-}
-
-static int key_is(const char *key, size_t len, const char *want)
-{
-	return len == strlen(want) && !memcmp(key, want, len);
 }
 
 struct reading {
@@ -251,22 +185,22 @@ struct reading {
 };
 
 /* An artist of the first recording: its name, joined to those before. */
-static int artist_member(const char *key, size_t len, situ_view_t held, void *ctx)
+static int artist_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
-	if (key_is(key, len, "name"))
+	if (fzn_json_walk_key_is(key, len, "name"))
 		return value_text(held, r->name, sizeof(r->name));
 	return 1;
 }
 
-static int artist(situ_view_t held, void *ctx)
+static int artist(const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 	size_t have, add;
 
 	r->name[0] = '\0';
-	if (!each_member(held, artist_member, r))
+	if (!fzn_json_walk_members(held, artist_member, r))
 		return 0;
 	have = strlen(r->artist);
 	add = strlen(r->name);
@@ -280,51 +214,51 @@ static int artist(situ_view_t held, void *ctx)
 	return 1;
 }
 
-static int recording_member(const char *key, size_t len, situ_view_t held, void *ctx)
+static int recording_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
-	if (key_is(key, len, "id"))
+	if (fzn_json_walk_key_is(key, len, "id"))
 		return value_text(held, r->recording, sizeof(r->recording));
-	if (key_is(key, len, "title"))
+	if (fzn_json_walk_key_is(key, len, "title"))
 		return value_text(held, r->title, sizeof(r->title));
-	if (key_is(key, len, "artists"))
-		return each_element(held, artist, r);
+	if (fzn_json_walk_key_is(key, len, "artists"))
+		return fzn_json_walk_elements(held, artist, r);
 	return 1;
 }
 
 /* The first recording read; the rest only walked. */
-static int recording(situ_view_t held, void *ctx)
+static int recording(const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
 	if (r->recordings_seen++)
 		return 1;
-	return each_member(held, recording_member, r);
+	return fzn_json_walk_members(held, recording_member, r);
 }
 
-static int result_member(const char *key, size_t len, situ_view_t held, void *ctx)
+static int result_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
-	if (key_is(key, len, "id"))
+	if (fzn_json_walk_key_is(key, len, "id"))
 		return value_text(held, r->id, sizeof(r->id));
-	if (key_is(key, len, "score"))
+	if (fzn_json_walk_key_is(key, len, "score"))
 		return value_number(held, &r->score);
-	if (key_is(key, len, "recordings"))
-		return each_element(held, recording, r);
+	if (fzn_json_walk_key_is(key, len, "recordings"))
+		return fzn_json_walk_elements(held, recording, r);
 	return 1;
 }
 
 /* A result read: the best so far kept, the next begun afresh. */
-static int result(situ_view_t held, void *ctx)
+static int result(const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
 	r->id[0] = r->recording[0] = r->title[0] = r->artist[0] = '\0';
 	r->score = 0;
 	r->recordings_seen = 0;
-	if (!each_member(held, result_member, r))
+	if (!fzn_json_walk_members(held, result_member, r))
 		return 0;
 	if (r->id[0] && (!r->found || r->score > r->best.score)) {
 		snprintf(r->best.acoustid, sizeof(r->best.acoustid), "%s", r->id);
@@ -337,14 +271,14 @@ static int result(situ_view_t held, void *ctx)
 	return 1;
 }
 
-static int answer_member(const char *key, size_t len, situ_view_t held, void *ctx)
+static int answer_member(const char *key, size_t len, const situ_view_t *held, void *ctx)
 {
 	struct reading *r = ctx;
 
-	if (key_is(key, len, "status"))
+	if (fzn_json_walk_key_is(key, len, "status"))
 		return value_text(held, r->status, sizeof(r->status));
-	if (key_is(key, len, "results"))
-		return each_element(held, result, r);
+	if (fzn_json_walk_key_is(key, len, "results"))
+		return fzn_json_walk_elements(held, result, r);
 	return 1;
 }
 
@@ -362,19 +296,13 @@ fzn_media_lookup_result_t fzn_media_acoustid_read(const char *json, size_t len, 
 	struct reading r;
 	situ_msg_t msg;
 	situ_view_t answer;
-	uint32_t need = 0;
 
 	memset(&r, 0, sizeof(r));
 	if (out)
 		memset(out, 0, sizeof(*out));
 	/* WHOLE, AND JSON, before a byte of it is read: situ frames the one
 	 * value and validates it, its depth bounded by the schema's. */
-	if (!json || !out || len > UINT32_MAX
-	    || fzn_json_value_required((const uint8_t *)json, (uint32_t)len, &need) != SITU_OK || need > len)
-		return FZN_MEDIA_LOOKUP_NO_ANSWER;
-	situ_msg_init(&msg, (uint8_t *)(uintptr_t)json, need);
-	if (fzn_json_value_view(&msg, 0, need, &answer) != SITU_OK || fzn_json_value_validate(answer) != SITU_OK
-	    || !each_member(answer, answer_member, &r))
+	if (!out || !fzn_json_walk_frame(json, len, &msg, &answer) || !fzn_json_walk_members(&answer, answer_member, &r))
 		return FZN_MEDIA_LOOKUP_NO_ANSWER;
 	if (strcmp(r.status, "ok") != 0)
 		return strcmp(r.status, "error") == 0 ? FZN_MEDIA_LOOKUP_REFUSED : FZN_MEDIA_LOOKUP_NO_ANSWER;

@@ -330,6 +330,7 @@
 #include <fuzznet/wire/status.h>
 #include <fuzznet/wire/cmd.h>
 #include <fuzznet/wire/seal.h>
+#include <fuzznet/wire/json_walk.h>
 #else
 #include "chain/chain.h"
 #include "chain/manifest.h"
@@ -593,6 +594,7 @@
 #include "wire/status.h"
 #include "wire/cmd.h"
 #include "wire/seal.h"
+#include "wire/json_walk.h"
 #endif
 
 /* The optional Monocypher bindings, which `install` puts in the tree

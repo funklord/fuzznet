@@ -255,6 +255,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/group_act_record.c wire/generated/group_line_wire.c \
              wire/generated/settings_registry.c wire/generated/permit.c wire/generated/verify_memo_record.c \
              wire/generated/exif.c wire/generated/id3.c wire/generated/flac.c wire/generated/ogg.c wire/generated/mp4.c wire/generated/mpeg.c \
+             wire/generated/json.c \
              wire/generated/contact_card_record.c wire/generated/routing_record.c \
              wire/generated/fix_row.c wire/generated/opjournal_row.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
@@ -346,7 +347,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c chunk/erasure.c \
              tree/tree.c \
-             wire/seal.c wire/session_frame.c wire/relay.c wire/status_message.c \
+             wire/seal.c wire/session_frame.c wire/relay.c wire/status_message.c wire/json_walk.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c session/box.c \
              version/version.c \
@@ -449,7 +450,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h chunk/erasure.h \
              tree/tree.h \
-             wire/seal.h wire/session_frame.h wire/relay.h wire/status.h wire/cmd.h wire/bytes.h session/aead.h \
+             wire/seal.h wire/session_frame.h wire/relay.h wire/status.h wire/cmd.h wire/bytes.h wire/json_walk.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h session/box.h \
              version/version.h \
@@ -491,7 +492,7 @@ CORE_SRCS := $(SRCS)
 SRCS      += location/geo.c
 # AND A TUNE HEARD, sec 1457, for the same reason: the detector is
 # arithmetic, and its decoder links FFmpeg where the build has one.
-SRCS      += media/analysis.c media/decode.c media/fingerprint.c wire/generated/json.c
+SRCS      += media/analysis.c media/decode.c media/fingerprint.c
 
 # The primitive names installcheck looks for, spelled once because the probe
 # and the control that proves the probe works must not be able to drift
@@ -3878,21 +3879,24 @@ $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_T
 # WHAT A TUNE SOUNDS LIKE, sec 1457: its tempo, key and loudness, held to
 # snurra's measurements of the detector it carries here; and the sound
 # decoded through FFmpeg where the build has it (FZN_MEDIA_DECODE).
-MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o \
-                    $(BUILD_DIR)/wire/generated/json.o
+# JSON THROUGH SITU'S VIEWS, sec 1469: AcoustID's answer and gpsd's TPV.
+# Named once so a binary linking both (fuzznetd) links each object once.
+JSON_WALK_OBJS := $(BUILD_DIR)/wire/json_walk.o $(BUILD_DIR)/wire/generated/json.o
+MEDIA_SOUND_OBJS := $(BUILD_DIR)/media/analysis.o $(BUILD_DIR)/media/decode.o $(BUILD_DIR)/media/fingerprint.o
 MEDIA_SOUND_LIBS = $(MEDIA_DECODE_LIBS) -lm
 $(BUILD_DIR)/media/decode.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
 $(BUILD_DIR)/media/fingerprint.o: CFLAGS += $(MEDIA_DECODE_CFLAGS)
 # WHICH RECORDING A TUNE IS, sec 1459: AcoustID's answer read, and with
 # FFmpeg's Chromaprint a tune printed near itself and far from another.
 $(BUILD_DIR)/media/test/fingerprint_test: $(BUILD_DIR)/media/test/fingerprint_test.o $(BUILD_DIR)/media/fingerprint.o \
-                                         $(BUILD_DIR)/wire/generated/json.o $(BUILD_DIR)/wire/generated/situ.o
+                                         $(JSON_WALK_OBJS) $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
 $(BUILD_DIR)/media/test/analysis_test: $(BUILD_DIR)/media/test/analysis_test.o $(BUILD_DIR)/media/analysis.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -lm -o $@
-$(BUILD_DIR)/media/test/decode_test: $(BUILD_DIR)/media/test/decode_test.o $(MEDIA_SOUND_OBJS) $(BUILD_DIR)/wire/generated/situ.o
+$(BUILD_DIR)/media/test/decode_test: $(BUILD_DIR)/media/test/decode_test.o $(MEDIA_SOUND_OBJS) $(JSON_WALK_OBJS) \
+                                    $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(MEDIA_DECODE_LIBS) -lm -o $@
 
@@ -5261,7 +5265,7 @@ $(BUILD_DIR)/node/test/location_fuzz: $(BUILD_DIR)/node/test/location_fuzz.o \
                                       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
                                       $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o \
-                                      $(BUILD_DIR)/location/location.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/location/tpv.o
+                                      $(BUILD_DIR)/location/location.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/location/tpv.o $(JSON_WALK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5976,7 +5980,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o $(MEDIA_TAGS_OBJS) $(MEDIA_SOUND_OBJS) \
               $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
               $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
-              $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
+              $(BUILD_DIR)/location/tpv.o $(JSON_WALK_OBJS) $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/wire/generated/root_act_record.o \
@@ -6244,7 +6248,7 @@ $(BUILD_DIR)/location/test/location_test: $(BUILD_DIR)/location/test/location_te
 
 # gpsd's link, against a stand-in on loopback, sec 678.
 $(BUILD_DIR)/location/test/gpsd_test: $(BUILD_DIR)/location/test/gpsd_test.o \
-                                      $(BUILD_DIR)/location/gpsd.o $(BUILD_DIR)/location/tpv.o \
+                                      $(BUILD_DIR)/location/gpsd.o $(BUILD_DIR)/location/tpv.o $(JSON_WALK_OBJS) \
                                       $(BUILD_DIR)/location/location.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -6360,7 +6364,7 @@ $(BUILD_DIR)/node/test/schema_test: $(BUILD_DIR)/node/test/schema_test.o \
 
 # gpsd's reports read, sec 678.
 $(BUILD_DIR)/location/test/tpv_test: $(BUILD_DIR)/location/test/tpv_test.o \
-                                     $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o
+                                     $(BUILD_DIR)/location/tpv.o $(JSON_WALK_OBJS) $(BUILD_DIR)/location/location.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
