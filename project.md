@@ -77638,3 +77638,40 @@ Tests: `conversations_view_test` -- "gardeners" asked as `add group
 gardeners` and said made; a blank name not asked; the view still fits
 320 px. Sabotage: one entry, caught.
 
+## 1484. A contact made from the contacts view: this host's card, and another's added, 2026-11-26
+
+The same audit: **no view could make a contact**. The contacts view
+answered requests that arrived, renamed and removed, and nothing showed
+this host's card or added another's -- `fzn_rpc_card_show`,
+`fzn_rpc_node_card_read` and `fzn_rpc_peer_request_send` were the CLI's
+-- so on the desktop two people could become contacts only if one of
+them used the CLI or the phone.
+
+- **Copy my card**: this host's card, `FZC1:...` (sec 617), on the
+  clipboard, said so -- the thing to send to whom you want as a
+  contact.
+- **Add from a card**: their card pasted, read for the name it offers
+  (`fzn_rpc_node_card_read`, its shape checked here, its signature the
+  node's when added), and the request sent under the name typed on the
+  view's name line or, where none is, the one the card offers. A name
+  already held is refused before asking, in the client's words; text
+  that is no card is said to be none.
+
+Rejected: a QR of the card on the desktop (a desktop sends text; the
+phone's scanner is `devices_view`'s, sec 1158) -- it can follow if a
+person asks.
+
+**Found on the way**: the two object lists a client is linked from --
+`RPC_LINK_OBJS`, a view's test's and a consumer's compiling `local/`, and
+`QTTY_RPC_OBJS`, the qtty render test's -- each held
+`node/contact_card.o` without what it calls (the contact name check, the
+card's generated record, a device's decoding, the prekey), hidden while
+nothing called the card reader past section garbage collection. They
+are named once, `CONTACT_CARD_OBJS`, used by both, the prekey added to
+`RPC_LINK_OBJS` alone since qtty's link carries it already.
+
+Tests: `contacts_view_test` -- a real card (a fuzznetd's `get card` of
+this day) read back as this host's; added under the name it offers as
+`add contact ada ...`; under "bob", held already, refused unasked; "hello
+there" refused as no card; and, new to this test, the view fits 320 px.
+Sabotage: one entry, caught.

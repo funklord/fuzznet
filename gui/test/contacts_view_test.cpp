@@ -32,6 +32,12 @@ static int checks, failures;
 #define ZED "2ed0000000000000000000000000000000000000000000000000000000000005"
 #define DEE "dee0000000000000000000000000000000000000000000000000000000000006"
 
+/* A REAL CARD, `get card ada` of a fuzznetd of 2026-11-26 (sec 1484): its
+ * shape is what the view reads; its signature is the node's to check. */
+static const char ADA_CARD[] =
+        "FZC1:AGKABOAB5RTAQKIVKUKS5DNW2F3EPQ3CRYRAE62BBN4G27PMAGNMWCD3ZG6ADBHMMYECSFKVCUXI3NWROZD4GYUOEIBHWQILPBWX33ABTLFQQ66JXRMNXJL334Q7JRLBB7LHXQTYC3G2RVJ2HDHUP4DM4M6WIPHY2L7HIAAAAAAGWCEPJGQ6YTQCYILIFBWOA66"
+        "DZFW5THTYQUVRSTO7LZTLYD4E5NPNVOETSPKNOLOFWNBX2TZYA6ZPAYDWSPPXZQGF2EMLSQ6WIL5WXRHFN3AOBEYTENZOGAXDALRRUYIAAAADMFSGCAAAAAAAAAAAAACHWM4M336JJFCEDWS3PT4PN2YOAIX2T7L6CQAABMHQCITSLJ2T3APVPAVFMCHC2U4VQRUXGL5LCAZLPEUGQI7XZK2B26L7GP64DBYF";
+
 static int silent;
 static char last[160];
 static const char *write_reply = "ok";
@@ -45,6 +51,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap,
 		                        "ok 5 0 bob,%s alice,%s carol,%s,suspended zed,%s,later dee,%s,retired\n",
 		                        BOB, DAN, CAL, ZED, DEE);
+	if (!strcmp(line, "get card"))
+		return (size_t)snprintf(reply, cap, "ok %s\n", ADA_CARD);
+	if (!strncmp(line, "add contact ", 12)) {
+		snprintf(last, sizeof last, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok %s\n", ZED);
+	}
 	if (!strcmp(line, "list request 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 %s,eve,1700000000,10.0.0.9:48080\n", EVE);
 	snprintf(last, sizeof last, "%s", line);
@@ -111,6 +123,23 @@ int main(int argc, char **argv)
 	v.select_contact(0);
 	CHECK(!v.remove() && v.status() == "only the user's own hosts may change contacts",
 	      "a refusal was not said in the node's words");
+
+	/* MAKING A CONTACT, sec 1484: this host's card read back; another's
+	 * added under the name it offers, or the one typed; a name held
+	 * refused before asking; text that is no card refused. */
+	CHECK(v.my_card() == QString::fromLatin1(ADA_CARD), "this host's card was not read");
+	last[0] = '\0';
+	CHECK(v.add_contact(QString::fromLatin1(ADA_CARD), QString()) && !strncmp(last, "add contact ada ", 16)
+	              && v.status() == "Asked ada to be a contact; they answer from their requests.",
+	      "a card was not added under the name it offers, or not said");
+	last[0] = '\0';
+	CHECK(!v.add_contact(QString::fromLatin1(ADA_CARD), QStringLiteral("bob")) && !last[0]
+	              && v.status().contains("already have a contact of that name"),
+	      "a card was asked for under a name already held");
+	CHECK(!v.add_contact(QStringLiteral("hello there"), QStringLiteral("x")) && !last[0]
+	              && v.status() == "That is not a fuzznet card: it begins FZC1:.",
+	      "text that is no card was asked for");
+	CHECK(v.minimumSizeHint().width() <= 320, "the view was wider than a 320 px screen");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

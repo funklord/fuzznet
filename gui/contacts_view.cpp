@@ -8,6 +8,9 @@
 #include <QByteArray>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -71,6 +74,10 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_rename = new QPushButton(tr("Rename"), this);
 	m_remove = new QPushButton(tr("Remove"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	m_my_card = new QPushButton(tr("Copy my card"), this);
+	m_my_card->setToolTip(tr("Copy this host's card, to send to whom you want as a contact"));
+	m_add = new QPushButton(tr("Add from a card"), this);
+	m_add->setToolTip(tr("Ask to be a contact of whoever sent you their card"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -89,6 +96,10 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	change->addWidget(m_remove);
 	change->addWidget(m_refresh);
 	change->addStretch(1);
+	auto *cards = new QHBoxLayout;
+	cards->addWidget(m_my_card);
+	cards->addWidget(m_add);
+	cards->addStretch(1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(new QLabel(tr("Waiting to become contacts"), this));
 	col->addWidget(m_requests, 1);
@@ -97,6 +108,7 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	col->addWidget(m_contacts, 2);
 	col->addWidget(m_name);
 	col->addLayout(change);
+	col->addLayout(cards);
 	col->addWidget(m_status);
 
 	connect(m_contacts, &QTableWidget::currentCellChanged,
@@ -111,6 +123,21 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_rename, &QPushButton::clicked, [this]() { rename(); });
 	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_my_card, &QPushButton::clicked, [this]() {
+		const QString card = my_card();
+		if (!card.isEmpty()) {
+			QGuiApplication::clipboard()->setText(card);
+			m_status->setText(tr("Your card is copied: send it to whom you want as a contact."));
+		}
+	});
+	connect(m_add, &QPushButton::clicked, [this]() {
+		bool ok = false;
+		const QString card = QInputDialog::getMultiLineText(this, tr("Add from a card"),
+		                                                    tr("Their card, as they sent it (FZC1:...):"),
+		                                                    QString(), &ok);
+		if (ok)
+			add_contact(card, m_name->text());
+	});
 	select_contact(-1);
 }
 
@@ -123,6 +150,47 @@ fzn_contacts_view::~fzn_contacts_view()
 static QString failed_words(const fzn_gui_rpc *r)
 {
 	return QString::fromUtf8(fzn_gui_rpc_silent(r));
+}
+
+QString fzn_contacts_view::my_card()
+{
+	fzn_rpc_card_show_resp_t out;
+
+	if (fzn_rpc_card_show(&m_rpc->c, nullptr, 0u, &out) != FZN_RPC_OK) {
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		return QString();
+	}
+	return QString::fromUtf8((const char *)out.card_blob, (int)out.card_blob_len);
+}
+
+bool fzn_contacts_view::add_contact(const QString &card, const QString &name)
+{
+	const QByteArray text = card.simplified().remove(QLatin1Char(' ')).toUtf8();
+	char offered[FZN_RPC_PEER_NAME_MAX + 1], where[FZN_RPC_PEER_ADDRESS_MAX + 1];
+	fzn_rpc_peer_request_send_resp_t out;
+
+	/* READ FIRST, for the name it offers: a card's shape checked here,
+	 * its signature by the node when it is added. */
+	if (fzn_rpc_node_card_read(text.constData(), (size_t)text.size(), offered, sizeof(offered), where,
+	                           sizeof(where))
+	    != FZN_RPC_OK) {
+		m_status->setText(tr("That is not a fuzznet card: it begins FZC1:."));
+		return false;
+	}
+	const QByteArray local = (name.trimmed().isEmpty() ? QString::fromUtf8(offered) : name.trimmed()).toUtf8();
+	if (local.isEmpty()) {
+		m_status->setText(tr("Name the contact: their card offers no name."));
+		return false;
+	}
+	if (fzn_rpc_peer_request_send(&m_rpc->c, (const uint8_t *)text.constData(), (size_t)text.size(),
+	                              local.constData(), (size_t)local.size(), nullptr, 0u, &out)
+	    != FZN_RPC_OK) {
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		return false;
+	}
+	refresh();
+	m_status->setText(tr("Asked %1 to be a contact; they answer from their requests.").arg(QString::fromUtf8(local)));
+	return true;
 }
 
 bool fzn_contacts_view::refresh()

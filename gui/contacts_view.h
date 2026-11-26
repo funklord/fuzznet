@@ -55,6 +55,13 @@ public:
 	bool reject();
 	bool rename();
 	bool remove();
+	/* MAKING A CONTACT, sec 1484: this host's card as text -- `FZC1:...`,
+	 * what the other side adds -- or empty where the node gave none; and
+	 * the other side's card added, asking them to be a contact under
+	 * `name` (the name their card offers where empty). The buttons copy the
+	 * one and ask for the other. */
+	QString my_card();
+	bool add_contact(const QString &card, const QString &name);
 
 	/* WHAT IS ON SCREEN: each contact as NAME KEY16, each request as
 	 * PROPOSED KEY16, the name line, and the status line. */
@@ -76,6 +83,8 @@ private:
 	QPushButton *m_rename;
 	QPushButton *m_remove;
 	QPushButton *m_refresh;
+	QPushButton *m_my_card;
+	QPushButton *m_add;
 	QLabel *m_status;
 };
 

@@ -4085,13 +4085,22 @@ $(BUILD_DIR)/gui/test/entries_view_test: $(BUILD_DIR)/gui/test/entries_view_test
 # The named objects on a widget, sec 1102, and the node's settings, sec 1103,
 # each against a scripted node: the widgets call the typed client, so the
 # client's objects come with them.
+# A CONTACT CARD READ, AND WHAT THAT CALLS (sec 1484): the client reads one
+# to add a contact, so every list a client is linked from carries these --
+# named once, as two lists that each held `contact_card.o` alone hid the
+# gap until a view called the reader. The prekey it opens is named apart:
+# qtty's link carries it already.
+CONTACT_CARD_OBJS := $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/wire/generated/contact_card_record.o \
+                     $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/node/contact_devices.o \
+                     $(BUILD_DIR)/wire/generated/contact_devices_wire.o
 RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/messages/reply.o \
                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
                  $(BUILD_DIR)/local/peer_linux.o \
                  $(BUILD_DIR)/constant_time/constant_time.o \
-                 $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
+                 $(CONTACT_CARD_OBJS) $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
+                 $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/wire/generated/provision_record.o \
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                  $(BUILD_DIR)/hex/hex.o
 $(BUILD_DIR)/gui/test/settings_view_test: $(BUILD_DIR)/gui/test/settings_view_test.o \
@@ -8691,7 +8700,7 @@ QTTY_JOBS ?= 4
 
 # THE TYPED CLIENT for the views that ask through it (objects_view, sec 1102):
 # its objects and what they reach that the list below does not already hold.
-QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
+QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(CONTACT_CARD_OBJS) \
                  $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/messages/reply.o \
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
                  $(BUILD_DIR)/location/geo.o

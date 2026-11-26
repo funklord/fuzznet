@@ -941,6 +941,13 @@ SABOTAGES = [
 		"a group made from the view is asked of the node -- sec 1483",
 	),
 	(
+		"contacts-view-card-name-ignored",
+		"gui/contacts_view.cpp",
+		"\tconst QByteArray local = (name.trimmed().isEmpty() ? QString::fromUtf8(offered) : name.trimmed()).toUtf8();\n",
+		"\tconst QByteArray local = name.trimmed().toUtf8();\n",
+		"a card added with no name typed is named as it offers -- sec 1484",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",
