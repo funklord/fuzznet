@@ -580,6 +580,7 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
 static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
 static size_t sound_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
 static void sound_tick(void);
+static void keep_tick(void);
 static void sound_stop(void);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
@@ -18401,6 +18402,195 @@ static size_t sound_local(fzn_origin_t origin, const fzn_request_t *request, cha
 }
 #endif
 
+/* ---- what a host keeps a copy of, sec 1473 ---------------------------------------
+ *
+ * `library/keep`, this host's own: the classes of the library's files it
+ * keeps a copy of -- music, with each tune's tracklist, lyrics and
+ * beatmap; video; photos; or all. Every few seconds the tick looks for one
+ * catalogued file of a kept class not held here and fetches it, one at a
+ * time, the way `fetch file ROOT` does; what it does not keep it still
+ * streams. A fetch that makes no progress for two minutes -- no host
+ * serving it is reached -- is set aside for an hour, so one unreachable
+ * file holds up none of the rest. */
+#if defined(FZN_CATALOG_ON) && defined(FZN_FILES_ON)
+#define KEEP_MUSIC 1u
+#define KEEP_VIDEO 2u
+#define KEEP_PHOTOS 4u
+#define KEEP_ALL 8u
+#define KEEP_EVERY_S 5u
+#define KEEP_STALL_S 120u
+#define KEEP_ASIDE_S 3600u
+#define KEEP_ASIDE 64u
+
+static struct {
+	uint64_t next, changed;
+	int fetching;
+	uint8_t root[FZN_PUBKEY_LEN];
+	uint64_t since, held;
+	struct {
+		uint8_t root[FZN_PUBKEY_LEN];
+		uint64_t until;
+	} aside[KEEP_ASIDE];
+	size_t aside_at;
+} kept_copies;
+
+/* This host's `library/keep`, as KEEP_* bits: 0 for none or unset. */
+static unsigned keep_classes(void)
+{
+	static const struct {
+		const char *word;
+		unsigned bit;
+	} words[] = { { "music", KEEP_MUSIC }, { "video", KEEP_VIDEO }, { "photos", KEEP_PHOTOS }, { "all", KEEP_ALL } };
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0, at = 0, end, k;
+	unsigned bits = 0;
+
+	if (!contact_id
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey, (const uint8_t *)"library/keep",
+	                              12u, value, &len, &rank))
+		return 0;
+	while (at < len) {
+		for (end = at; end < len && value[end] != ' '; end++)
+			;
+		for (k = 0; k < sizeof(words) / sizeof(words[0]); k++)
+			if (end - at == strlen(words[k].word) && !memcmp(value + at, words[k].word, end - at))
+				bits |= words[k].bit;
+		at = end + 1u;
+	}
+	return bits;
+}
+
+/* A file's class, as KEEP_* bits: by its kind, or, of no kind, music where
+ * it names an artist or an album. A companion is classed by its tune. */
+static unsigned keep_class_of(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	const uint8_t *name, *kind;
+	size_t name_len, kind_len;
+	char word[8];
+
+	(void)name_and_kind(root, &name, &name_len, &kind, &kind_len);
+	if (kind_len > 6u && !memcmp(kind, "audio/", 6u))
+		return KEEP_MUSIC;
+	if (kind_len > 6u && !memcmp(kind, "video/", 6u))
+		return KEEP_VIDEO;
+	if (kind_len > 6u && !memcmp(kind, "image/", 6u))
+		return KEEP_PHOTOS;
+	if (!kind_len && (catalog_first(root, "artist", word, sizeof(word)) || catalog_first(root, "album", word, sizeof(word))))
+		return KEEP_MUSIC;
+	return 0;
+}
+
+static int keep_aside(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < KEEP_ASIDE; i++)
+		if (kept_copies.aside[i].until > now && !memcmp(kept_copies.aside[i].root, root, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
+static void keep_set_aside(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
+{
+	memcpy(kept_copies.aside[kept_copies.aside_at].root, root, FZN_PUBKEY_LEN);
+	kept_copies.aside[kept_copies.aside_at].until = now + KEEP_ASIDE_S;
+	kept_copies.aside_at = (kept_copies.aside_at + 1u) % KEEP_ASIDE;
+}
+
+/* `root` fetched to be kept, where it is neither held, being fetched, nor
+ * set aside: 1 when a fetch began, so the tick waits on it. */
+static int keep_one(const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
+{
+	static char reply[FZN_REPLY_MAX + 1u];
+	char arg[8u + 2u * FZN_PUBKEY_LEN + 1u], hex[2u * FZN_PUBKEY_LEN + 1u];
+	fzn_node_file_status_t st;
+	fzn_request_t req;
+	size_t n;
+
+	if (fzn_node_files_status(&files, root, &st) == FZN_NODE_FILES_OK || keep_aside(root, now))
+		return 0;
+	hex_of(root, FZN_PUBKEY_LEN, hex);
+	n = (size_t)snprintf(arg, sizeof(arg), "file %s", hex);
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_FETCH;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, FZN_ORIGIN_SAME_USER, NULL, &req, reply,
+	                 sizeof(reply) - 1u);
+	reply[n] = '\0';
+	if (n < 2u || memcmp(reply, "ok", 2u) != 0) {
+		say(FZN_ENTRY_INFO, "library", "not kept here yet, %.16s...: %.*s", hex, (int)strcspn(reply, "\n"), reply);
+		keep_set_aside(root, now);
+		return 0;
+	}
+	say(FZN_ENTRY_INFO, "library", "keeping a copy of %.16s..., as library/keep says", hex);
+	kept_copies.fetching = 1;
+	memcpy(kept_copies.root, root, FZN_PUBKEY_LEN);
+	kept_copies.since = now;
+	kept_copies.held = 0;
+	return 1;
+}
+
+static void keep_tick(void)
+{
+	const uint64_t now = wall_clock();
+	fzn_node_file_status_t st;
+	unsigned classes;
+	size_t i;
+
+	/* EVERY FEW SECONDS, and at once when the catalogue has changed: a
+	 * file catalogued is looked at as it arrives. */
+	if (now < kept_copies.next && node_catalog.changed == kept_copies.changed)
+		return;
+	kept_copies.next = now + KEEP_EVERY_S;
+	kept_copies.changed = node_catalog.changed;
+	if (!files_on || !running_admin || !contact_id || !journal_on || !(classes = keep_classes())) {
+		kept_copies.fetching = 0;
+		return;
+	}
+	/* ONE AT A TIME: the one begun, while it moves. */
+	if (kept_copies.fetching) {
+		if (fzn_node_files_status(&files, kept_copies.root, &st) != FZN_NODE_FILES_OK || st.whole) {
+			kept_copies.fetching = 0;
+		} else if (st.held != kept_copies.held) {
+			kept_copies.held = st.held;
+			kept_copies.since = now;
+			return;
+		} else if (now - kept_copies.since < KEEP_STALL_S) {
+			return;
+		} else {
+			say(FZN_ENTRY_INFO, "library", "a kept copy stalled; set aside for an hour");
+			keep_set_aside(kept_copies.root, now);
+			kept_copies.fetching = 0;
+		}
+	}
+	for (i = 0; i < node_catalog.count; i++) {
+		const fzn_node_catalog_entry_t *e = &node_catalog.entries[i];
+		uint8_t part[FZN_PUBKEY_LEN];
+		unsigned of;
+
+		if (!e->live)
+			continue;
+		/* A TUNE'S TRACKLIST, LYRICS AND BEATMAP are music where music is
+		 * kept, whatever kind they are; its video is a video. */
+		if ((classes & (KEEP_MUSIC | KEEP_ALL)) && companion_name(e->name, e->name_len)
+		    && !(e->name_len == 5u && !memcmp(e->name, "video", 5u)) && e->value_len == 2u * FZN_PUBKEY_LEN
+		    && unhex32(e->value, e->value_len, part) && keep_one(part, now))
+			return;
+		if (e->name_len != 4u || memcmp(e->name, "name", 4u) != 0)
+			continue;
+		of = keep_class_of(e->entity);
+		if (((classes & KEEP_ALL) || (of & classes)) && keep_one(e->entity, now))
+			return;
+	}
+}
+#else
+static void keep_tick(void)
+{
+}
+#endif
+
 /* ---- the references of the estate's files, sec 634 --------------------------------
  *
  * THE FILE VERBS, with every reference they see kept: a put's answer, and
@@ -29436,6 +29626,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			LOOP_TIMED("ext_tick", ext_tick());
 			/* A TUNE HEARD in its child, read once that has ended, sec 1457. */
 			LOOP_TIMED("sound_tick", sound_tick());
+			/* A COPY KEPT WHERE library/keep SAYS, sec 1473. */
+			LOOP_TIMED("keep_tick", keep_tick());
 #ifdef FZN_LOG_FILE_ON
 			LOOP_TIMED("log_settings_tick", log_settings_tick());
 #endif

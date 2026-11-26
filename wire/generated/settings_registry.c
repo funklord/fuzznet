@@ -188,6 +188,31 @@ situ_err_t fzn_settings_registry_pressure_rank_validate(situ_view_t view)
 	return fzn_settings_registry_pressure_rank_check(view, NULL);
 }
 
+situ_err_t fzn_settings_registry_keep_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	/* `word` is one of `keep_word`'s 4 spelling(s). */
+	if (fzn_settings_registry_keep_word_which(fzn_settings_registry_keep_word_ptr(view), fzn_settings_registry_keep_word_len(view))
+			== FZN_SETTINGS_REGISTRY_KEEP_WORD_UNKNOWN) {
+		*which = FZN_SETTINGS_REGISTRY_KEEP_WORD_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_settings_registry_keep_validate(situ_view_t view)
+{
+	return fzn_settings_registry_keep_check(view, NULL);
+}
+
 situ_err_t fzn_settings_registry_text_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -548,6 +573,25 @@ const fzn_settings_registry_node_entry_t fzn_settings_registry_node_entries[FZN_
 		.summary   = "the AcoustID client key registered to this user; set, a host hearing a tune asks AcoustID which recording it is, sending its fingerprint and length and nothing else (sec 1459)",
 		.window_ms = 0u,
 		.scope = FZN_SETTINGS_REGISTRY_SCOPE_ESTATE,
+		.display = 0u,
+		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
+	},
+	{
+		.key       = "library/keep",
+		.key_len   = 12u,
+		.family    = 0u,
+		.safe      = 0u,
+		.has_min   = 0u,
+		.has_max   = 0u,
+		.min       = INT64_C(0),
+		.max       = INT64_C(0),
+		.min_size  = 3u,
+		.max_size  = 32u,
+		.def       = NULL,
+		.unit      = NULL,
+		.summary   = "which of the library's files this host keeps a copy of, fetching each as the estate catalogues it: music (with each tune's tracklist, lyrics and beatmap), video, photos or all, apart by spaces; unset, none -- what it does not keep it still streams (sec 1473)",
+		.window_ms = 0u,
+		.scope = FZN_SETTINGS_REGISTRY_SCOPE_HOST,
 		.display = 0u,
 		.cell      = FZN_SETTINGS_REGISTRY_NODE_CELL_TEXT,
 	},

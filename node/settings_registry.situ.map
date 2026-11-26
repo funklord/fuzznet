@@ -28,6 +28,9 @@ struct flag size=0.. mutate=Shifting
   flag.word                              offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   flag.value                             let u8 = word == flag_word.on | word == flag_word.one
 
+struct keep size=0.. mutate=Shifting
+  keep.word                              offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct log_level size=0.. mutate=Shifting
   log_level.word                         offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 

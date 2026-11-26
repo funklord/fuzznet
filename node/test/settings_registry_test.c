@@ -120,7 +120,8 @@ static void test_the_table_is_made_from_the_registry(void)
 {
 	static const char *const checked[] = { "archive/erasure", "local/permit/", "remote/permit/",
 		                               "remote/permit", "local/events",  "pressure/rank/",
-		                               "group/member",   "log/level",     "log/scope" };
+		                               "group/member",   "log/level",     "log/scope",
+		                               "library/keep" };
 	const fzn_schema_entry_t *own = fzn_node_schema_own();
 	size_t i, k, with_check = 0, untyped = 0;
 
@@ -130,7 +131,7 @@ static void test_the_table_is_made_from_the_registry(void)
 		with_check += own[i].check != NULL;
 	}
 	CHECK(untyped == 0, "a row of the registry has no type in the table");
-	CHECK(with_check == sizeof(checked) / sizeof(checked[0]), "%zu rows carry a check, not nine", with_check);
+	CHECK(with_check == sizeof(checked) / sizeof(checked[0]), "%zu rows carry a check, not ten", with_check);
 	for (k = 0; k < sizeof(checked) / sizeof(checked[0]); k++) {
 		/* A FAMILY BY AN INSTANCE of it, as a setting names one. */
 		char key[64];
@@ -139,6 +140,18 @@ static void test_the_table_is_made_from_the_registry(void)
 		const fzn_schema_entry_t *e = fzn_node_schema_find(NULL, (const uint8_t *)key, len);
 
 		CHECK(e && e->check, "%s lost its own check", checked[k]);
+	}
+	/* `library/keep`, sec 1473: classes apart by single spaces, none twice. */
+	{
+		static const char *const good[] = { "music", "music video", "all", "video photos music" };
+		static const char *const bad[] = { "", "music music", "music bogus", "music ", " music",
+			                           "music  video", "Music" };
+		const fzn_schema_entry_t *e = fzn_node_schema_find(NULL, (const uint8_t *)"library/keep", 12u);
+
+		for (k = 0; e && e->check && k < sizeof(good) / sizeof(good[0]); k++)
+			CHECK(!e->check((const uint8_t *)good[k], strlen(good[k])), "library/keep refused %s", good[k]);
+		for (k = 0; e && e->check && k < sizeof(bad) / sizeof(bad[0]); k++)
+			CHECK(e->check((const uint8_t *)bad[k], strlen(bad[k])) != NULL, "library/keep took '%s'", bad[k]);
 	}
 }
 

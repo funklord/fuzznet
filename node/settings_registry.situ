@@ -29,6 +29,8 @@ tokens log_level_word {
 	default = error,
 }
 tokens log_scope_word { host_private = "host-private", estate = "estate", default = error, }
+// WHAT A HOST KEEPS A COPY OF, sec 1473: a class of the library's files.
+tokens keep_word { music = "music", video = "video", photos = "photos", all = "all", default = error, }
 // WHERE A RULE PUTS A KIND OF WORK, sec 917: nothing that must work.
 tokens pressure_rank_word { trace = "trace", copy = "copy", user = "user", default = error, }
 
@@ -63,6 +65,9 @@ struct log_scope {
 }
 struct pressure_rank {
 	pressure_rank_word  word[remaining];
+}
+struct keep {
+	keep_word  word[remaining];
 }
 
 // TEXT: printable ASCII, bounded by the entry.
@@ -104,6 +109,8 @@ registry node {
 		"where this host is reached, HOST PORT, an admin's to correct (sec 579)";
 	"media/acoustid" : text [min_size = 1, max_size = 64, scope = estate]
 		"the AcoustID client key registered to this user; set, a host hearing a tune asks AcoustID which recording it is, sending its fingerprint and length and nothing else (sec 1459)";
+	"library/keep" : text [min_size = 3, max_size = 32, scope = host]
+		"which of the library's files this host keeps a copy of, fetching each as the estate catalogues it: music (with each tune's tracklist, lyrics and beatmap), video, photos or all, apart by spaces; unset, none -- what it does not keep it still streams (sec 1473)";
 	"host/name" : text [min_size = 1, max_size = 32, scope = host]
 		"what this host's user calls it -- laptop, phone -- as every device of the estate lists it (sec 848)";
 	"local/permit/" : text [min_size = 1, max_size = 256, scope = host]

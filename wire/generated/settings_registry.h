@@ -207,6 +207,45 @@ static inline uint32_t fzn_settings_registry_log_scope_word_which(const uint8_t 
 	return FZN_SETTINGS_REGISTRY_LOG_SCOPE_WORD_UNKNOWN;
 }
 
+/** tokens keep_word -- compared byte for byte; unknown spellings are error
+ */
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_MUSIC 0u
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_VIDEO 1u
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_PHOTOS 2u
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_ALL 3u
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_UNKNOWN 0xFFFFFFFFu
+
+static const uint8_t fzn_settings_registry_keep_word_music[5] = { 0x6Du, 0x75u, 0x73u, 0x69u, 0x63u };
+static const uint8_t fzn_settings_registry_keep_word_video[5] = { 0x76u, 0x69u, 0x64u, 0x65u, 0x6Fu };
+static const uint8_t fzn_settings_registry_keep_word_photos[6] = { 0x70u, 0x68u, 0x6Fu, 0x74u, 0x6Fu, 0x73u };
+static const uint8_t fzn_settings_registry_keep_word_all[3] = { 0x61u, 0x6Cu, 0x6Cu };
+
+/** Which member of `keep_word` these bytes spell, or
+ * FZN_SETTINGS_REGISTRY_KEEP_WORD_UNKNOWN.
+ *
+ * The length is compared first, so a prefix is not a match -- which is
+ * what a `strncmp` against a literal quietly makes it.
+ */
+static inline uint32_t fzn_settings_registry_keep_word_which(const uint8_t *bytes, uint32_t len)
+{
+	static const struct { const uint8_t *run; uint32_t len; } arms[] = {
+		{ fzn_settings_registry_keep_word_music, 5u },
+		{ fzn_settings_registry_keep_word_video, 5u },
+		{ fzn_settings_registry_keep_word_photos, 6u },
+		{ fzn_settings_registry_keep_word_all, 3u },
+	};
+	uint32_t a, i;
+
+	for (a = 0; a < sizeof arms / sizeof arms[0]; a++) {
+		if (arms[a].len != len) continue;
+		for (i = 0; i < len; i++) {
+			if (bytes[i] != arms[a].run[i]) break;
+		}
+		if (i == len) return (uint32_t)a;
+	}
+	return FZN_SETTINGS_REGISTRY_KEEP_WORD_UNKNOWN;
+}
+
 /** tokens pressure_rank_word -- compared byte for byte; unknown spellings are error
  */
 #define FZN_SETTINGS_REGISTRY_PRESSURE_RANK_WORD_TRACE 0u
@@ -756,6 +795,68 @@ situ_err_t fzn_settings_registry_pressure_rank_validate(situ_view_t view);
 situ_err_t fzn_settings_registry_pressure_rank_check(situ_view_t view, uint32_t *which);
 #define FZN_SETTINGS_REGISTRY_PRESSURE_RANK_WORD_CHECK 0u
 
+/* ---- struct keep ---- */
+
+#define FZN_SETTINGS_REGISTRY_KEEP_SIZE_MIN   0u
+/* No FZN_SETTINGS_REGISTRY_KEEP_SIZE_MAX: nothing in the schema bounds this
+ * struct's length. Give the driving length field a `[max = N]`
+ * to make it statically allocatable. */
+
+/* INVALIDATION: nothing invalidates a keep view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_settings_registry_keep_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	/* No minimum: every member of this struct may be empty. */
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** keep.word : keep_word  at AbsoluteStatic(0x00)
+ * size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_settings_registry_keep_word_len(situ_view_t view)
+{
+	return situ_min_u32(situ_remaining_u32(view.limit, 0u),
+		situ_remaining_u32(view.limit, 0u));
+}
+static inline uint8_t *fzn_settings_registry_keep_word_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member with no upper bound on its length
+ *              changing its length moves everything after it
+ *   remedy:    bound whatever decides the extent: `[max = N]` on a length field, `max N` after `until` for a scan, `max N` on a `while` run. A `[remaining]` member is bounded only by the frame it sits in, and an aggregate by whatever inside it is unbounded
+ */
+
+/* No `keep_required`: it ends where the view ends, so how long one is is the transport's answer rather than the message's.
+ * Framing such a message is the layer below's job -- situ can say what
+ * the bytes mean and not when they have all arrived. */
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_settings_registry_keep_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_settings_registry_keep_check(situ_view_t view, uint32_t *which);
+#define FZN_SETTINGS_REGISTRY_KEEP_WORD_CHECK 0u
+
 /* ---- struct text ---- */
 
 #define FZN_SETTINGS_REGISTRY_TEXT_SIZE_MIN   0u
@@ -1047,7 +1148,7 @@ situ_err_t fzn_settings_registry_address_check(situ_view_t view, uint32_t *which
  * instances add one word of a-z and 0-9 -- and the struct its
  * cell's bytes are a message of.
  */
-#define FZN_SETTINGS_REGISTRY_NODE_COUNT 49u
+#define FZN_SETTINGS_REGISTRY_NODE_COUNT 50u
 
 /** Which type a cell is: an entry's `cell`, by name.
  */

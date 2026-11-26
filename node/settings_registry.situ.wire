@@ -33,6 +33,9 @@ struct duration size=1..
 struct flag size=0..
   @0x0000   0..       flag_word  word  sized-by=remaining
 
+struct keep size=0..
+  @0x0000   0..       keep_word  word  sized-by=remaining
+
 struct log_level size=0..
   @0x0000   0..       log_level_word word  sized-by=remaining
 
@@ -58,6 +61,7 @@ registry node
   key="host/name" cell=text max_size=32 min_size=1 scope=host
   key="invite/confirm" cell=flag default="off" safe=higher scope=host
   key="journal/window" cell=count default="60" max=36500 min=1 scope=estate
+  key="library/keep" cell=text max_size=32 min_size=3 scope=host
   key="local/events" cell=text max_size=256 min_size=1 scope=host
   key="local/permit/" cell=text family max_size=256 min_size=1 scope=host
   key="location/accuracy" cell=count default="100" max=61440 min=0 scope=host

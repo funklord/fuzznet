@@ -77324,3 +77324,57 @@ digit short not; `live_tags` j -- lyrics, cue sheet and video linked on
 the real daemon from either side, `sung.lrc` of the same length not, and
 three companions that are no other root refused. Sabotage: four entries,
 each caught.
+
+## 1473. What a host keeps a copy of: `library/keep`, 2026-11-26
+
+The second part of sec 1472's focus: "some files like video should be
+configurable to not propagate to every music node". Until now nothing
+spread a library file by itself: a host fetched one when asked, and
+`catalog/copy.h`'s want/holdings/offer, which decide what a host should
+fetch from its retention, were built (sec 317) and never wired.
+
+**`library/keep`, a host setting** (scope host, so each machine its own --
+a phone keeps less than a server): the classes of the library's files
+this host keeps a copy of, words apart by single spaces, none twice:
+
+- `music` -- every file of an `audio/` kind, or of no kind naming an
+  artist or album, **and each tune's tracklist, lyrics and beatmap**
+  (sec 1472), whatever their kind;
+- `video` -- every `video/`, a tune's music video among them;
+- `photos` -- every `image/`;
+- `all` -- every file the estate catalogues.
+
+**Unset keeps nothing by itself**, which is how every host behaved before:
+a music node is a host told to be one, not a default every phone
+inherits (a setting unset follows the build, and the build keeps
+nothing). **A video does not follow the music**: a host keeping
+`music` fetches a tune and its lyrics and not its video, unless it keeps
+`video` too -- the holder's example, a music node not filled with films.
+
+**The daemon's tick** (`keep_tick`, every 5 s, and at once when the
+catalogue changes, so a file is looked at as it arrives) finds one
+catalogued file of a kept class not held here and fetches it as `fetch
+file ROOT` does -- by the reference the estate carries (sec 634), from
+whichever host serves it -- **one at a time**, and logs `keeping a copy
+of ROOT` under `library`. A fetch that makes no progress for two minutes,
+no host serving it reached, is set aside for an hour, so one unreachable
+file holds up none of the rest. A copy kept is an ordinary held file:
+served, scrubbed and let go as any.
+
+**Rejected**: an estate setting (one machine's disk policy binding on
+another's, `catalog/retention.h`'s own argument against retention that
+syncs); a per-file "does not propagate" flag on the video (a property of
+the host's storage, not of the file -- the same video belongs on the
+media server and not on the phone); fetching every class unless refused
+(the opposite default would fill every new host).
+
+**Not yet**: a host keeping `music` and then letting one tune go fetches
+it back at the next tick -- `library/keep` is the policy, and a file let
+go is not yet a pin against it. And what a host does not keep it reaches
+by streaming, the next section.
+
+Tests: `live_keep` -- two hosts of one estate; B keeping `music` fetches
+A's tune and its kindless lyrics and neither the video nor the
+photograph; keeping `music video`, the video and still not the
+photograph; `music bogus`, `music music`, a double space and a trailing
+one refused. Sabotage: four entries.

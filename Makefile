@@ -8380,6 +8380,7 @@ endif
 	@timeout 60 python3 tool/live_help.py $(FUZZNETD) $(BRIDGE)
 	@timeout 150 python3 tool/live_tags.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_sound.py $(FUZZNETD)
+	@timeout 400 python3 tool/live_keep.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 170 python3 tool/live_location.py $(FUZZNETD)

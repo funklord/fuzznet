@@ -101,6 +101,37 @@ static const char *log_scope_check(const uint8_t *value, size_t len)
 	return one_word(fzn_settings_registry_log_scope_validate, value, len) ? NULL : "host-private or estate";
 }
 
+/* `library/keep`, sec 1473: words of the registry's `keep_word` apart by
+ * single spaces, none twice. */
+static const char *keep_check(const uint8_t *value, size_t len)
+{
+	static const char *const why = "music, video, photos or all, apart by single spaces, none twice";
+	size_t at = 0, end, k;
+
+	if (!value || !len)
+		return why;
+	while (at < len) {
+		for (end = at; end < len && value[end] != ' '; end++)
+			;
+		if (end == at || !one_word(fzn_settings_registry_keep_validate, value + at, end - at))
+			return why;
+		/* none twice: an earlier word the same */
+		for (k = 0; k < at;) {
+			size_t e2 = k;
+
+			while (e2 < len && value[e2] != ' ')
+				e2++;
+			if (e2 - k == end - at && !memcmp(value + k, value + at, end - at))
+				return why;
+			k = e2 + 1u;
+		}
+		if (end < len && end + 1u == len)
+			return why; /* a trailing space */
+		at = end + 1u;
+	}
+	return NULL;
+}
+
 /* THE HAND-ONLY CHECKS, by key: the grammars the registry types as
  * printable text of their bounds (sec 1330), attached to its rows here. */
 static const struct {
@@ -110,6 +141,7 @@ static const struct {
 	{ "archive/erasure", erasure_check },   { "local/permit/", permit_check },
 	{ "remote/permit/", remote_permit_check }, { "remote/permit", remote_permit_check },
 	{ "local/events", events_permit_check }, { "group/member", member_check },
+	{ "library/keep", keep_check },
 };
 
 /* A REGISTRY CELL'S TYPE, by situ's name for it (situ 7febf9ed): a cell
