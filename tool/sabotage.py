@@ -759,6 +759,13 @@ SABOTAGES = [
 		"every term typed is held at once -- sec 1467",
 	),
 	(
+		"catalog-search-filter-dims-last",
+		"node/catalog_search.c",
+		"\t\t\tconst int asked = !kind && named_by(d, about[k].name, about[k].name_len);\n",
+		"\t\t\tconst int asked = 0;\n",
+		"a hit carries the claims its filter names before any other, or `where` never sees them -- sec 1468",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",
@@ -18418,7 +18425,7 @@ SABOTAGES = [
 	(
 		"library-hit-untagged",
 		"node/catalog_search.c",
-		"\t\tfacets_of(c, e->entity, &h);\n",
+		"\t\tfacets_of(c, e->entity, &dims, &h);\n",
 		"",
 		"a library hit carries none of its claims, so no filter selects a file by them; node_catalog_test -- sec 1331",
 	),

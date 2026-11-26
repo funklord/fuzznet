@@ -5369,6 +5369,7 @@ $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
 $(BUILD_DIR)/node/test/node_catalog_test: $(BUILD_DIR)/node/test/node_catalog_test.o \
                                           $(BUILD_DIR)/node/catalog.o $(BUILD_DIR)/node/catalog_search.o \
                                           $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
+                                          $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                           $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

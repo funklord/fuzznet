@@ -77141,5 +77141,30 @@ in the search verb** (sec 1299): its `where DIM=VALUE` is exact, and a
 file's hit carries four facets, `kind` and the first three claims -- a
 tune's tags come first, so its tempo and key are seldom among them. The
 browser is where music is sorted and found (the holder, sec 1457); the
-verb's facets choosing what the filter names is the change if a consumer
-filters music there.
+verb's facets choosing what the filter names was the change -- made at
+once, sec 1468, as it was a fault for every file, not music alone.
+
+## 1468. A file's hit carries the facets its filter names first, 2026-11-26
+
+A search filters the library by facets (secs 1319, 1331): `where
+genre=Jazz`, evaluated on each hit's facets, which the files store
+filled with `kind` and then the file's other live claims **in the order
+they were asserted**, until the hit's four were taken. Tags are asserted
+first, so a tune with a title, artist and album carried those three and
+nothing else: **`where genre=`, `where year=`, `where key=` or `where
+bpm=` dropped every file that held the value** -- answering "none" where
+the truth was "some", for any file with more than three claims. Found
+walking the music catalogue's aim (sec 1467).
+
+**The store reads the query's filter** (`facet/codec.h`, decoded once a
+search) and fills a hit with `kind`, then **the claims of every
+dimension the filter names**, on either side and in an alternation, then
+the rest while room is left. Four is still the most a hit carries, so a
+filter naming more than three dimensions besides `kind` can still miss
+-- a bound of the hit's, kept; no consumer filters by more.
+
+Values stay exact: `where bpm=128.00` matches the tempo as the catalogue
+keeps it, and a span (`bpm` 120 to 130) is facet's RANGE, whose
+collation two hosts must agree on (F7, F20) -- the music view's
+`120-130 bpm` (sec 1467) is the way to it until a consumer needs it
+across hosts.

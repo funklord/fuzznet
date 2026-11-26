@@ -5,6 +5,7 @@
 
 #include "../catalog.h"
 #include "../catalog_search.h"
+#include "../../search/filter.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -236,6 +237,29 @@ static void test_the_files_are_searched(void)
 	CHECK(fzn_search_query_init(&q, "128.00", 6u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
 	              && count == 0u,
 	      "a tempo was found as a word");
+	/* A FILTER'S DIMENSIONS FIRST, sec 1468: the song holds kind, artist,
+	 * year, key and tempo, one more than a hit carries; unfiltered its
+	 * tempo is the one left off, and a filter naming it brings it on. */
+	{
+		static uint8_t filter[FZN_SEARCH_FILTER_MAX];
+		const char line[] = "where bpm=128.00";
+		size_t i, flen;
+		int tempo = 0;
+
+		CHECK(fzn_search_query_init(&q, "harbour", 7u, 10u)
+		              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u
+		              && hits[0].n_facets == FZN_SEARCH_FACETS_MAX && strcmp(hits[0].facets[3].dim, "bpm"),
+		      "fixture: unfiltered, the tempo is past the hit's facets");
+		flen = fzn_search_filter_line(line, sizeof(line) - 1u, filter, sizeof(filter));
+		CHECK(flen && fzn_search_query_init(&q, "harbour", 7u, 10u), "fixture: a filter on the tempo");
+		q.filter = filter;
+		q.filter_len = flen;
+		CHECK(fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u, "the filtered search ran");
+		for (i = 0; count && i < hits[0].n_facets; i++)
+			tempo |= !strcmp(hits[0].facets[i].dim, "bpm") && !strcmp(hits[0].facets[i].value, "128.00");
+		CHECK(tempo && !strcmp(hits[0].facets[0].dim, "kind"),
+		      "a claim the filter names was left off the hit, so the filter could never see it");
+	}
 	fzn_node_catalog_free(&cat);
 }
 
