@@ -20211,6 +20211,1831 @@ their banners, which name the pin, as sec 574 did.
 - `make schema SITU_DIR=../situ` passes again; `make test` and
   `make livecheck` pass against the new runtime.
 
+## 612. situ's C runtime re-vendored at ed22898, 2026-10-13
+
+`make schema` refused again once situ committed past b53e565:
+`wire/generated/situ.h` had drifted from situ's runtime. situ added one
+function, `situ_format_int` -- a signed value written as text, `-` and
+never `+`, no `-0`, the field's width including the sign -- and changed
+nothing else; situ.c did not move. Both files copied from situ's
+committed HEAD, ed22898, under their banners naming the pin, as secs 574
+and 598 did. `make schema`, `make test` and `make livecheck` pass against
+it.
+
+## 657. Every unsent group line sealed, not the newest page's alone, 2026-10-20
+
+Sec 629 recorded that only the newest page of a group's conversation --
+`FZN_MESSAGES_PAGE_MAX`, 20 lines -- is sealed from, and that an older
+unsent line "waits". **It did not wait; it was lost.** A page holds every
+member's lines, so a line of this host's with twenty filed after it, its
+own or anybody's, was off the page at the next round, and every later
+round met only sealed lines there: the line stayed unsent for good, and
+nothing said so.
+
+**Built:** `group_seal_own` walks the conversation's pages back until one
+holds a line of this host's already sealed -- past it none is unsent, a
+pass sealing all it finds, oldest first -- and then seals the pages that
+hold one, deepest first, each oldest first. ~~Bounded by
+`FZN_MESSAGES_WALK_MAX`, as any page is.~~ Not bounded since sec 789,
+which starts at this host's newest sealed line and walks forward.
+
+**Tested by `tool/live_groups.py`, phase d2**: A writes 22 lines between
+two rounds and B must file all 22, read a page at a time. **Control**:
+the previous binary left B without `burst00` and `burst01`, the two
+oldest -- the loss exactly as described.
+
+## 695. NAT on hull, its first step passing, and a log a client can read, 2026-10-22
+
+### hull, in use
+
+**hull at 4161c8a**, its segments landed and its three-machine test
+passing, as hull's session reported:
+- **one NIC per named segment** on a qemu machine, after passt's `eth0`,
+  with no address given;
+- each segment a learning L2 switch in the user's core, rootless;
+- names per user, so a run picks its own.
+
+**hull's own reading** is its `project.md` section 12, *Adopting hull for
+testing*, rewritten in place as hull moves. So this section names the
+commit it rested on, as the guidelines ask.
+
+**Tried in a hull guest here first** -- hull had not tried nftables or
+`sch_netem` in one, and was told:
+- a machine on the host's own root as its overlaid source (`dir:/`);
+- `eth1` on the segment;
+- nftables 1.1.3 making a table;
+- `sch_netem` loaded, and 10 per cent loss set on `eth1`;
+- python 3.13.
+
+KVM and vhost-vsock are open to this account.
+
+### Step 1: a member behind a NAT joins its root
+
+`tool/hull_nat.py` (`make livecheck-hull`, skipped without hull) and
+`tool/hull_node.py`, the part each machine runs. Three machines on two
+segments named for the run:
+- **the gateway**, on both segments, masquerading home out of public with
+  nftables;
+- **the root**, at 203.0.113.10:7000 on public;
+- **the member**, at 192.168.1.10 on home, routed through the gateway.
+
+The machines hand each other the prekey and the card as files in a shared
+volume, and each writes what it saw there.
+
+**Passes when** the root's estate setting reaches the member, the
+member's own host setting reaches the root, and the root's meter (sec
+685) counted the member only as the gateway's public address. The last
+is what shows the traffic crossed a NAT at all.
+
+**Measured: 3 runs of 3 pass, nothing left running.** The root's meter
+showed every family -- verbs, notes, members, contact devices, groups,
+the journal and reconciliation -- from 203.0.113.1 alone, with bytes
+both ways.
+
+**Control:** the gateway routing without masquerade fails, neither
+setting crossing, since the home network has no way back.
+
+**Found on the way, and in the test, not fuzznet:**
+- **the order of a gateway's start matters.** Forwarding turned on before
+  the NAT rules let a datagram through unmasqueraded in the gap, and the
+  root met the member's home address, one run in three. The gateway now
+  loads its rules first, says it is ready, and the member waits for that.
+- **a guest's passt** gives it a default route through `eth0`, so a home
+  machine's default is replaced to its gateway, not added.
+
+**Next, sec 692's topology:**
+- two estates, a phone-like machine behind a NAT of its own;
+- contact between them;
+- relay and introduction between machines neither of which can be
+  reached;
+- loss through `tc netem`, a restart mid-journey, an expired mapping.
+
+### A log a client can read
+
+**fuzzypickles' requirement, 2026-10-22, inside sec 689's subset:**
+fuzznetd has no local verb that reads its own log. So a client on a
+node cannot show what the node has been doing; today fzpd's log fills
+that, read from the fzpd beside the node. What their three callers use:
+- the newest entries first;
+- a page of up to 50 lines;
+- each with its time, severity, subsystem and text;
+- "nothing logged yet" as a real state.
+
+This is the acceptance for sec 689's journey 4, whose plan already says
+logs gain the verbs they lack. Sec 672's table said "Log show: fuzznetd's
+log, nothing to move", true of the log and leaving a client no way in. It
+is corrected to say a verb to read it is wanted.
+
+## 696. Two estates behind NATs on hull: what works, and the gap it found, 2026-10-22
+
+**sec 692's topology, built:** `tool/hull_estates.py`, eight qemu machines
+on hull 4161c8a, four segments named for the run.
+- **public:** estate A's root, a server reachable at 203.0.113.10:7000,
+  and the outsides of three gateways.
+- **homea**, behind gateway A: A's home machine.
+- **phone**, behind a NAT of its own: A's phone.
+- **homeb**, behind gateway B: B's root and B's member. Nothing outside
+  reaches either.
+
+**How it is built:**
+- Each machine runs `tool/hull_node.py` in a role. A node's role is a plan
+  of steps the host writes -- fuzznetd commands, files waited for, verbs
+  asked, answers waited on -- each labelled, its outcome and time
+  recorded. A failed step is soft, so one run maps every journey.
+- The fault build's `PULL_EVERY` knob is 5 s (sec 692), so a journey takes
+  seconds.
+- A machine that ends without its results stops the run, rather than
+  leaving the rest to wait out their deadlines.
+
+**Run 2026-10-22, three times; the third's table:**
+
+| Journey | Result |
+|---|---|
+| A's home machine takes A's estate setting | ok at 6.4 s |
+| A's phone, behind its own NAT, takes it | ok at 15.5 s |
+| B's member takes B's over their LAN | ok at 11.2 s |
+| B's root asks A by A's card | ok |
+| A's root holds B's request and approves it | ok at 13.7 s |
+| B's line at A's root | ok at 18.7 s |
+| B's line at A's phone | ok at 28.7 s |
+| A's phone writes B, by B's root key | accepted |
+| **A's phone's line at B's root** | **never, in 270 s** |
+
+### The findings
+
+**1. A line to a host behind a NAT goes to its private address.**
+- A's phone offered its line to `192.168.2.10`, B's root's address on B's
+  home segment, 21 times, every one unanswered.
+- That is what B's `net/address` says, and so what its device offer
+  carries. Nothing outside B's LAN can reach it.
+- Nothing used the address B was seen from: A's root met B as gateway B's
+  public address, as sec 621's `fetch address` would say.
+- No relay was tried. sec 622 relays only for a target that said hello to
+  the relay, and B says hello to its own estate's pull peers, not to a
+  contact's reachable host.
+
+So between two users neither of whom has a reachable machine of their
+own, a line goes one way only: from the one who began. **This is the
+NAT traversal gap**, and closing it is a protocol decision, **the
+holder's**.
+
+**2. A contact's host asks what it may not have, every round.** B's root
+was refused 60 times in a run:
+
+> 203.0.113.10 refused: denied a contact may only fetch what is shared with it
+
+A request wasted a round, and a warning logged each time.
+
+**3. A contact's name stays on the host that gave it.** A's root named B
+`bob` when approving it. A's phone knows B only as `c_e56e93b7`, so
+`add message bob` there is malformed and B is written to by its root key.
+Whether names should follow the user to every host is a design question.
+Names are presentation (sec 516's ruling on keys), so it is at most a
+convenience, **the holder's** to decide.
+
+**Two of the test's own first mistakes:**
+- hull's segment names are DNS labels, lowercase;
+- a machine refused by hull left the rest waiting out a ten-minute
+  deadline, until the stop above.
+
+**hull's leak report, the same evening, was not one.** The eight passts it
+flagged were this run's own, its qemus alive under hull's core, which
+hull's detector had filtered out of its own view. hull withdrew it, and
+confirmed from its code that a refused file starts no passt.
+
+## 713. The estate's journey: a vote that crosses a crash, 2026-10-23
+
+Sec 689 asks each journey for a restart inside an operation. The vote is
+the estate's sharpest case. An admin that casts one and dies before
+sending it must still have it count once it is back.
+
+`tool/live_estate.py` phase e, before recovery (now f):
+- **R grants N admin.** N is A1's successor from phase d, and a re-keyed
+  admin needs a fresh `grant admin` (sec 499). D2 joins R.
+- **A2 is started again at total loss**, so it can send nothing, votes
+  D2 revoked, and is killed by SIGKILL.
+- **N votes.** At R, D2's grant still stands: one vote of k = 2. That
+  shows A2's vote had not arrived.
+- **A2 is started again.** It pushes the vote it cast before it died,
+  and at R D2's grant stands no more.
+
+The vote is in A2's journal before `revoke peer` answers, so the crash
+loses nothing.
+
+### Measured for sec 713
+
+- **Clean:** all six phases pass.
+- **5 per cent:** two runs pass, in 186 s and 68 s.
+- **Not measured:** a crash at a chosen write inside the vote, by the
+  fault build's crash points (`persist.synced`, `persist.renamed`,
+  `record.body`). The kill here comes after the answer, not inside the
+  write.
+
+## 718. The estate's acts crashed at every write, 2026-10-24
+
+Sec 689's faults bar asks for "each step's crash points". The fault
+build has three: `persist.synced` (the temporary written and synced, not
+yet renamed), `persist.renamed` (renamed, before the caller hears), and
+`record.body` (a record written before its length). With
+`FZN_FAULT_CRASH=NAME:N` the daemon kills itself by SIGKILL at the Nth
+reach of that point.
+
+**`livecheck-faults` phase m sweeps them.** For each point and each N
+from 1:
+1. a fresh root starts with the fault;
+2. a crash during start is passed over, since N is still too small;
+3. otherwise three acts are made: a setting, a pairing (`add peer ...
+   delegable`), and a vote (`revoke peer`);
+4. a daemon that crashed inside them is started again without the fault.
+   It must serve, and the acts made again must stand: the setting reads,
+   the pairing's grant lists, and the vote answers, `already` when the
+   first got as far as being kept.
+
+N grows until a run passes all three acts with no reach left. The phase
+also fails if no point fell inside the acts, so a sweep that tested
+nothing cannot pass.
+
+### Measured for sec 718
+
+- **Nineteen crash points inside the acts**: 8 at `persist.synced`, 8 at
+  `persist.renamed`, 3 at `record.body`. Every one started again,
+  served, and stood. The whole of `live_faults.py` takes about a minute.
+- **A full disk, phase n**: `FZN_FAULT_WRITE_BUDGET` swept from 0 in
+  steps of 250 bytes, making the same acts at each depth.
+  - Each act must be refused or answered `ok`, and the daemon must keep
+    serving.
+  - Started again with room, every act answered `ok` must be there
+    before anything is made again: the setting reads, the grant lists,
+    and the vote answers `already`.
+  - Then the acts made again must all stand.
+- **Measured:** 21 depths fell inside the acts. At each, every act was
+  refused or kept, and none was answered `ok` and lost.
+- **Not measured:** whether the refusals name a full disk. The sweep
+  asks only that nothing answered `ok` is lost.
+
+## 731. Journey 2, 1:1 chat: the scenario, 2026-10-25
+
+Sec 689's second journey. **`tool/live_chat.py`**, on the fault build,
+four stores over loopback, two users of two hosts each: A1, a root, with
+A2 joined to it, and B1, a root, with B2 joined to it.
+- **a** A2 and B2 join their users' estates. A1 adds B by B1's card, and
+  B1 grants the request, so every host of each holds the other as a
+  contact.
+- **b** Lines both ways, from every host. All four hold all four lines,
+  and each writer's line ends delivered or settled.
+- **c** Read state across the user's hosts. B1 marks B's conversation
+  read through its newest line, and B2 reads it read too. A2 does the
+  same for A1.
+- **d** Nothing owed. Every host's `get message owed` comes to
+  `ok 0 0 0`.
+
+`--skew S` runs A2's clock S seconds behind and B1's S ahead; `--loss P`
+runs every daemon at that loss.
+
+**What it found, in order:**
+- **Phase c: a conversation ordered as each host learned it,** so a read
+  mark meant different lines on B1 and B2. The holder decided "as
+  written", built as sec 725 (758e0bb).
+- **Phase d: a delivered line is offered again for settlement hourly**
+  (`FZND_SETTLE_EVERY`). That is by design, and past any scenario's
+  patience. `SETTLE_EVERY` is now a fault-build knob, as `PULL_EVERY`
+  is, and the scenario sets it to 4 s. The normal build keeps the hour.
+
+- **At 900 s of skew no line crossed between the users, 0 runs of 10.**
+  Each host had measured only its own sibling's clock, and none the
+  other user's hosts.
+  - `time_ask_contacts` passed over a contact host marked down, and a
+    host is marked down when a delivery to it goes unanswered. Under
+    skew every delivery is unanswered until the offset is known, so
+    every contact host went down, was never measured, and stayed down.
+    That is a loop in sec 719's stage 3, which added contact asks.
+  - Down hosts are asked now too, still at most once per 60 s each. The
+    probe works at any skew, which is what a down host needs.
+  - Found by having the scenario print every host's `list offset` and
+    `list clock` at a phase b failure. `--keep DIR` also keeps a failed
+    run's logs.
+
+**Measured, ten runs each:**
+- before the contact ask: clean 10, 5% loss 10, `--skew 900` 0;
+- after: `--skew 900` 10, clean 10, 5% loss 9, the last at a load of
+  about 178.
+- **The loss failure** is phase c: B2 still had one line unread after
+  B1's read mark. Whether the mark did not reach B2 within the settle
+  time under that load, or the order differed, was not found. The same
+  symptom was traced in sec 739 to the order differing, fixed in sec
+  744; this instance was not traced, so that is the likely cause.
+
+- **Phase e, a contact removed:** A1 removes B, and A2 lists B as not
+  active, the roster being the user's (sec 489). B2 then writes a line,
+  and no host of A's holds it after six rounds. B, never told it was
+  removed ("a contact never learns it was removed", sec 489), keeps the
+  line, owed. That is the design: a removed contact's owed lines stay
+  owed at its end.
+  - Passing 1 of 1 so far.
+
+- **Phase d2, a host killed while a line is in flight:** A2 is killed
+  with SIGKILL, as a power cut would. B1 then writes a line to A, and A2
+  is started again. Both of A's hosts hold the line, and B1 owes nothing.
+- **The full scenario, a to e with d2, ten runs each:** clean 10, 5%
+  loss 10, `--skew 900` 10. The load was about 400, most of it from
+  another account's work.
+
+Not yet in the scenario: a restart inside an operation other than
+delivery.
+
+**The fuzz bar, first harness: a contact's delivery** (`node/test/delivery_fuzz.c`).
+The delivery is the one input in this journey written wholly by the other
+user's host. Each case builds a well-formed delivery, and half of them
+are then bent. Four properties:
+- a well-formed delivery is filed IN under its contact with exactly its
+  text, and answered held for its id;
+- a bent one files only what its bytes say, or nothing;
+- nothing is ever filed under another contact;
+- the same bytes again file nothing more.
+
+The run has floors: bent deliveries both filed and refused. At 3000
+cases it filed 1452 whole, filed 465 bent and refused 897. Three
+sabotages in `tool/sabotage.py` are each caught by it:
+- a length taken as a floor rather than exact;
+- the text read one byte early;
+- the reply not echoing the id.
+
+**Second harness: a conversation's record bodies** (`messages/test/line_fuzz.c`).
+These are a line's parts, a mark on a line and a read position. Another
+of the user's devices signs each, so a lost device or a bug in one writes
+them. Four properties:
+- each round-trips;
+- a part opens under no other contact and no other key;
+- a bent part either fails to read or fails to open;
+- a mark or a position that reads writes back as the same bytes, and a
+  part that reads has exactly the tiling `line.h` states.
+
+At 4000 cases: 539 texts of two parts, 3535 bent parts read, and 1765
+bent marks read. Five sabotages are caught:
+- the sender time left out of the additional data;
+- the contact left out of it;
+- the first of two parts not required to be full;
+- a position's length taken as a floor;
+- a mark's state left without a top.
+
+The first is caught twice in 4000 cases, the stime being 8 of a body's
+bytes. The seed is fixed, so that is stable.
+
+**Third harness: keys carried between the user's devices** (`node/test/keys_fuzz.c`).
+It drives `fzn_node_messages_remote` with GIVE, WANT and HOLDS from the
+user's two other devices, whole or bent, and keeps a model of the keys
+held. Places come from a small pool, so gifts collide. Four properties:
+- a GIVE files each key under its sender, and only where none is held;
+- every place seen holds, under each device, the model's key or none;
+- a WANT answers exactly the asked places held, each with its key;
+- a request the layout does not admit is answered with nothing.
+
+At 3000 cases: 1159 keys taken, 1534 refused for a key held, 476 WANTs
+answered with a key, and 450 bent requests admitted. Five sabotages are
+caught:
+- a gift filed under this host rather than the giver;
+- the first-held rule removed from `fzn_messages_key_take`;
+- a WANT's length taken as a floor;
+- a WANT answered for keys not held;
+- a GIVE of more than a batch taken.
+
+The last survived at first, since no bent GIVE grew to agree with a count
+past eight. A bend now does that.
+
+**The authorization bar.** Sec 701's table already sends every remote
+hook each kind of sender. A member reaches the messages hook (GIVE,
+WANT, HOLDS) and a standing contact reaches delivery; a removed one
+reaches neither. For the local verbs, `messages_test` now sends every
+messages verb from each origin but the user's own: local, remote, 0 and
+an unknown one. Each is denied, and the conversation and what is owed
+are unchanged. Removing the origin check fails that table, and two older
+checks.
+
+**Fourth harness: a contact's card and request** (`node/test/card_fuzz.c`).
+These are written by a stranger. It makes and signs cards and requests
+with varied hosts, seeds, names and expiries, using `contact_request_test`'s
+keyed stub signature, then bends the bytes and the text. Four properties:
+- each round-trips and holds;
+- bytes that decode encode back as themselves, and text that reads is
+  the text of its bytes;
+- bent bytes that hold are the bytes signed;
+- a request holds at no target it does not name.
+
+At 3000 cases: 1344 bent cards and 1512 bent requests decoded, and 1070
+bent texts read. Six sabotages are caught. Five already had entries,
+caught by the unit tests. The new one is lowercase base32 accepted,
+which a QR reader or a person might produce.
+
+**Journey 2's fuzz bar is met for its wire inputs:** delivery, the line's
+bodies, keys between members, and a card and request. Settlement's HOLDS
+is checked for its shape in `keys_fuzz`. The prekey and session layers
+under the key exchange had their own harnesses already. Still open in
+this journey: faults and bounds.
+
+## 733. A conversation cut between an entry and its count, and journey 2's faults, 2026-10-25
+
+Sec 689's faults bar for the 1:1 chat journey, built as `live_faults.py`
+phases o and p on the model of sec 718's m and n.
+
+**The acts.** The host's address is set, a contact is added by card, a
+line out of two parts is written (512 bytes, by `file PATH`, since a
+request line holds 512 bytes in all), a line in is filed as a delivery
+files it, and the line in is marked read.
+- **o, a crash at every write:** each reach of `persist.synced`,
+  `persist.renamed` and `record.body` inside the acts. The daemon is
+  started again and the acts made again, as a client that heard no answer
+  would. Every act must be answered, each line listed once and whole,
+  and the conversation read.
+- **p, a full disk:** a write budget in steps of 250 bytes. Each act is
+  refused or kept. An act answered `ok` must be there after a restart,
+  with no line listed twice. Then the acts made again must stand.
+
+**What it found: a cut between an index entry and its count stopped the
+conversation for good.** A crash at `persist.synced:29`, inside the line
+in's indexing, left the conversation's index chunk one entry longer than
+its count. Every absorb after it said "absorbing: the store refused".
+Every line written after it answered `ok`, and was never listed.
+- **The cause** is in `messages/messages.c`. An append saves the chunk
+  with the new entry and then the count. Its comment said a crash
+  between the two "leaves an entry the count does not reach, which the
+  next append writes over". But the next append required the chunk to
+  hold exactly the count's entries, so it refused the longer one.
+- **The same shape at three sites:** a conversation's index
+  (`index_at_end`), every line's order (`all_append`), and the list of
+  conversations (`conversation_add`). Each now takes a chunk holding at
+  least the count's entries, and the save writes over the stale one.
+- `node/buckets.c` has the same append and was already right: it reads
+  with a floor, not an exact length.
+
+**The test, `test_a_line_cut_at_every_save`** in
+`messages/test/messages_test.c`, gives the store a budget of saves. A
+line is cut at each save in turn, in a conversation already held and in
+a new one. The store is then started again, and another line written
+and taken in. Every line must be listed once where its record was
+written. A cut at the month's key, which is kept before anything is
+sealed, leaves no record and no line. Before the fix the test failed
+at a cut after the index chunk, after every line's order, and after
+the list of conversations. Three sabotage entries restore each exact
+length, and the test catches each alone.
+
+**Measured, with the fix:**
+- o: 81 crash points inside the acts (37 at `persist.synced`, 37 at
+  `persist.renamed`, 7 at `record.body`); each started again, and every
+  line was listed once;
+- p: 48 and 49 depths inside the acts, in two runs; each act was
+  refused or kept, none answered `ok` was lost, and no line was filed
+  twice.
+
+The whole of `live_faults.py` now takes about two minutes at a load of
+250. It has its own deadline of 600 s, and `livecheck-faults` allows it
+900.
+
+**Not covered:** a crash inside a delivery from a contact, as against a
+line filed in by the verb, and inside key carriage between members.
+Both file through the same `fzn_messages_write`, which the sweep and the
+test cover, but the remote halves are not crashed. Journey 2's bounds
+bar is next.
+
+## 734. Journey 2's bounds, at and past each edge, 2026-10-25
+
+Sec 689's bounds bar for the 1:1 chat journey: each limit at its edge
+and one past it. Most were already tested, and one was added.
+
+**Tested before this pass:**
+- **A line's text, `FZN_MESSAGE_TEXT_MAX` (512):** two parts at 512 and
+  none at 513 (`messages/test/messages_test.c`). The verb refuses 513 as
+  "a text past 512 bytes", and `delivery_fuzz` bends a delivery's length
+  past it.
+- **A walk, `FZN_MESSAGES_WALK_MAX` (4096):** a page that far back is
+  refused as too deep rather than cut short. Delivery, give-up,
+  settlement and the owed count do not page since sec 788: a
+  conversation 4104 lines deep has its first line found
+  (`test_owed_past_the_deepest_page`).
+- **Strangers' requests, `FZN_CONTACT_REQUESTS_MAX` (4096):** kept to the
+  bound, then the expired one let go, then the oldest
+  (`contact_request_test`, `test_thousands`).
+- **The user's devices past the starting room of 32:** 41 devices
+  (`test_forty_one_devices`).
+- **Keys lacked past `FZN_NODE_MESSAGES_KEYS_MAX` (64):** 65 wanted, and
+  the room grown (`node/test/messages_test.c`, sec 704).
+- **Contacts and their hosts past their old tables:** 300 contacts and
+  60 contact hosts (`live_faults.py` phases g and j).
+
+**Added: the window a line is placed within** (sec 725's
+`RECENT_ENTRIES`, 64). `test_the_written_order_window` writes B's line
+first, then A's 64 or 65, and takes B's in. With 64 it is placed
+oldest; with 65 it is appended, as before the written order. Either
+way it is listed once. Moving the window to 63 or 65 fails it.
+
+**Recorded, not changed:**
+- **A request line holds 512 bytes in all** (`FZN_REQUEST_MAX`), so a
+  text of 512 cannot be written in one line: it goes by `add message
+  ... file PATH`. A line too long was answered a bare `denied`, and is
+  answered `malformed` with the bound since sec 772.
+- **Every line's order, scanned back `ALL_SCAN_MAX` (4096) entries for an
+  insertion's moves**, appends past it. Untested: reaching it needs 4096
+  lines in a store the unit tests' memory store does not hold. Left so
+  in sec 775: the fallback is the order before sec 725, and listed once.
+- **A contact's devices past the starting room of 128**
+  (`FZN_CONTACT_DEVICES_MAX`), which the daemon grows. Held past it since
+  sec 775, by `live_faults` phase j's 140 contacts.
+
+With sec 731's fuzz and sec 733's faults, journey 2 has a first pass at
+every part of the bar. Still open: the loss intermittent recorded in sec
+731 (phase c at 5% loss), the remote halves under a crash (sec 733), and the two untested
+rooms above.
+
+## 736. Journey 3's scripts repeated: a clean baseline, 2026-10-25
+
+Sec 689's scenario bar for retention and logs, first measure. The
+journey's live scripts were run ten times each with `tool/live_repeat.py`
+against the normal `fuzznetd`, at a load falling from about 120 to 10:
+- `trim` 10 of 10, 1.3 s each;
+- `history` 10 of 10, 0.3 s each;
+- `archive` 10 of 10, 11.9 s each;
+- `erasure` 10 of 10, 37.3 s each.
+
+The short times were suspected and checked by hand: each run prints
+every phase, and none skips.
+
+**Not yet measured: loss, restarts inside an operation, and skew.** These
+four scripts take the normal daemon and have no `--loss` or `--skew`,
+which `live_chat.py` has. Of the four, only erasure places and fetches
+pieces across hosts, so it took the fault build and `--loss` (below).
+Archive, trim and history each work within one host, where loss means
+nothing, so for them only a restart inside an operation applies.
+`live_logs.py` (sec 735) runs on the fault build already.
+
+**Erasure under loss, measured** (`live_erasure.py --loss P` against the
+fault build, `--keep DIR` to keep a failed run). Six hosts, 4+2 pieces:
+
+| loss | cycles for five members to pair | then |
+|---|---|---|
+| 0 | 3 | passes, 38 s |
+| 5% | 7, 8, 7 | B's cut not logged within 30 s twice; once B held all 30 pieces and A, C and E none |
+| 20% | 24 | B's cut not logged within 30 s |
+
+**Why: one lost datagram passes a peer over for a whole round.** The
+caller does not resend. An ask that loses its request or a piece of its
+reply waits out its 3 s and fails, and the round goes on without that
+peer (sec 726's one wait a round). Joining siblings takes several asks
+in sequence, each a round's chance to lose one, so the cycles grow
+faster than the loss. It is sec 693's "one loss costs a whole span
+deadline", met in the estate's own rounds and not only in a transfer.
+For the resend question the holder chose "measure first" (sec 694), and
+these are the measurements.
+
+**A test fault, found and fixed first.** Every daemon in a run took one
+`FZN_FAULT_SEED`, so a restart lost the same datagrams as the run
+before. The one host whose first request was lost lost it every cycle
+and never paired, 0 of 4 over six cycles at 5%. `live_erasure.py` now
+seeds each start apart. `live_chat.py` and `live_estate.py` also take one
+seed a run, but their daemons restart less, and they passed at 5% (secs
+707, 731).
+
+## 739. The loss bar after the caller fixes, and a read position that does not travel, 2026-10-28
+
+**Measured** (`./faults/fuzznetd` at `bb212b0`, four runs side by side a
+batch):
+
+| journey | 0% | 5% | 20% |
+|---|---|---|---|
+| 1, estate (`live_estate.py`) | 4 of 4 | 4 of 4 | 8 of 8 |
+| 2, 1:1 chat (`live_chat.py`) | | | 3 of 4 |
+| 3, erasure (`live_erasure.py`) | | | 3 of 4 |
+
+With the eight estate runs of the evening before, the estate journey has
+passed 15 of 16 at 20% since the slot fixes. The one failure was a local
+socket timeout under load (sec 737). That is still short of ten runs at
+each level for journeys 2 and 3.
+
+**Journey 2's failure is a contract the store cannot keep under loss.**
+B1 and B2, one user's two devices, list A's two lines in different
+orders: B1 `a2a2, a1a1, b2b2, b1b1`, B2 `a1a1, a2a2, b2b2, b1b1`, newest
+first. B1 reads through `a2a2`, and B2 still counts `a1a1` unread.
+- `messages/messages.h` orders a conversation "in the order this store
+  learned of them" (sec 528). It also says, on the holder's word of
+  2026-10-08, that a read position travels, so that "reading on one
+  device clears unread on every other".
+- A read position is a line id, and unread means the lines after it in
+  this store's order. When loss lets two devices learn two lines in
+  opposite orders, the same position means different things on each.
+- **Decided already, in sec 725, and fixed in sec 744:** the order is
+  the writer's stamp; the build compared each host's own filing time.
+  As first written here: either the order or what a read position
+  means has to move. For instance, unread could be judged
+  against the position's line's `stime`, or the order kept by `stime`
+  and id rather than by arrival. Both are settled decisions in this
+  tree. Seen once in 4 runs at 20%; earlier runs at 20% passed 3 of 3.
+
+**Journey 3's failure was in phase d:** C lost its 3 pieces, and after
+the eight rounds the script allows under loss B had put back none. B's
+plain log holds only a summary line ("N put back"); the rounds are in
+its packed log segments, not read. Phase d has failed under loss before,
+on the script's own condition (sec 737), which was fixed. This one is
+not explained.
+
+## 740. Erasure's phase d under loss: the rebuild works, the round loses peers, 2026-10-28
+
+**Chased from sec 739's one failure in four, where B put back none of
+C's pieces in eight rounds.** Of 12 runs at 20% loss today, 10 reached
+phase d and all 10 passed it. The rebuild is not what fails.
+- **Measured with a new debug line** in `pieces_back`: a rebuild that
+  comes up short says how many pieces were here, how many keepers held
+  the rest, and how many were asked and fetched. Every fetch asked for
+  arrived (1 of 1, 2 of 2). A rebuild fell short only because too few
+  keepers had answered that round: 1 or 2 holding, where 4 + 2 with C's
+  piece gone needs 3.
+- **A peer is passed over for the whole round when one exchange fails
+  every try** (sec 737). A try is the request out and the reply back;
+  `fzn_caller_ask` and the round's asks give a message four tries in a
+  3 s wait, at 600 ms slices, and a slice in which part of a reply
+  arrived sends nothing. At 20% loss each way one exchange fails about
+  1.7% of the time, and a peer has some twenty in a round, so about 30%
+  of peers are passed over in any round. B's logs agree: one or two of
+  five most rounds, with every peer idle (none was in its own round).
+- **Shown in one round:** D logged B's message 1 and message 0's
+  second try, and nothing more. B read 2 datagrams of what D sent, its
+  last try was lost, and B passed D over 3 s into the round. In the same
+  round a second peer failed its logs exchange, so its pieces were not
+  asked either. With C's piece gone, B had 3 of the 4 a rebuild needs.
+- **So phase d needs C and at least three other keepers to answer in
+  one round**, and the script's eight rounds are usually enough: about
+  half the rounds qualify. Earlier phase d failures were most likely
+  eight bad rounds in a row, or a hung peer (below).
+- **Phase c fails the same way**, once in the 12: every host held
+  its piece, but C did not answer B's count in the rounds that counted,
+  so B never let its copies of C's pieces go.
+- **Not changed, a trade to decide:** more tries per message, or a
+  longer wait, would pass over fewer peers at a cost in round length at
+  every loss rate. Sec 737 chose the current figures.
+
+**A daemon went silent for two minutes; sec 741 has the likely cause.**
+In one run A
+logged its last reply at 10:24:37.86, after its pulls had passed three
+peers over, the last one refused by reassembly "at its slot quota". It
+then logged nothing, replies included, until the script stopped it at
+the 120 s wait. The others passed A over meanwhile. Nothing survived to
+tell a hang from a stall. `daemon.wait_for` in `tool/live_rejoin.py`
+now records, on a timed-out wait, the daemon's state, its wait channel,
+and a `gdb` backtrace written as `stuck-PID.txt` beside its log, so a
+run kept with `--keep` holds them. Not seen in the 4 runs after it,
+which predate the capture.
+`tool/live_erasure.py` takes `--keep-passed`, as `live_estate.py` does.
+
+## 743. live_chat's ports back below the ephemeral range, 2026-10-29
+
+Sec 606 moved every live check's ports below 32768, each into its own
+block, after a run failed to bind a port a moment earlier given to a
+daemon's own client socket: Linux hands those out from 32768 to 60999.
+`tool/live_chat.py`, written later, picked 42000 to 45999 again. It
+now takes 31010 + (pid % 235) * 4, four ports a run, in the one gap
+left: above fuzzypickles' own 29800 to 31000, which `live_fzp.py`
+keeps clear of, and below `live_group_hosts.py`'s 32000. One run at no
+loss passed on it.
+
+~~Open~~ **Met, sec 743 and since**: `live_estate.py` took its ports
+free when each daemon first starts (9b12c5d), and `live_logs.py`,
+`live_group_skew.py` and `live_faults.py`'s second store now take a slot
+whose ports all bind (`free_slot` in `live_rejoin.py`, 2026-11-02), in
+the blocks they had. Each passed a run after it. As first written, the
+same drift in four more, each also inside that range:
+`live_estate.py` (43000 up), `live_logs.py` (42000 up),
+`live_group_skew.py` (41000 up), and `live_faults.py`'s second store
+(44000 up). Below 32768 the blocks from 1024 to 32732 are all taken, so
+moving them means narrowing someone's block or stacking pid slots more
+tightly. `live_fzp.py` listens from 40000 too, but checks each port free
+before using it, which is the other answer.
+
+**Chat now checks its slot free too.** One run in 40, three at a time,
+failed with "could not bind udp port 31610": another run took the same
+slot of 235, or something else held the port. `live_chat.py` now walks
+its slots from its pid's on until all four ports bind on every address,
+as the daemon binds them. A port held on loopback reads as taken and a
+released one as free. Ten runs at 20% after it passed. Two runs that
+probe the same slot before either daemon binds can still meet.
+
+## 745. Journey 3's erasure at every loss, and a log read as a round packs it, 2026-10-29
+
+Sec 736 left erasure's scenario bar measured at 20% loss only (ten of
+ten after secs 741 and 742). `live_erasure.py` against the fault build,
+three runs at a time at a load of about 30:
+
+| 0% | 5% | 20% |
+|---|---|---|
+| 10 of 10 | 9 of 10 | 10 of 10 (sec 742) |
+
+**The failure was the test's.** `log()` in `tool/live_rejoin.py`, which
+28 live scripts read daemon logs through, listed the log directory and
+then opened each `.log` in it. A round packs the current file into a
+segment between the two, and the open raised `FileNotFoundError` out of
+B's round wait. It now lists again when a file goes, up to five times;
+the lines are then in the segment the file was packed into. A listing
+naming a file gone at its open, once, now returns the directory's lines
+after a second listing.
+
+Still open for this journey's scenario bar: a restart inside an
+operation for archive, trim and history, which work within one host,
+and skew for erasure.
+
+## 747. The estate journey at 0% and 5% loss, and a roots line read at the wrong level, 2026-10-29
+
+Sec 739 had the estate journey at four of four at 0% and 5% loss.
+After secs 741 to 746, three runs at a time at a load of 10 to 35:
+- 0%: 10 of 10;
+- 5%: 8 of 10, then 9 of 10 after the fix below.
+
+**One failure was the test's.** Phase f asks A2's log, by `list log 0
+N`, for a `node/roots` line saying it stands among the roots. The
+daemon says that line at info the first time a process says it and at
+notice when the set changes. A2, started again after R's removal had
+landed, said "1 root(s) stand, this node among them" once, at info, so
+a read at notice never found it. `live_estate.py` now reads at info and
+pages from the newest until the total, at most 64 pages.
+
+**The other two were one cause, the item parked since sec 737's
+run:** "a2: status went unanswered on its socket". In the kept log,
+two in-turn waits ran back to back without answering local clients: a
+sibling's pairing, 3.3 s, then a journal push waiting out its 3 s for
+an answer lost to loss. That passes a client's 5 s. Sec 727 serves
+local clients during a wait only in steps that hold nothing a local
+verb touches, so widening it is a pass over each step, not a fix in
+passing. It is now the estate journey's only failure at 5% loss, 2
+runs in 20.
+
+## 748. Local clients answered through the grants push, a delivery filed once after a crash, and the estate's late ports, 2026-10-29
+
+**The estate's socket wait (sec 747) is read as the grants step.** Sec
+747's kept log named a sibling's pairing and then a journal push, 3.3 s
+and 3 s. The step that does both is `ROUND_GRANTS`: `pair_siblings`
+logs a grant, and the step then pushes to every peer in turn through
+`peer_ask`, with `answering_local` off. The log was not kept, so this is
+read from the code, not matched line by line. The push holds only `fzn_exchange_push`'s own
+statics and reads the store afresh at each step, so it is the case sec
+727 made for reconciliation: a local write between two asks is pushed a
+round later, as one between steps would be. That loop now opts in.
+Sec 727's other in-turn waits that do not opt in are unchanged:
+`rebase_missed` moves a stream's base, which a local read could meet
+half done, and is a pass of its own.
+
+**A delivery cut at every save of the contact's host** (sec 733's
+remote half, "not covered"). `node/test/messages_test.c`'s
+`test_a_delivery_cut_at_every_save` cuts the host at each save inside
+`fzn_node_messages_contact`, starts it again over its store and
+records, and offers the line again, before and after the host absorbs.
+**It found the line filed twice** when the cut fell after its record
+and before its index (saves 1 to 5) and the re-offer came before an
+absorb. The daemon absorbs only in the round's messages step, so a
+sender's resend after a restart comes first. The listing showed the
+line once, because `keep_line` and the page both skip an id seen, which
+is why phase o, counting the listing, could not see it: the second copy
+was in the host's own stream, which its devices pull. `fzn_messages_import` now also looks among this device's
+own lines past its cursor (`written_unindexed`) before writing. It
+covers all three imports: a contact's delivery, `add message ... in`,
+and a group line filed into its conversation. The test counts the
+host's line records, not the listing. Sabotage entry
+`messages-an-import-sees-its-own-unindexed-lines`.
+
+**live_estate's ports are taken free when each daemon first starts.**
+Twelve runs at 5% loss, three at a time, before this change: 10 passed,
+and the two failures were both "could not bind udp port" for a daemon
+started minutes in (n1 at 43108, e1 at 44718). The block is inside the
+ephemeral range, where a client socket can hold any port, and below
+32768 none is left (sec 743). Each daemon now takes the first free port
+of its column in the block when it first starts, as live_chat checks its
+slot; one started again keeps its port, which its siblings know it by.
+Not one of the 12 failed on a socket wait, where sec 747 had 2 in 20.
+
+**Measured after all three**, twelve runs at 5% loss, three at a time,
+at a load of about 9 to 25: 12 of 12. Both sabotage entries over
+`fzn_messages_import`'s guards are caught. Twenty-four runs without a
+socket wait is evidence for the grants step being sec 747's cause, not
+proof: at 2 in 20 a run of 24 clean would come about one time in 12.
+
+**A piece pulled by its keeper, cut at every save, keeps** (journey 3's
+fault bar, at the unit level). `node/test/piece_buckets_test.c`'s
+`test_a_pull_cut_at_every_save` cuts B at each save while it pulls the
+piece placed on it, starts it again over its store and directory, and
+pulls again: one piece, counted once, rebuilding the item, and a pull
+after takes nothing. It found no fault. The piece files themselves are
+written temporary, fsync, rename, and carry no fault point, so the fault
+build cannot crash or fill the disk inside them; a crash leaves at most
+a `.new` per piece, written over when that piece is written again.
+
+## 749. A piece's head wrong in one byte no longer turns its item's whole pieces away, 2026-10-29
+
+Journey 3's fuzzing bar (sec 689) for a piece a peer hands over:
+`node/test/pieces_fuzz.c`, in `make test`. Each case keeps every whole
+piece of an item but one into a directory, then that one bent with even
+odds. A whole piece must be kept under its own name byte for byte. A
+bent one must be refused, leaving the directory as it was, or kept under
+the name its head gives, and nothing else changed. A rebuild answering
+OK must answer the item. With k whole pieces present the rebuild must
+answer OK, and `fzn_pieces_item_len` at least the item's length.
+
+**It found the rebuild refusing with k whole pieces present**, 12 times
+in 2000 cases. `read_piece` held every piece to the head of the first one
+read. A bent piece at index 0 whose head still passed `head_ok` led, and
+the whole pieces, disagreeing with it, were turned away: too few, or no
+set rebuilding. The bytes it takes need not be a liar's. The host field,
+34 to 65, is part of the agreement and no shape check reads it, so one
+bit rotted there in piece 0 lost an item that m more pieces were cut to
+keep. `pieces_test` now flips one host byte in piece 0 and requires the
+other five to rebuild; it fails on the old rebuild.
+
+**The rebuild now lets each distinct head lead in turn** (`same_cut`,
+`rebuild_led`). The first lead is the first piece read, so pieces that
+agree are read once. A lead whose item does not fit the room is passed
+over rather than ending the rebuild, and the nearest miss is said: no
+set rebuilding, then too large, then too few.
+
+**`fzn_pieces_item_len` had the same shape**: the first readable head
+sized the daemon's buffer for every lead. It now answers the largest
+length a valid head gives, bounded as every head is by the 64 MiB
+`head_ok` allows, the bound a fetched piece already has. Its property
+needed a bend of its own -- the item's length lowered as far as its
+piece length allows -- since no random bend made a valid shorter head;
+with it, first-wins fails the harness.
+
+Sabotage entries `pieces-each-head-leads-a-rebuild` and
+`pieces-item-len-is-the-largest`;
+`pieces-rebuild-checked-against-the-id` moved to the mask walk's new
+tail. Measured: 2000 cases, 500 bent pieces kept, 508 refused, 1000
+rebuilds beside a bent one, no failure.
+
+**Journey 3's other wire inputs, read rather than fuzzed.** A gather
+query and page (`log/gather.c`): each length is checked against what is
+left before it is read, a page loop stops at the caller's `pages_max`, a
+line is NUL-terminated in place before `strstr`, and the reader's 32 KiB
+buffer is twice `FZN_ENTRY_LINE_MAX`. A plain gather whose host keeps
+answering the same cursor is bounded by `pages_max` only (4096 in
+fuzznetd), where the ring fetch stops on an empty page; a liar costs
+round trips, not memory.
+
+**Journey 3's bounds bar: a pushed log copy's unpacked size**, found
+unbounded here -- `verify_core` streamed a copy in chunks but hashed it to
+its end, however far it unpacked -- is bounded in sec 750.
+
+## 753. The relay's quota table grows rather than refusing, 2026-10-29
+
+Journey 4 (sec 689), first read. A relay charges each requester against
+`relay/quota` bytes a `relay/window` (100 MiB a day) in a table of 32
+rows, and a full table refused: a 33rd requester whose windows had not
+run was refused relaying for up to a day. Only this estate's members and
+its contacts are charged -- anyone else is refused before -- so the rows
+are bounded by the estate itself, and a fixed 32 is the kind of cap sec
+704 removed elsewhere. The table now starts at 32 and doubles when
+every row's window still runs; out of memory it refuses, as a full table
+did. A row whose window runs is still never evicted.
+
+Not tested past 32 requesters: no test runs 33 hosts through one relay.
+The change is the growth arithmetic and a realloc.
+
+## 759. The relay restart fault was the test reading another daemon's log, 2026-10-29
+
+Sec 757 left `live_relay`'s phase f failing and unexplained: A's fifth
+line never reached B2 after B1 was killed, and one relayed offer seemed to
+end in 7 ms counting nothing at all. **Traced: neither was the daemon.**
+
+**The tags collided.** Phase e's loop names its daemons `a-f%d` and
+`b2-f%d`, and so did phase f's. The log helper (`tool/live_rejoin.py`'s
+`daemon`) keeps a daemon's log in `log-TAG/`, so f's daemons wrote into
+e's files, and `turn`'s wait for "a round's end" matched e's line at once.
+Each of A's phase f daemons was stopped within 100 to 200 ms, before its
+contact pass delivered -- B1's log showed A's processes asking one thing
+and going. The "7 ms, counting nothing" offer was a line of e's, read as
+f's. Laid side by side by time, the three daemons' logs told it; each one
+read alone had looked like the daemon's fault.
+
+**Fixed twice.** Phase f's daemons are tagged `a-g%d`, `b2-g%d` and
+`b1g`. And the helper now filters by pid whenever the log directory was
+already there, as it did only for a directory a caller asked to keep: a
+reused tag reads its own lines. With f's old, colliding tags put back,
+phase f passes on the helper's fix alone, which is its control.
+
+**What phase f shows, now that it runs:** B1, killed by SIGKILL as A's
+fifth line goes through it, comes back knowing nothing of where B2 is; it
+refuses the relay ("that host has not said where it is"), and A hears it
+(sec 754); B2's next start says hello; A's next round relays the line,
+and B2 lists it once. `--restart` is gone and phase f runs in `make
+livecheck`.
+
+## 760. The introducer and the probed host killed mid-operation, 2026-10-29
+
+The rest of journey 4's restart inside an operation, after sec 759's
+relay.
+
+- **`live_introduce` phase c:** B and C start afresh -- an introduction
+  is held in memory, so B knows none -- and C puts a second file. B asks
+  for it, and A, the introducer, dies by SIGKILL at once, with what it
+  knew of where C said hello. Started again, C's next hello tells it, B's
+  next round is introduced, and B fetches the file whole.
+- **`live_lan` phase b3:** B starts afresh and C puts a second file; B
+  asks for it and probes, and once B's `get lan` lists C, C dies by
+  SIGKILL and is started again on its port. B's next round finds C where
+  it heard it and fetches the file whole. C advertises an address on
+  another network, so the LAN is the only way B reaches it.
+
+Each with tags of its own, after sec 759. **Measured:** both pass at no
+loss, once each at 20 per cent on the fault build, and once each at 900 s
+of skew. Neither found a fault.
+
+**Journey 4's scenario bar, after this section:** relay, lan and
+introduce under 20 per cent loss, under 900 s of skew, and with a restart
+inside each operation. Its fault, authorization, fuzzing and bounds bars
+are next.
+
+## 761. Journey 4's fault bar: what it writes, read; and a full disk said as unsigned, 2026-10-29
+
+Sec 689's fault bar asks for each step's crash points and a full disk.
+**Reachability keeps almost nothing on disk.** The relay's routes and
+where peers were seen, the quota rows (sec 753), introductions, what a
+LAN probe heard, the relayed mark (sec 699) and clock offsets (sec 757)
+are all in memory, and the restart inside each operation -- the relay,
+the introducer and the probed host each killed by SIGKILL mid-operation
+(secs 759, 760) -- is the fault bar for those.
+
+**What it writes, three rows, each one save:**
+- a contact's device, kept from an offer or a contact pass
+  (`fzn_contact_device_keep`, slot CONTACT_DEVICE);
+- the routing manifest, derived and signed by a signer or taken from a
+  peer (`fzn_routing_keep`, slot ROUTING);
+- when a host was last heard from (`fzn_heard_mark`, slot HOST_HEARD).
+
+**Read rather than swept**, as sec 746 read the trims that were one
+write. A persist save goes to a file beside its name and is renamed
+over it, so a crash leaves the old row or the new, never part of one; a
+cut at every save over a single save tests nothing. Each failure path
+was read for a full disk instead:
+- a device that will not be kept is answered as not taken, and its
+  sender offers it again;
+- a manifest that will not be kept is derived, signed and kept again next
+  round, its generation unmoved since the one held did not change, and
+  one taken from a peer is asked again;
+- a heard mark is written each round, its failure ignored, the next
+  round's taking its place.
+Live coverage beside the reading: `live_faults`' phase o crashes at every
+write inside `add contact` by card, which keeps the contact's device, and
+phase m sweeps a setting's writes -- the path `routing/advertise` takes,
+though not that setting itself.
+
+**One defect, found by the reading:** a derived manifest that would not
+be kept was said as "would not be signed", sending whoever read it to the
+signer for a full disk. Now the two are said apart: "signed and would
+not be kept".
+
+## 766. Journey 5, location: each level, the grant revoked, a restart while sampling, 2026-10-29
+
+Sec 689's journey 5 names three things to show: location shared at each
+level, the grant revoked, and the daemon restarted while sampling.
+`live_pairing` already shared a stream and a fix at level 1 (its phases f
+and g), and `live_location` sampled gpsd on one node. Added:
+
+- **`live_pairing` phase g2.** A record already held is not fetched
+  again, so each level is shown with a fix of its own: granted level 0, B
+  lists A's next fix exact; level 2, on the 0.1 degree grid, marked
+  coarse; revoked -- `get stream location bob` then `ok none` -- B is
+  given no fix after.
+- **`live_location` phase b2.** The daemon is killed by SIGKILL while
+  watching gpsd, and started again over the same store: the fixes kept
+  before are still listed, and it connects, sends WATCH and keeps the
+  next.
+
+Both pass; neither found a fault. Journey 5 under loss and skew is sec
+767, its fault and authorization bars sec 769, its fuzzing and bounds
+bars sec 770.
+
+## 767. Journey 5 under loss and skew, 2026-10-29
+
+`live_pairing` carries journey 5 (a card, a request, an approval, a
+fix shared at each level), and it was written for no loss: every wait
+sized for one exchange, every step tried once. Taught the way journey
+4's scripts were (sec 756):
+
+- **Every wait grows with `FZN_FAULT_LOSS`**, six seconds a point, and
+  a step that rides a round (a request's box, the approval's offer)
+  waits a round more under any loss: a lost box is sent again the
+  round after, not sooner.
+- **A step a user would repeat is repeated.** `fetch address` is asked
+  again after 10 s with no answer, three asks at most; a stream fetch
+  is made again until B holds what it was granted. Measured at 20 per
+  cent before the change: one run in three failed in phase d (`get
+  address` still `ok 0 1`) and one in three in phase g (`stream fetch:
+  1 host(s) asked, 0 record(s) taken`) -- an ask and its resends lost
+  together, which a person meets as "try again".
+- **An absence is shown by as many answers as a presence.** Before the
+  grant and after the revoke there is nothing to wait for, so the
+  fetch is made as often as it would have been tried (`1 + LOSS // 5`),
+  and B holding nothing then means nothing was given, not that the
+  answer was lost.
+- **`--skew S`** runs A S seconds ahead and B S behind by faketime, as
+  `live_relay` does (sec 757), and the script says so in its output.
+
+Measured with `faults/fuzznetd`: at 20 per cent loss, 5 of 5 runs pass
+(67 to 127 s); at a 900 s skew each way, 3 of 3, then 2 of 2 and one run
+read whole; with no loss, as before. A third single try showed up only in
+a 20 per cent run that stopped at its timeout: A's first offer of its
+line reached B and the answer was lost, and the offer made again was
+answered SETTLED -- B held it already, by every device -- where the
+script waited for `1 delivered` alone. Settled is more than delivered
+(`node/messages.h`), so the script takes either now; B's `list message`
+after it is what checks the line.
+
+Neither loss nor skew found a fault in the daemon: both failures were
+the script's single tries.
+
+## 771. `live_lan` under loss: its raw probes tried once, 2026-10-30
+
+The flake reported from a 20 per cent run of journey 4's scripts --
+1 of 3 passing, phase a's pairing not taken at C after six rounds and
+phase b's file not whole within 30 s -- was from before `ee86ee7`,
+which scaled live_lan's rounds and waits with the loss: six rounds is
+the unscaled count. Neither came back in ten runs at 20 per cent since.
+
+**What did fail, measured with the faults build:** with no loss 5 of 5;
+at 20 per cent 3 of 5, both failures phase b2's "C did not answer a
+version 1 probe". Sec 758's check sent each raw probe once from the
+script's own socket, and at 20 per cent a probe or its hello is lost
+about one time in three. Each version is now tried `3 + LOSS // 2`
+times, as often for the version 3 probe that must go unanswered as for
+the version 1 that must be answered; C answers 32 probes a minute in
+all, which the tries stay well inside. Phase b3's 30 s for B to hear C
+grows with the loss as phase b's waits do. Since: 5 of 5 at 20 per
+cent, 2 of 2 at a 900 s skew, and a run with no loss. The daemon was
+not at fault.
+
+## 773. Every group held, walked into room that grows, 2026-10-30
+
+FZN_GROUPS_HELD_MAX, 256, was the room of every listing of the groups a
+host holds: 31 sites, a static table at each, and two talks of the round
+carrying one apiece. A store's `list` past its room fails whole
+(`persist/persist.h`, "TRUNCATION IS A FAILURE"), so a host in a 257th
+group did not hold fewer groups -- it held none, everywhere at once:
+- a stream or a file or notes granted to a group read as granted to
+  nobody (`stream_level_of`, `fzn_node_files_shared_with`, notes'
+  `shared_scope`);
+- the groups round asked no peer for any group's acts, the lines round
+  sealed and fetched no line, and no group was tended;
+- `list group` answered "the groups did not read", and a group could
+  not be found by name or id.
+Found from journey 5's bounds (sec 770). The holder's word on tables
+(2026-10-23): no fixed sizes where nothing truly limits them.
+
+**Walked, as sec 704 walked the others.** `fzn_group_log_held` walks the
+group slot through `fzn_persist_each` into a `fzn_group_held_t`, room
+that doubles as it fills and is kept for the next walk; `_held_in` takes
+another slot, for the labels `fzn_node_group_find` reads.
+`fzn_node_group_ids_of` fills one too, its callers keeping their own.
+In fuzznetd a helper, `groups_held`, serves the seven listings; each
+group sync talk keeps its own room, which `grow_table`'s realloc carries
+with it; and the lines round grows its groups to the count held and its
+talks' places as it adds them -- places that were `uint16_t` besides.
+`fzn_group_log_list` stays for a caller that wants a bound, and still
+fails whole past it. A store with no `each` keeps `list`'s fallback of
+4096 (sec 704).
+
+`group_log_test` walks a thousand groups by `each` and by `list`, walks
+the room again from three, and is refused by a store that can do
+neither; a sabotage entry stops the walk at its first room's end. No
+real store has held 257 groups: the test is the only measurement.
+
+## 775. Journey 2's open items: 20 per cent, a delivery crashed, 128 devices, 2026-10-30
+
+Sec 734 left journey 2 four things: the loss intermittent of sec 731, the
+remote halves under a crash (sec 733), and two rooms never held past
+their edge.
+
+**Loss.** Sec 731's phase c failure at 5 per cent was most likely the
+order sec 744 fixed, and the full scenario passed 10 of 10 at 5 per cent
+afterwards. Journeys 4 and 5 have been held to 20 per cent since; journey
+2 had not. `live_chat --loss 20`, five runs: 5 passed, 73 to 125 s.
+
+**A delivery crashed at the receiver** -- `live_faults` phase u. S and R
+are contacts, R holding S's card; each try copies the pair, starts S with
+a crash point, and R writes a line, which goes at once. Where S dies, it
+is started again, R is started again so its first pass offers what is
+still being sent, and S must hold the line once and whole while R's
+offer is answered delivered or settled. Swept: `persist.synced` 16,
+`persist.renamed` 16, `record.body` 1 inside the delivery; all held. No
+defect: the remote half files through the same `fzn_messages_write` that
+sec 733 swept, and the offer is idempotent on the line's id. Key
+carriage between members is still not crashed.
+
+**Past 128 contact devices.** Phase j adds 140 contacts by their cards,
+not 60, so the contact devices kept pass the room
+`devices_list` starts with; the round delivers to all 140, and the last
+contact's device lists.
+
+**One defect, by reading the room's other user:** `hosts_at`, which
+offers this estate's hosts to a contact, filled the same 128-entry page
+through `estate_devices`, which stops at its room and says nothing -- so
+a user with more than 128 devices offered a contact only the first 128.
+It now sizes the page from the sibling count, as `own_devices` already
+did. No test holds an estate of 129 hosts; this is read, not measured.
+
+**Left:** `ALL_SCAN_MAX` past 4096 -- a test needs a store of some 16,000
+rows, quadratic in the unit tests' memory store, and the fallback is the
+order before sec 725, each line listed once.
+
+## 785. A contact's estate, fuzzed, 2026-10-31
+
+Secs 776 to 783 gave this node eight new decoders a contact's host
+reaches, plus the rows a member passes on, and none was fuzzed.
+`node/test/estate_fuzz.c` holds them to the sec 689 fuzz bar, on
+`location_fuzz`'s pattern: each input made whole, then bent with even
+odds (bits flipped, cut short, grown, a slice repeated, two bytes
+swapped).
+
+**Properties:**
+- **An estate item** round-trips, and a bent one that decodes encodes
+  back as exactly its bytes: one encoding per item.
+- **A page of each kind** (the root's records, estate items, rows, an act
+  log) is taken whole when whole. Bent, it is refused with nothing taken,
+  or taken with every item a slice of the page's own bytes, never half a
+  page.
+- **Rows taken into a store**, whole or bent, then the estate built over
+  what was kept and a device judged by it: nothing read past an end, and
+  a whole row, signed, always kept.
+
+**Floors:** a bent item decoded, a bent page of each kind both refused
+and taken, a bent row both kept and refused.
+
+**Measured:**
+- 2,000 cases in `make test`, and 20,000 under ASan and UBSan, both
+  clean. Bent pages of each kind were refused about 6,000 times and taken
+  about 3,700 times at 20,000 cases.
+- **Control:** the estate step taking each item as it reads it, before
+  the page is checked whole, fails 1,532 of 2,000 cases.
+- No fault found.
+
+## 786. A contact's estate built once per change, not per judgment, 2026-10-31
+
+Sec 689's bounds bar, on secs 781 to 783's own code. A device of a
+contact is judged on every offer, every host a contact lists, every
+device a member passes on, and in each pass's drop. Each judgment built
+the owner's estate afresh (`fzn_contact_estate_open`), walking every row
+of slots 64 and 65, every contact's, from files. With a hundred contacts
+of fifty rows each and a few hundred offers a round, that is a million
+row reads a minute. And a host hands over the same records every round,
+so every row was written again each round as well.
+
+**Now:**
+- **Each owner's estate is built once and cached** until a row of any
+  contact's estate changes (`estate_of`).
+- **Rows reach the store through a wrapper** (`estate_rows_store`) that
+  writes a row of slot 64 or 65 only when its bytes differ from the row
+  held. Each real change moves the generation that ends the cache.
+- What an estate says depends on those rows alone, so nothing else needs
+  to end it.
+- **A k row changes every exchange**, since it carries when it was heard
+  (sec 782). So the cache is rebuilt once per contact exchange at most,
+  not once per judgment.
+
+**Measured** in `live_contacts`: the contact pass line now says how many
+devices it judged and how many estates it built. Across one run's 46
+passes, 192 judgments took 57 builds, where each judgment was a build
+before; the busiest pass judged 8 devices with 2 builds. The script
+passed, its drops following records that arrived mid-round as before.
+
+**Found on the way:** the first wrapper replaced the store's context
+along with its save, so the ops it did not replace (load, list, walk)
+were handed the wrong context. R2 crashed in its first contact pass. The
+wrapper keeps every op and its context now, and holds the store beneath
+it apart.
+
+## 797. A saved sticker pack held live, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** test the saved-pack holder of sec 795
+live, not only through the unit test's callback.
+
+- **`tool/live_trim.py` phase s now carries a third file.** It is a
+  sticker pack, put from a spec (which saves it). A line from x then
+  carries an `fzn:file/` reference built from the pack's own root, key
+  and length, in the same month sixty days back. Under `prune
+  attachments age 1d` the trim's count is now (1, 1, 3, 1, 0). The pack
+  is intact and still the one pack listed.
+- **Why an incoming line:** `add message ... attach` takes only a file
+  with a file reference from `put file`, and a pack keeps its key in the
+  sticker record instead. A contact sending the same bytes is the real
+  route by which a saved pack becomes an attachment.
+- **Control, made by hand and caught:** with the `fzn_node_stickers_saved`
+  check in `attachment_held_elsewhere` turned off, phase s failed with
+  (1, 1, 3, 2, 0): the pack was removed. Sabotage cannot hold this
+  check, since it runs `make test` and the live tests are not part of
+  that.
+- **Through the backfill walk too, 2026-11-01, run once by hand.** The
+  holder asked for both together. fuzznetd built at 9f3448e (before the
+  index) wrote phase s's three files sixty days back, using live_trim's
+  own helpers: the plain file, the catalogued one, and the saved pack
+  come in on a contact's line. This build at 3d701c9 then started on that
+  store. It logged `3 file(s) held before the record of holds began`,
+  then `the lines kept before are told: 3 file(s) now held by their lines
+  alone`. The trim counted (1, 1, 3, 1, 0): the plain file was removed,
+  and the catalogued file and the pack were kept, the pack still listed.
+  **Control:** the same run with the saved-pack check off counted (1, 1,
+  3, 2, 0) and removed the pack. Not kept as a test, since it needs the
+  old binary (sec 796).
+
+## 798. A push of one bucket past 16384 ids, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** test the push sec 791 left unmeasured.
+
+- **`buckets_test`'s `test_a_push_past_16384_ids`**, 82 checks in all,
+  uses the heap stores walked by `each` from sec 791. A and B share one
+  bucket of 16500 items, and A holds three more. A's push asks B for
+  every id of the bucket, over many pages, and sends the three B lacks:
+  one bucket, three lacked, three sent, none counted full. A second push
+  finds the digests equal and sends nothing. The test runs in about half
+  a second.
+- **Control**, made by hand and caught: with the peer's ids capped at
+  16384, the old room, the push left the bucket unsent and counted it
+  full (0 lacked, 0 sent, 1 full), which is the behaviour sec 791
+  removed. One sabotage entry makes the same edit.
+
+## 805. A contact's member as grantor, judged here as its estate judges it, 2026-11-01
+
+Sec 781 left one case untested: a contact's delegable member revoking a
+device it granted itself.
+
+**The test was wrong first.** It expected the member's vote alone to drop
+that device at k 2, and it did not. **The code was right.** Under secs
+394 and 397 every revocation except a root's needs k distinct entitled
+issuers, and a grantor is one of them. The contact's own estate reads the
+same store the same way, so its member, alone at k 2, cannot drop what
+it granted there either.
+
+**Measured, `contact_devices_test`, 136 checks, 7 new.** The device is
+the owner's grant to the member, then the member's grant to the device:
+- a member's vote on a chain the contact's root did not sign drops
+  nothing, even at k 1;
+- its vote on the owner's own device drops nothing at k 1;
+- at k 2, its vote alone keeps the device, and with one admin's vote
+  added the device falls;
+- at k 1, its vote alone drops it.
+
+**Sabotage:** `contact-estate-member-vote-counted` passes over every
+vote not cast under an admin chain.
+
+**Nothing changed in the code.**
+
+## 806. Journey 2's fuzzing bar, again: a file sent in a conversation, 2026-11-02
+
+Sec 794 gave 1:1 chat a new input after its fuzzing bar was met (sec
+689): a file's reference in a line's text, written by a contact and read
+by every client through `fzn_attachment_parse`. No harness reached it.
+
+**`messages/test/attachment_fuzz.c`** makes a random attachment, its name
+drawn from every byte the rules allow, high bytes among them, and formats
+it. It bends the text as `line_fuzz` does. Every parse reads a copy that
+ends where an unreadable page begins, so a read past the end faults in
+any build. The properties:
+- **a formatted reference parses back** as its attachment, and so does
+  the same under `fzp:` with its hex in either case;
+- **a bent text that parses is the one spelling of its parse,** once its
+  scheme is read as `fzn:` and its hex as lower case. Formatting refuses
+  a name the rules forbid, so this also holds every parsed name to them.
+
+**Floors:** some bent text parsed, and some was refused.
+
+**Measured:** 400,000 cases, no failure; 142,743 bent texts parsed and
+257,257 were refused. The parser held, and nothing in it changed.
+
+**Sabotage:** two entries for its bounds, which `attachment_test` does
+not reach: the hex field's length check one byte short
+(`attachment-hex-field-bounded`), and the size's digits read without the
+end (`attachment-size-digits-bounded`). The three older entries on its
+meaning stand.
+
+**Both survived the first version,** which parsed a heap copy of exact
+length and left the over-read to the sanitizer. `make check`'s
+`sancheck` would have seen it (sec 86), but sabotage runs the plain
+`make test`, which has no sanitizer, so the probes could not. With the
+guard page, each mutation faults the plain build too, and both entries
+are caught. The other harnesses leave over-reads to `sancheck` by
+design, so they were left as they are.
+
+## 807. The fuzzing bar for a root's setting of a contact's k, 2026-11-02
+
+Sec 799 added two inputs from a contact's host after `estate_fuzz` was
+written: the K_SET reply (`fzn_contact_estate_k_reply`) and the signed
+`revocation/k` setting it carries (`fzn_contact_estate_keep_k_setting`).
+No harness reached either.
+
+**`estate_fuzz` property 4.** It makes a setting of k: set to a count,
+zero, a word, or a clear, by the owner or another key. A host answers it,
+and this host reads the reply whole, then bent. A whole reply reads back
+as its setting. A bent one is refused, or read as exactly the bytes
+after its head and none past its end. The setting, bent, is kept only
+when it still opens signed by its setter.
+
+**Floors:** some bent reply was read and some refused, and some bent
+setting was refused.
+
+**Measured:** 30,000 cases, no failure; 11,272 bent replies read and
+18,728 refused, and 29,207 bent settings refused. Nothing in the code
+changed.
+
+**Sabotage:** `contact-estate-k-reply-exact` reads a reply carrying bytes
+past its setting. `contact_devices_test` catches it first, and the
+harness alone fails 785 of 2000 cases with it in. The four entries on
+the setting's meaning, from sec 799, stand.
+
+## 808. Journey 1's fuzzing bar, again: a setting in both its shapes, 2026-11-02
+
+Sec 728 gave a signed setting a second shape, stating its setter's rank,
+after the harnesses that open settings in passing were written.
+`reconcile_fuzz` issues the plain shape only, and no harness bent a
+setting so that the checks before its signature were reached.
+
+**`state/test/setting_fuzz.c`.** Its lie is signed: it bends a setting's
+body, then signs it again under whatever key the setter field now names.
+That is what a key the estate trusts can send, and it lets the shape
+checks be reached instead of stopping at the signature. The properties:
+- **round trip:** a setting issued in either shape opens with every
+  field as issued, its rank -1 for the plain shape;
+- **one encoding:** a bent, signed body that opens is exactly what
+  issuing its opened fields writes, in the shape its rank names;
+- **not a byte past its end:** each open reads a copy that ends at an
+  unreadable page, as sec 806's harness does.
+
+**Floors:** some bent body opened and some was refused for its shape,
+and both shapes opened.
+
+**Measured:** 300,000 cases, no failure. 89,279 bent bodies opened,
+50,005 plain and 39,274 ranked; 209,931 were refused for their shape.
+The parser held, and nothing in it changed.
+
+**Sabotage:** three entries for checks the harness reaches. By hand, the
+harness alone fails each:
+- an op neither set nor clear: 62 of 20,000 cases;
+- a stated rank above a root's: 1,193;
+- a clear carrying a value: 2, the thinnest, though one is enough to
+  fail the run.
+
+In the sabotage run all three were caught. `setting_test` caught the rank
+first. The op and the clear were caught by this harness alone: no unit
+test held either before it. The four older entries on `setting.c`
+stand.
+
+## 817. What a group's members send, fuzzed, 2026-11-02
+
+Groups were left outside sec 689's subset ("group chat is complex, let's
+delay it"). fuzzypickles' desktop now runs its groups on fuzznetd (sec
+813), yet no harness read the two things a group's members send: an act
+of the group's log (`node/group_act.c`, sec 626) and a sealed line
+(`node/group_line.c`, sec 628). Both come from other users' hosts.
+
+**`node/test/group_fuzz.c`:**
+- **An act** of every kind, a KEYS act with a payload of up to 512
+  bytes, signed by its host for its user, as `group_log_test` makes one.
+  It decodes as made, encodes back as its own bytes, and verifies. A bent
+  act that decodes is the one encoding of what it says, and none
+  verifies.
+- **A line** sealed under a random secret opens as sealed, and under a
+  secret one bit away does not. A bent line never opens. Its clear head
+  (group, epoch, the member it names, the host) is the seal's additional
+  data, so a member cannot hand on a line naming another.
+- Every decode, peek and open reads a copy ending at an unreadable page,
+  as secs 806 and 808 do.
+
+**Floors:** some bent act decoded and some was refused, and some bent
+line still peeked.
+
+**Measured:** 60,000 cases, no failure. 26,972 bent acts decoded and
+33,028 were refused; 30,787 bent lines still peeked. Nothing in the code
+changed.
+
+**Control:** with the head left out of the seal's and the open's
+additional data, 221 of 4,000 cases failed, "a bent line opened".
+
+**Sabotage:** `group-line-head-bound` leaves the head out of the open's
+additional data alone.
+
+## 818. A note as another host wrote it, fuzzed, 2026-11-02
+
+Notes were outside sec 689's subset too, and fuzzypickles' desktop syncs
+them through fuzznetd. A note shared to a contact or a group, and every
+note a user's other hosts write, arrives from a writer this host does not
+control. The listing then walks its labels and a checklist's items. No
+harness read a note's META, a record's content, or its PAYLOAD, a blob's
+plaintext once opened (sec 514). `note_test` holds their meaning, and 12
+sabotage entries rest on it.
+
+**`notes/test/note_fuzz.c`:**
+- **a meta** opens as written, and a bent one that opens writes back as
+  exactly its bytes;
+- **a payload**, of plain text half the time and a checklist's items the
+  other, with labels, opens as written. A bent one that opens writes
+  back as exactly its bytes;
+- **every label and item is walked within the payload's own bytes**, the
+  items ending clean or refused, each read ending at an unreadable page.
+
+**Floors:** some bent meta and some bent payload opened, and some of each
+was refused.
+
+**Measured:** 200,000 cases, no failure. Nothing in the code changed.
+The first long run failed 6 metas in 200,000; the generator drew payload
+lengths up to 8 bytes past `FZN_NOTE_PAYLOAD_MAX`, which both the writer
+and the reader refuse, as they should.
+
+**Control:** with `note-item-cannot-overrun` applied by hand, so an item
+claiming more than is there is read, 8,523 of 10,000 cases failed, the
+item walk leaving the payload. `note_test` catches the same entry; this
+harness catches it without depending on that test.
+
+## 819. A notes pull through a peer that lies, fuzzed, 2026-11-02
+
+Sec 818 fuzzed a note's own bytes. What a node reads from a peer while
+pulling notes, a page of its index and a batch of records (`notes/sync.c`,
+sec 432), had no harness. The peer is a host of this user or a sharer,
+and either may be lost or buggy.
+
+**`notes/test/notes_sync_fuzz.c`**, on `notes_sync_test`'s fixture:
+- A writes one to six notes, and B pulls from A through an ask that
+  answers as A would and bends that answer with even odds.
+- Each answer is handed over as a copy ending at an unreadable page.
+- **The property:** whatever the answers, B holds only what A holds.
+  Every claim B lists, read under its key from both stores, is the same
+  bytes, and a claim B lists but cannot read counts against it.
+
+**Floors:** some pull went on past a bent answer, and some took records.
+
+**Measured:** 6,000 cases, no failure. 5,321 answers were bent, 1,856
+pulls went on past one, and 3,713 took records. Nothing in the code
+changed.
+
+**Control:** with the record signature check on admission removed
+(`notes/store.c`), 94 of 600 cases failed: B kept a bent record A never
+held.
+
+**Two faults of the harness's own, found before it counted:**
+- **Its first check was vacuous.** It looked each claim up by note id
+  with `fzn_notes_get`, while the keys `fzn_notes_claims` lists hash the
+  pair of note id and writer. Every lookup missed, every case passed, and
+  the control passed too. That is how it was found. It reads by claim key
+  (`fzn_notes_get_key`) now, and fails on a claim it cannot read.
+- **The blob stub's arena, sized for one suite's few notes**, filled
+  after about 1,200 cases, and notes stopped writing. The harness empties
+  it each case.
+
+## 823. `make analyze` over today's code, and a target that never finished, 2026-11-02
+
+Bug-hunting step one over this session's new code: `make analyze`, gcc's
+`-fanalyzer` and then cppcheck.
+
+**The target as written never finished.** At `-O0`, where it has run
+since 2026-10-27 so the analyser sees more, gcc spent more than 65
+minutes on one file, `session/test/session_fuzz.c`, a 746-line driver of
+random inputs. The run was stopped there, with no orphan left, and
+cppcheck was never reached. A fuzz harness's loops over random cases
+are what the analyser's path search explodes on. The code they drive is
+the library, which is analysed anyway.
+
+**Changed:** the analysis builds the library, fuzznetd and every test
+binary except the `*_fuzz` harnesses. They are built, not run, since
+analysing needs only the compile; before, it ran the whole suite under
+`-fanalyzer`.
+
+**What it found, over the files written today** (records, responsible,
+setting holders, the sticker and attachment parsers, and every new
+harness), each also analysed alone:
+- **`-fanalyzer`: nothing**, in each file and in `node/daemon.c`.
+- **cppcheck: one false positive.** It flagged `best_host` in
+  `get_record` as read uninitialised. It is read only once `found` is
+  set, the short circuit cppcheck does not follow. It is initialised now,
+  so the target's next real finding is not buried in a known one.
+
+**The whole target, re-run with the harnesses left out**, finished,
+cleaned its directory and reached cppcheck: **40 `-Wanalyzer` warnings
+and 13 cppcheck findings, every one read and none a defect.** By where
+they stood:
+- **Library, bounded before the copy the analyser flags:**
+  - `node/streams.c` 363-365: levels at most 4 and each rendition at
+    most 64, both checked first;
+  - `node/roots.c` 1004 and `node/revoke.c` 864: `hop_count` capped by
+    the persist head's own size check, and below `FZN_CHAIN_MAX_HOPS`.
+- **Library, written before read:**
+  - `node/reconcile.c` 1095, each page entry filled in the loop just
+    above;
+  - `node/revoke.c` 1292's `views`, passed only when `n` is non-zero;
+  - `node/stickers.c` 334's `bytes`, assigned in the condition before
+    its `free`.
+- **Library, a redundant check on what cannot be NULL there:**
+  `node/contact_devices.c` 1853, `log/log.c`'s logging macro, and
+  `node/group_log.c` 136's `key`.
+- **`log/capture_run.c`'s five pipe descriptors:** closed in the parent
+  on every path. The child path ends in `_exit`, which the analyser does
+  not follow.
+- **`node/reconcile.c` 1388's `more`:** the grown buffer kept as the
+  list's own, not a leak.
+- **`messages/messages.c` 396:** a local's address in a caller's struct.
+  It was already cleared before return, with a comment naming cppcheck.
+- **Test files:** each guarded in the same condition, or a fixture's
+  leak at exit. Among them is `contact_devices_test.c` 1666, an index
+  range-checked before the array is read.
+
+## 824. Five messages from the inbox, 2026-11-02
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps. Three others were notices about the guidelines with nothing
+to record.
+
+**The README opens with what fuzznet is worth (2026-10-29 13:21).** A
+rule set by the holder that day: a README's first paragraphs state the
+problem and what the software does about it, for a reader who knows
+computers but not the field, then name its neighbours and say item by
+item where it differs. The holder asked for existing READMEs to be
+rewritten to it. Taken as work.
+
+**Two pairing-request gaps fuzzypickles met (2026-11-02 17:19)**, porting
+its TUI scenarios from fzpd to fuzznetd:
+- **No event when a request is answered.** A client counting waiting
+  requests hears `event request` when one comes and nothing when
+  another client grants or removes it, so its count stays until a key
+  is pressed; fzpd pushed on approval. Taken: an event on each.
+- **A request carries nothing to recognise its asker by.** `list
+  request` gives `ROOT,NAME,RECEIVED` with NAME `-` for an unnamed card,
+  and the asker cannot name itself. They ask whether the asker may name
+  itself, and whether `list request` could give the address the request
+  came from; which, if either, is fuzznet's call. Taken, and decided
+  where it is built.
+- Not asked: expiring grants, which they read as decided against.
+
+**qtty on `gui/`'s comments about it (2026-11-02 17:48)**, measured in
+qtty and recorded in its 8.645. A framed widget now draws all four
+sides, so `gui/log_view.cpp`'s qtty reason for removing the frame
+describes a defect that is gone (its other reason stands). The 40-column
+shortfall `gui/trust_view.cpp` blames on a layout margin is a probe
+artifact: character 40 of a fingerprint is a space, and a counter that
+trims trailing blanks reads 39; the 41-column floor stands as design,
+since a 79-character line does not fit 40. And `gui/qr_view.h`'s
+painting in pixels is the supported way. Nothing asked; the two
+comments are corrected.
+
+**raidcfgd on a stream's record size (2026-11-02 17:58)**, answering sec
+821's question. A watching host needs a `reading`: a time, a backend
+name, a health, an exit code, a flag and three counts, 22 bytes of
+body, 29 as a frame, measured four times from a real raidcfgd. That
+fits one 64-byte rendition. A snapshot (348 to 3088 bytes) and an
+alert's text go by request, as raidcfgd's own protocol already does,
+so streams need no larger records and no file. The parked item is
+closed. Their direction, not a request: a remote alert path, where the
+text is the payload.
+
+**fuzzypickles' notes and groups across nodes (2026-11-02 19:59)**, at
+11380ab:
+- **A note shared to a contact never reached the contact's node.** b
+  shares a folder to a; on a, `list sharer` and `list shared` stayed
+  empty for 180 s, while plain messages between them arrived. A fault
+  in a built feature; taken.
+- **A group's name does not reach a member**, listed under its id's
+  prefix, and a notebook shared to the group is not listed. Groups wait
+  on the holder's word for the remaining bars (sec 689), so recorded.
+- **`get note ID` carries no reachable or contested flag**, which `list
+  note`'s row does; fuzzypickles reads the parent's listing for it.
+
+## 832. Erasure's pieces under a crash, read: no window, 2026-11-03
+
+Journey 3's fault bar, its last item. Read rather than swept across six
+hosts, as archiving was (sec 746), since the writes decide it:
+- **A piece and a placement are each one atomic write**: a temporary
+  file, synced, renamed into place (`node/pieces.c`,
+  `node/piece_buckets.c`'s `write_cut`). A crash leaves the old file or
+  the new, whole, and a stray `.new` that the next write replaces.
+- **Whether a piece is held is whether its file exists**
+  (`fzn_pieces_held`), so no count can disagree with the files.
+- **Letting a piece go removes its bucket, then its file**, so that a
+  bucket never names a file that is gone, and its comment says the next
+  let-go removes a file left between. **It does.** The pass that lets a
+  host's copies go acts on each piece whose file is here and whose keeper
+  (`pieces_kept`, the other hosts) keeps it -- not on this host's buckets
+  -- so a file whose bucket went first is let go again, the bucket's
+  absence accepted and the file removed. The first version of this
+  section read `kept` as this host's buckets and called that a file left
+  for good; it was wrong, and corrected the same night, 2026-11-03.
+
+So erasure's pieces have no crash window found by reading, and journey
+3's fault bar has a first pass at every item: the trim swept (sec 746),
+the history trim, archiving and the pieces read.
+
+## 834. Two messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**qtty on its documented API (2026-11-03 00:01)**, measured in qtty's
+8.662 to 8.665. qtty's `make guide-check` compiles every symbol its
+documents name against its public headers, inside its `make check`, so
+a documented name cannot be removed without its own gate failing. The
+five names `gui/test/qtty_render_test.cpp` uses that were undocumented
+-- `Qtty::Cell`, `Qtty::Color::Indexed`, `Qtty::Color::Rgb`,
+`Qtty::GridMetrics::cells` and `::cw` -- are documented now, so every
+name the test uses is gated there. Their trap for whoever edits
+`cell_grey()`: a `Color`'s `value()` is 0 when its `kind()` is
+`Default`, and a plain window is all `Default`; `cell_grey()` already
+asks `kind()` first.
+
+They read the test as kept out of this tree's `make check`. It is not,
+since sec 205: `qttycheck` runs it in `check` whenever the widgets are
+built, and says SKIPPED otherwise; only the strict `qtty` target is
+outside, and its comment gave qtty's API movement as a reason, which
+their measurement answers. The comment now says so. The submodule is
+still pinned at 1c0d649 (2026-09-07), from before those names were
+documented; moving the pin is work for when a widget change needs it.
+
+**netcfgd runs in fuzznetd's loop (2026-11-03 12:11).** Its holder chose
+the in-loop face (netcfgd 10.669; secs 827, 831 here), "ask fuzznet to
+poll extension fds during waits". Five asks, each against `node/daemon.c`
+at `49b2312`:
+1. **Poll the extension's descriptors during a wait in turn**, calling
+   `ready` for each readable one. A confirm window is a deadline the
+   operator races, and a wait of up to 6.3 s (sec 747) reads as a hung
+   daemon.
+2. **Say what `ready` and `tick` may call, and whether either runs
+   mid-step.** netcfgd's `ready` only drains its descriptor; its
+   reconcile pass runs from `tick` for up to a few hundred ms.
+3. **A local request in-process.** netcfgd's recorder sends `add record`
+   and `list record` to the face's socket, which the face's own thread
+   serves: a deadlock once netcfgd is the face.
+4. **A clean stop**: today the socket and `face` file are left behind as
+   at a SIGTERM, and a follower sees a stale face.
+5. **A restart after a join re-executes the argv fuzznet parsed**, which
+   lacks netcfgd's own options.
+And to confirm: `tick` follows every pass, not once a second. Taken, in
+that order of cost; each lands where its section says.
+
+## 840. Two messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd, asks 6 to 9 (2026-11-03 12:11, appended after asks 1 to 5
+had been taken).**
+- **6. A follower runs no extension.** Built in sec 838 before the
+  message was read.
+- **7. Both started with no `--socket`.** Both take
+  `fzn_socket_default_path`, and the follower's listen at the face's live
+  socket is refused (`FZN_SOCKET_ERR_IN_USE`), so the follower exits 1.
+  Answered below.
+- **8. What the loop costs a program that links it.** Measured by
+  netcfgd at 49b2312:
+  - the installed program grows from 1,518,760 to 2,494,056 bytes;
+  - resident memory three seconds after start on an empty store is
+    3,512 kB not serving and 16,760 kB serving, against netcfgd's own
+    budget of 4,608 kB;
+  - `daemon.o` declares about 19 MB of static storage, mostly touched
+    at start.
+
+  The consumer services (notes, files, stickers, shelf, groups) are
+  always in `daemon.c`, where `FZN_SPOOL_FILE_ON` and `FZN_LOG_FILE_ON`
+  already gate others. Making them optional is offered as this tree's to
+  weigh.
+- **9. An extension's answer longer than one line.** `ext->local`
+  writes at most `FZN_REPLY_MAX` (1024 bytes), one line. netcfgd's
+  answers are not that shape: `ncfg status --json` is 19,866 bytes, a
+  plan is multi-line, and `monitor` is a stream. It offers three shapes:
+  paging as `list record` does, a reply written in pieces, or sec 669's
+  events.
+
+**fuzzypickles, a sticker's box on a node (2026-11-03 12:31).**
+- `list sticker PACK` rows are `ID,TYPE,FLAGS,DESC` and carry no
+  `text_limit`. So a client cannot say how many characters a box holds,
+  nor tell a message sticker with no box from one that takes words.
+  They ask for a fifth field.
+- `get sticker PACK ID text WORDS` checks that a box exists and checks
+  the byte cap, but not the count against `text_limit`. fzpd's sender
+  refused past it, counted in characters. Whether the node refuses or
+  the receiver clips is fuzznet's call.
+
+## 845. The sticker verbs tried from another user, 2026-11-03
+
+Sec 689's authorization bar, carried on from groups (sec 839) to the
+stickers: `node/stickers.c` had no unit test at all, and its one gate,
+this node's own user only, was tried by nothing.
+- `node/test/files_test` now calls the sticker verbs as another local
+  user: `list sticker`, `list sticker 0`, `get sticker`, `put sticker`,
+  `add sticker` and `remove sticker`. Each is refused before anything is
+  read.
+- It stubs the three settings calls the verbs would make, so the test
+  need not link the settings and the journal behind them.
+- Sabotage `stickers-own-user-only` holds the gate.
+
+Notes and files already had such tests.
+
+## 846. A file's wants and shares at their bounds, said as full, 2026-11-03
+
+Sec 689's bounds bar, carried on to files after groups (sec 839). Neither
+limit of `node/files.c` was tested at its edge, and each was refused in
+the wrong words:
+- `FZN_NODE_FILES_WANTS_MAX`, 64 files wanted, refused the 65th as
+  MALFORMED, which `fetch file` answers `malformed`;
+- `FZN_NODE_FILES_SHARES_MAX`, 256 share rows, refused the 257th as
+  STORE, which a grant answers `error the disk refused`.
+
+Neither says what happened, and the second sends a user to check a
+healthy disk.
+- **Built:** `FZN_NODE_FILES_ERR_FULL`, "as many as this node keeps",
+  returned by both.
+- `node/test/files_test` takes each to its last, refuses the next as
+  full, and still takes the same file wanted, or the same grantee
+  shared, again at the bound.
+- Its memory store grows from 128 rows to 512 to hold them.
+- Sabotage `files-wants-bound` and `files-shares-bound` hold the two.
+
+## 847. Three messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd, ask 7 measured (14:30).** At 7d85b54, a netcfgd started with
+no `--socket` beside a fuzznetd on the default socket failed at listen
+and never entered the loop. Fixed in 16830dc (sec 841). Their 15:10
+message confirms that netcfgd follows on the default socket now (their
+0d7d5c47). They also saw a fuzznetd ended by SIGTERM leave its `face`
+file and socket, as sec 835 says a signal does.
+
+**fuzzypickles, a joined device's row (14:33).** Right after a join, the
+root's `list sibling` reads `KEY,-,paired,-`.
+- **No name:** each of a user's devices shows as 16 hex characters in
+  the Qt Hosts tab and fzptui. fzpd took a name in the join request.
+  They ask whether fuzznet means to carry a device's name.
+- **WHERE is `-`,** though fzp's `joinreq` gave an address. They ask
+  whether it is learned later or dropped.
+
+Answered from the code:
+- WHERE is an introduced address while it lasts, or else the device's
+  own `net/address` setting, which reaches the root with the device's
+  records once it has run a round.
+- fuzznet's join verbs (`get prekey`, `add peer PREKEY delegable`, `add
+  join`) take no address, so nothing is dropped and nothing was given.
+- fuzznet carries no device name.
+
+**netcfgd, request 10 (15:10).** Refusing huge pages in netcfgd's own
+`main` took a serving netcfgd from 16,760 to about 4,800 kB (their
+6c3e0f0b). For its control verbs over fuzznet (its 0309):
+- netcfgd's tiers (observe, wifi, admin) name users and groups, such as
+  `observe = "group:netcfgd"`. `ext->local` is handed only an origin, no
+  credentials.
+- `fzn_daemon_main` admits only this node's own user by default, so a
+  desktop's GUI user is not admitted to netcfgd's verbs at all without
+  `--group`.
+- They ask for the peer's credentials (`local/peer.h`) handed to the
+  extension for a `FZN_ORIGIN_LOCAL` caller, and for a way to admit
+  local callers to the extension's own verbs, judged by the extension,
+  while fuzznet's verbs keep fuzznet's rule.
+- Theirs to decide: a root daemon writing to a path a client names must
+  guard symlinks. They ask whether fuzznet's `... PATH` writers do.
+  `node/stickers.c`'s `spill` opens with `O_CREAT|O_EXCL`, refusing an
+  existing final component, a symlink included, but not a symlinked
+  parent. fuzznetd runs as its client's own user, so it guards no
+  privilege boundary.
+
+## 865. Two answers that named the wrong thing, 2026-11-03
+
+fuzzypickles, inbox 2026-11-03 21:08, both measured at 65c39a1 with
+their `node_probe`:
+- **`put file` on a path that names no file** answered `error not all
+  here`, the files' sentence for a partial download. The verb now looks
+  at the path first. It answers `error cannot open that path: no such
+  file`, or `... not a regular file` for a directory or a device.
+- **`add group crew` while a group named crew stands** answered `error
+  another contact has that name`. Groups share the contact table, so the
+  clash can be with either. The sentence is now `a contact or a group
+  already has that name` for every caller, since a contact's name can
+  clash with a group's too.
+
+Measured: `files_test`, 96 checks, two new: a missing path and `/tmp`,
+each answered about the path. `admin_test`'s check on "has that name"
+still holds.
+
+## 867. Two messages recorded, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd (20:23): its status page names its whole.** The type 129 answer
+and the `status` procedure's page are now `ok TOTAL FROM COUNT DIGEST`,
+a newline and COUNT bytes. DIGEST is the FNV-1a 64 of the whole status
+the page was cut from, as 16 lower-case hex digits. Without it, pages
+cut from two statuses of the same length could be joined into a status
+that never existed. fuzznet reads none of these bytes; `node/types.h`'s
+list of the extension types now gives the four fields, where sec 853 and
+the header said three.
+
+**fuzzypickles (21:59): a sticker sent to a group is fetched whole.**
+Sec 682 said groups took the same path as conversations, untested live.
+fuzzypickles measured it at d61acbe with
+`test/e2e/sticker-fetch-in-a-group-on-nodes.sh` on two nodes paired by
+card:
+- alice keeps a pack, adds bob to a group, and sends her reference as a
+  group line;
+- bob's node answers `get sticker PACK` with `ok` once the line has
+  arrived, and the pack is not among bob's kept stickers;
+- the control is the same question before the send, answered with an
+  error.
+
+It passed on the first run.
+
 ## 878. Where this stands, folded 2026-11-04
 
 A session's fold, so the next one starts from the record rather than
@@ -20250,6 +22075,75 @@ and the holder's word of 2026-11-04 for 871 to 875):
 - `live_ext` now runs about seven minutes. Its Makefile bound is 560 s.
 
 **Waiting on the holder:** nothing.
+
+## 881. A stage fuzzed, and a group's setting, 2026-11-04
+
+Sec 689's fuzzing bar, for what came after the harnesses. A stage (sec
+873) is an object any host's stream may bring, held by every other host,
+and it had a unit test and no harness. `setting_fuzz` never issued the
+group scope sec 868 added.
+
+**Built:** `stage_fuzz`, in `setting_fuzz`'s shape: the body bent, then
+signed by whatever key its setter field now names, each open at the edge
+of an unreadable page. It holds a round trip, one encoding, and a revert
+within the object. `setting_fuzz` now issues all three scopes.
+
+**Read while there, and sound:** a stage is held only from the stream of
+its own setter, its revert must be that setter's, and at the deadline
+the revert is taken only while the cell stands at the version just before
+it, by that setter. So a member cannot replay an old root's setting as a
+revert. `call NAME at estate` (sec 872) is judged on each host, as a call
+is, and the relay's trial (sec 871) decides nothing but whose frame it is.
+
+**Measured:** 20000 cases: 3143 bent stages and 3913 bent confirms
+opened, 12944 refused. Each of three faults seeded in a copy of
+`stage.c` failed it: a confirm with a deadline (618 failures), bytes past
+the signature's place (3322), and no length check at all, which it read
+as a revert outside the object. Sabotage: `stage-one-encoding`,
+`stage-confirm-carries-no-deadline`.
+
+## 887. Two memory faults fuzzypickles' sanitized node found, 2026-11-05
+
+fuzzypickles ran its node scenarios against a fuzznetd built with ASan and
+UBSan, inbox 2026-11-04 23:11 and 23:15, at 11e52c3.
+
+- **`put sticker` read freed memory.** A spec naming art that is not there
+  went to `building_done`, which frees the spec's words, and then formatted
+  one of them into the refusal. So any local client could take down a
+  sanitized node with a typo, and an ordinary one read freed memory for
+  the error text. The reply is said first. `live_stickers` a holds it.
+- **`grow_table` left a new table's first rows unzeroed.** `contact_room`
+  grows three tables from a count of fixed rows, and on the first growth
+  the table is NULL, so those rows came from `realloc(NULL)` and were never
+  cleared. `gt->held` then held garbage: a wild read here, hidden by a fresh
+  mmap, and a wild write on an allocator that hands back used memory, which
+  a phone's may. A table not yet made is zeroed from its first row.
+
+**The lesson is a gap in `sancheck`:** it runs the suite and no live
+script, so neither was reachable from it. A live run over a sanitized build
+is what found them.
+
+## 889. The live scripts over a sanitized daemon, 2026-11-05
+
+Sec 887's lesson, built. `make livecheck-san` builds fuzznetd under ASan and
+UBSan and runs the live scripts over it (`tool/live_sanitized.py`). Reports go
+to files, so any report fails the run, whatever the script said: a daemon that
+died under a script that passed is seen. Leaks are looked for since sec 897.
+
+Not in `check`, being as long again as `livecheck`.
+
+**Measured:** seventeen scripts over a sanitized daemon, no report. The
+run's reporting is its own control: the same options over the code before sec
+887 wrote `asan.N` and `live_stickers` failed.
+
+**Also from sec 884's list, added with it:** `notes-share-from-one-of-two-hosts`,
+`tool/live_share_sibling.py`: a note S2 writes into a folder S shared reaches R,
+and the next. `notes-share-to-a-group`, `live_group_hosts` e3: a note shared
+after a removal reaches A and not C. `group-same-name`, sec 890.
+`groups-across-a-nat` is not taken: a frame names its sender and the seal
+proves it, no path reads the address, and `live_strangers` already runs B through
+a proxy that rewrites its port. `sender-at-a-shared-address` is the same.
+That closes sec 884's list.
 
 ## 892. Where this stands, folded 2026-11-05
 
