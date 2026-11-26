@@ -1,4 +1,4 @@
-# situ wire signature v3
+# situ wire signature v4
 # schema: permit.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
@@ -27,29 +27,29 @@ struct grant size=0..
   body case 108: local local_grant
   body case 117: user user_grant
   body case default: error
-  body switch: first
-  body case 64: group
-  body case default: user
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
+  body.local.who.body switch: first
+  body.local.who.body case 64: group group_target
+  body.local.who.body case default: user target
+  body.local.who.body.group.who.body switch: first
+  body.local.who.body.group.who.body case 35: id numeric
+  body.local.who.body.group.who.body case default: text text_name
+  body.local.who.body.user.body switch: first
+  body.local.who.body.user.body case 35: id numeric
+  body.local.who.body.user.body case default: text text_name
+  body.group.who.body switch: first
+  body.group.who.body case 35: id numeric
+  body.group.who.body case default: text text_name
+  body.user.who.body switch: first
+  body.user.who.body case 35: id numeric
+  body.user.who.body case default: text text_name
 
 struct group_grant size=7..
   @0x0000   6         u8         scheme  big must_eq="group:"
   @0x0006   1..64     target     who
   ~         until:20|end rights_word rights
-  body switch: first
-  body case 35: id
-  body case default: text
+  who.body switch: first
+  who.body case 35: id numeric
+  who.body case default: text text_name
 
 struct group_list size=0..528
   @0x0000   0..528    group_name names  while=1 while-or-end while-max=16
@@ -62,9 +62,9 @@ struct group_name size=0..33
 struct group_target size=2..65
   @0x0000   1         u8         sigil  must_eq=64
   @0x0001   1..64     target     who
-  body switch: first
-  body case 35: id
-  body case default: text
+  who.body switch: first
+  who.body case 35: id numeric
+  who.body case default: text text_name
 
 struct host_rule size=5..70
   @0x0000   5         u8         scheme  big must_eq="host:"
@@ -75,15 +75,15 @@ struct local_grant size=7..
   @0x0000   6         u8         scheme  big must_eq="local:"
   @0x0006   1..65     local_target who
   ~         until:20|end rights_word rights
-  body switch: first
-  body case 64: group
-  body case default: user
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
+  who.body switch: first
+  who.body case 64: group group_target
+  who.body case default: user target
+  who.body.group.who.body switch: first
+  who.body.group.who.body case 35: id numeric
+  who.body.group.who.body case default: text text_name
+  who.body.user.body switch: first
+  who.body.user.body case 35: id numeric
+  who.body.user.body case default: text text_name
 
 struct local_target size=1..65
   @0x0000   1         u8         first  peek
@@ -91,12 +91,12 @@ struct local_target size=1..65
   body switch: first
   body case 64: group group_target
   body case default: user target
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
+  body.group.who.body switch: first
+  body.group.who.body case 35: id numeric
+  body.group.who.body case default: text text_name
+  body.user.body switch: first
+  body.user.body case 35: id numeric
+  body.user.body case default: text text_name
 
 struct numeric size=2..12
   @0x0000   1         u8         hash  must_eq=35
@@ -104,33 +104,33 @@ struct numeric size=2..12
 
 struct permit size=0..
   @0x0000   0..       grant      grants  while=1 while-or-end
-  body switch: kind
-  body case 97: anyone
-  body case 103: group
-  body case 108: local
-  body case 117: user
-  body case default: error
-  body switch: first
-  body case 64: group
-  body case default: user
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
-  body switch: first
-  body case 35: id
-  body case default: text
+  grants[].body switch: kind
+  grants[].body case 97: anyone anyone_word
+  grants[].body case 103: group group_grant
+  grants[].body case 108: local local_grant
+  grants[].body case 117: user user_grant
+  grants[].body case default: error
+  grants[].body.local.who.body switch: first
+  grants[].body.local.who.body case 64: group group_target
+  grants[].body.local.who.body case default: user target
+  grants[].body.local.who.body.group.who.body switch: first
+  grants[].body.local.who.body.group.who.body case 35: id numeric
+  grants[].body.local.who.body.group.who.body case default: text text_name
+  grants[].body.local.who.body.user.body switch: first
+  grants[].body.local.who.body.user.body case 35: id numeric
+  grants[].body.local.who.body.user.body case default: text text_name
+  grants[].body.group.who.body switch: first
+  grants[].body.group.who.body case 35: id numeric
+  grants[].body.group.who.body case default: text text_name
+  grants[].body.user.who.body switch: first
+  grants[].body.user.who.body case 35: id numeric
+  grants[].body.user.who.body case default: text text_name
 
 struct remote_permit size=1..
   @0x0000   1..       rule       rules  while=1 while-or-end
-  body switch: kind
-  body case 104: host
-  body case default: word
+  rules[].body switch: kind
+  rules[].body case 104: host host_rule
+  rules[].body case default: word rule_word
   remote_permit refuses: no_rule when count(remote_permit.rules) == 0
   remote_permit refuses: none_alone when any(r in remote_permit.rules: r.kind == 'n') && count(remote_permit.rules) > 1
 
@@ -156,6 +156,6 @@ struct user_grant size=6..
   @0x0000   5         u8         scheme  big must_eq="user:"
   @0x0005   1..64     target     who
   ~         until:20|end rights_word rights
-  body switch: first
-  body case 35: id
-  body case default: text
+  who.body switch: first
+  who.body case 35: id numeric
+  who.body case default: text text_name

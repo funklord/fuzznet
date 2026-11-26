@@ -1,4 +1,4 @@
-# situ wire signature v3
+# situ wire signature v4
 # schema: exif.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
@@ -25,9 +25,9 @@ struct ifd size=6..786426
   @0x0000   2         u16        count  endian-from=order
   @0x0002   0..786420 ifd_entry  entries  args order=order endian-from=order sized-by=count
   ~         4         u32        next  endian-from=order
-  value switch: type
-  value case 3: shorts
-  value case default: long
+  entries[].value switch: type
+  entries[].value case 3: shorts u16
+  entries[].value case default: long u32
 
 struct ifd_entry size=12
   parameter -         byte_order order [stream]
