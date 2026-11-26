@@ -77510,3 +77510,26 @@ reads the file's own claims through the catalogue's index
 tick is linear. The companion link (sec 1472), which asks the same of
 each file sharing a stem, gains the same. Not measured at that size: the
 count is the argument, and `live_keep` and `live_tags` pass unchanged.
+
+## 1480. A JSON document past sixteen levels is refused before it is framed, 2026-11-26
+
+**Found by the sanitized suite**: `fingerprint_test`'s answer ten
+thousand brackets deep overflowed the stack under ASan. situ's generated
+`fzn_json_value_required` (media/json.situ, sec 1469) recurses one call
+chain a bracket and does not hold to the schema's `[depth = 64]` -- only
+`_validate` does, and framing comes first. **In a plain build at -Os,
+100000 brackets (200 KB) segfault**: a Google Keep export of that shape
+crashed the daemon importing it (sec 1471), an AcoustID answer the sound
+child (sec 1459); a gpsd line is shorter than the depth that hurts.
+
+**`fzn_json_walk_frame` counts the brackets outside strings first**, once
+through, and refuses a document past sixteen levels -- the schema's
+sixty-four structs, four to a level -- before framing it. Every reader
+here goes through it. AcoustID's answer is four or five levels, a Keep
+note three, a TPV line one. situ is told (its inbox 20261126T1843Z): the
+fix that belongs there is `_required` spending the depth `_validate`
+does; the guard goes when it does.
+
+Tests: `fingerprint_test` -- an answer a hundred thousand deep refused,
+plain and under ASan, where without the guard it is a segfault. Sabotage:
+one entry, caught.

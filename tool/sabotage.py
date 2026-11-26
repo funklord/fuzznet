@@ -913,6 +913,13 @@ SABOTAGES = [
 		"a kept copy arriving whole is linked to its tune; live_keep g -- sec 1478",
 	),
 	(
+		"json-walk-any-depth",
+		"wire/json_walk.c",
+		"\tif (!text || !msg || !out || len > UINT32_MAX || !shallow(text, len)\n",
+		"\tif (!text || !msg || !out || len > UINT32_MAX\n",
+		"a document nested past the schema's sixteen levels is refused before framing, which overflows the stack; fingerprint_test -- sec 1480",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

@@ -129,6 +129,15 @@ static void reading(void)
 	CHECK(fzn_media_acoustid_read(nested, 20000u, &id) == FZN_MEDIA_LOOKUP_NO_ANSWER,
 	      "an answer nested ten thousand deep was read");
 	free(nested);
+	/* A HUNDRED THOUSAND DEEP, sec 1480: refused before it is framed --
+	 * situ's framing recursed a call a bracket and overflowed the stack of
+	 * a plain build here. */
+	nested = malloc(200000u);
+	memset(nested, '[', 100000u);
+	memset(nested + 100000u, ']', 100000u);
+	CHECK(fzn_media_acoustid_read(nested, 200000u, &id) == FZN_MEDIA_LOOKUP_NO_ANSWER,
+	      "an answer nested a hundred thousand deep was read");
+	free(nested);
 	CHECK(fzn_media_acoustid_read(NULL, 0, &id) == FZN_MEDIA_LOOKUP_NO_ANSWER, "no answer was read");
 }
 
