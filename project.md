@@ -122,6 +122,15 @@ listener port spans (`150e3106`).
   vendor it and fuzznetd is a test peer (sec 902); static is the only
   way fuzznet is offered, no shared library on purpose. fuzznetd's
   `--help` and `--version` are on stdout with 0, for help2man.
+- **An embedded fuzznetd on a board: which IP stack** (sec 1481, the
+  holder's): the device core runs on an emulated Cortex-M3 over a serial
+  bearer; the embedded profile's fuzznetd on a board with Ethernet
+  (hull's LM3S6965 or MPS2 AN385, an ESP32-C3) needs UDP, which fuzznet
+  does not carry. lwIP vendored at the root, hal9001's own if it grows
+  one, or Zephyr's networking under Zephyr -- a dependency, so the
+  holder's to choose; best guess lwIP, the smallest and the one every
+  RTOS above can host. Running the board through hull waits on hull's
+  answer (its inbox 20261126T1924Z).
 - **Assumptions the holder may move**: discovery port 6290 and the
   spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
 
