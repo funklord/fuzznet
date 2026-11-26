@@ -77089,3 +77089,28 @@ citations across both files; the docs gate passes.
 **Next**: secs 901 onward, by the same measure -- at 50 of 298, a batch
 here moves about 2 per cent of the file, so whether the next is worth its
 reading is the question to answer first.
+
+## 1466. One serving loop: the second, for a host with nothing to pull, was unreachable, 2026-11-26
+
+`node/daemon.c` served from one of two loops: the pulling loop, taken
+when the host pulls from peers, keeps notes, **or has request reassembly**;
+otherwise a plain loop with a shorter tick list. The last run found the
+plain loop missing `fzn_node_objects_due`, `_settings_due` and
+`_records_due` -- a value held to its write window (sec 1034) would wait
+there until the daemon stopped -- and noted it, untested.
+
+**Read before fixing, it is not a fault anybody can meet**: reassembly is
+built over static buffers of fixed, non-zero size, and
+`fzn_reasm_slot_init` and `fzn_reasm_init` (`chunk/reassembly.c`) fail
+only on a NULL buffer or a zero size. So `state.reassembly` is always
+set, the pulling loop always taken, and the plain one dead since
+reassembly was added -- a second copy of the tick list nothing ran, which
+had drifted (no held-write window, no group tending, no live pump, no
+verify memo) as such copies do.
+
+**Removed, and the impossible failure made fatal** as the round's tables'
+already is (`no request reassembly`, exit 1), so the one loop is the
+daemon's only way to serve and a tick added to it reaches every host. No
+running daemon behaves differently. A daemon wiped by an identity reset
+now stops its sound child (sec 1457) before it exits, as every other way
+out of the loop did.

@@ -28586,13 +28586,16 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			     && fzn_reasm_slot_init(&request_slots[r], request_bufs[r],
 			                            sizeof(request_bufs[r]))
 			                == FZN_REASM_OK;
-		if (ok
-		    && fzn_reasm_init(&requests, request_slots, FZND_REQUEST_SLOTS, 1u, 60u)
-		               == FZN_REASM_OK)
-			state.reassembly = &requests;
-		else
-			say(FZN_ENTRY_WARNING, "node", "no request reassembly; requests past one frame "
-			                "are dropped");
+		/* Static buffers of fixed size, so this cannot fail; were it to,
+		 * the daemon would not serve, as with the round's tables below --
+		 * the serving loop is one, written once (sec 1466). */
+		if (!ok
+		    || fzn_reasm_init(&requests, request_slots, FZND_REQUEST_SLOTS, 1u, 60u)
+		               != FZN_REASM_OK) {
+			say(FZN_ENTRY_ERROR, "node", "no request reassembly");
+			return 1;
+		}
+		state.reassembly = &requests;
 	}
 	/* THE REPLIES SENT, kept FZN_NODE_REPLIES_TTL_S, sec 737: a request its
 	 * caller resent is answered again without being run again. 256 of them
@@ -28656,7 +28659,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	}
 	stop_on_terminate();
 	term_unblock();
-	if (npulls || notes_on || state.reassembly) {
+	/* THE SERVING LOOP, sec 1466: one, whether this host pulls from peers
+	 * or not -- a second loop for a host with nothing to pull had drifted
+	 * from this one and never wrote a value held to its window. */
+	{
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
 		/* THE ROUND'S PERIOD, FZND_PULL_EVERY, or sec 692's bench's in a test
 		 * build. */
@@ -29313,6 +29319,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				(void)fzn_state_dir_wipe(state_core_dir, &wiped, &why);
 				if (state_bulk_dir)
 					(void)fzn_state_dir_wipe(state_bulk_dir, &wiped, &why);
+				sound_stop();
 				fzn_socket_close(lfd, sock_path);
 				if (ufd >= 0)
 					fzn_udp_close(ufd);
@@ -29331,49 +29338,5 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 	}
 
-	say(FZN_ENTRY_NOTE, "node", "serving%s%s%s", sock_path ? " on " : "",
-	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
-	/* UNTIL THE PROCESS IS SIGNALLED, or a reset, a join or a stop ends it,
-	 * secs 638, 835: a node with nothing to pull still serves both verbs. */
-	serving_state = &state;
-	while (!identity_reset && !rejoin_due && !stop_due) {
-		pressure_tick();
-		location_tick();
-		stages_tick();
-		sealed_tick();
-		invite_tick();
-		preset_tick();
-		ext_tick();
-		sound_tick();
-#ifdef FZN_LOG_FILE_ON
-		log_settings_tick();
-#endif
-		loop_before_answering();
-		(void)fzn_node_run_once(&state, logs_verifying() ? 0 : 1000);
-		loop_after_answering(&state);
-	}
-	sound_stop();
-	if (rejoin_due) {
-		const int r = start_again(lfd, sock_path);
-
-		if (r != -2)
-			return r;
-	}
-	if (stop_due && !identity_reset)
-		return stop_serving(lfd, sock_path, ufd);
-	if (identity_reset) {
-		size_t wiped = 0;
-		const char *why = NULL;
-
-		(void)fzn_state_dir_wipe(state_core_dir, &wiped, &why);
-		if (state_bulk_dir)
-			(void)fzn_state_dir_wipe(state_bulk_dir, &wiped, &why);
-	}
-
-	/* Unreached in normal operation; named so the sockets read as closed
-	 * rather than leaked. */
-	fzn_socket_close(lfd, sock_path);
-	if (ufd >= 0)
-		fzn_udp_close(ufd);
-	return 0;
+	/* The loop above returns on every way out of it. */
 }
