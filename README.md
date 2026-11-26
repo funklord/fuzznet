@@ -26,6 +26,15 @@ application data built on those -- location, notes, files, groups. The
 programs that use it keep their own vocabulary: they link fuzznet, or talk
 to its daemon over a local socket, and run **unprivileged**. `fuzzypickles`, `netcfgd` and `raidcfgd` are the first.
 
+What a person sees of it comes with it too: Qt Widgets views of each part
+-- conversations, contacts, devices, the library with its music and photo
+catalogues, settings, governance, logs -- that a program embeds, so that
+every program built on fuzznet shows the same estate the same way. Here is
+the music catalogue, sorted by album, with the tempo and key each host
+heard and the companions a tune carries:
+
+![fuzznet's music view: two albums and a track of none listed with each track's length, tempo, key, where it is held, and a video and lyrics beside one track](doc/screenshot/music.png)
+
 The parts exist separately elsewhere. Signal and Matrix encrypt
 conversations, but route them through servers somebody has to run --
 Signal's own, or a homeserver. WireGuard and Tailscale connect devices at

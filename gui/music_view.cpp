@@ -168,7 +168,13 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_tree->setColumnCount(7);
 	m_tree->setHeaderLabels(
 	        { tr("Title"), tr("Artist"), tr("Length"), tr("BPM"), tr("Key"), tr("Where"), tr("With") });
-	m_tree->header()->setStretchLastSection(true);
+	/* THE TITLE TAKES THE ROOM, the rest their contents' (sec 1489): the
+	 * last column stretched, and every title was cut to a few letters in
+	 * the README's own picture. */
+	m_tree->header()->setStretchLastSection(false);
+	m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+	for (int c = 1; c < 7; c++)
+		m_tree->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
 	m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_tree->setAccessibleName(tr("The music, by album"));
 	m_play_button = new QPushButton(tr("Play"), this);

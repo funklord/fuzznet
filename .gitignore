@@ -395,6 +395,7 @@ __pycache__/
 /fuzznet-bridge
 /device-check/
 /device-board/
+/gui/test/screenshot
 /device/test/device_sim
 /device/test/device_test
 /net/test/bearer_test

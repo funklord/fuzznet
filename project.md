@@ -77755,3 +77755,24 @@ no fixture here produces; changed when one does.
 Tests: `retention_view_test`, `settings_view_test`, `forks_view_test`,
 `governance_view_test` -- a row chosen, a refresh, the same row chosen.
 Sabotage: four entries, each caught.
+
+## 1489. The README shows the views, made by `make screenshots`
+
+**The holder's rule of 2026-11-26** (claude-guidelines `24ec4eb`):
+software somebody looks at carries a picture of itself in its README,
+committed under `doc/screenshot/` and made by `make screenshots` from the
+current build. fuzznet is a library, and also the Qt Widgets views its
+consumers embed -- which its README did not mention at all.
+
+**`make screenshots`** builds `gui/test/screenshot` and runs it
+headless: the music view over a demo catalogue (invented artists, no
+person's library), answered in binary by the node's own
+`node/library_binary.c` as `music_view_test` answers it, an album chosen,
+grabbed into `doc/screenshot/music.png`, 720 by 360. One picture,
+replaced when the view changes visibly. **The README gains a paragraph**
+saying what the views are, with it.
+
+**The picture found a fault**: the music view stretched its last column,
+so at 720 px every title was cut to a few letters -- "Field Recor...",
+"Demo, t...". The title column now takes the room and the rest their
+contents' width; `music_view_test` still fits 320 px.

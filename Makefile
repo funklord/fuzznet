@@ -4144,6 +4144,19 @@ $(BUILD_DIR)/gui/test/music_view_test: $(BUILD_DIR)/gui/test/music_view_test.o \
                                     $(BUILD_DIR)/wire/generated/attribute_row.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# THE README'S PICTURE, sec 1489: the music view over a demo catalogue,
+# grabbed headless into doc/screenshot/. Made by `make screenshots` from the
+# current build, never by hand; in no other target, the PNG being committed.
+.PHONY: screenshots
+screenshots: $(BUILD_DIR)/gui/test/screenshot
+	@mkdir -p doc/screenshot
+	QT_QPA_PLATFORM=offscreen $(BUILD_DIR)/gui/test/screenshot doc/screenshot/music.png
+$(BUILD_DIR)/gui/test/screenshot: $(BUILD_DIR)/gui/test/screenshot.o \
+                                  $(BUILD_DIR)/gui/music_view.o $(BUILD_DIR)/node/library_binary.o \
+                                  $(BUILD_DIR)/node/catalog.o $(BUILD_DIR)/catalog/catalog.o \
+                                  $(BUILD_DIR)/wire/generated/attribute_row.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # THE PHOTO CATALOGUE, sec 1450: the same, and the fixture's photograph read
 # through the play slices.
 $(BUILD_DIR)/gui/test/photo_view_test: $(BUILD_DIR)/gui/test/photo_view_test.o \
