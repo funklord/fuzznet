@@ -892,6 +892,13 @@ SABOTAGES = [
 		"a kept file its user let go is not fetched back; live_keep f (faults build) -- sec 1476",
 	),
 	(
+		"gallery-shows-music-videos",
+		"node/library_binary.c",
+		"\t\tif (n_videos && bsearch(e->entity, videos, n_videos, sizeof(*videos), root_order))\n",
+		"\t\tif (0 && bsearch(e->entity, videos, n_videos, sizeof(*videos), root_order))\n",
+		"a tune's music video is the music's, not listed among the photographs -- sec 1477",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

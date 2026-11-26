@@ -392,12 +392,57 @@ static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_nod
 	return ok && w->put(w->ctx, out, out_len) ? 1 : -1;
 }
 
+static int root_order(const void *a, const void *b)
+{
+	return memcmp(a, b, 32u);
+}
+
+/* THE VIDEOS TUNES NAME AS THEIRS, sec 1477: every live `video` a file
+ * claims, as roots, sorted -- a music video is the music's, not a
+ * photograph of the gallery. `*n` of them, NULL for none or no memory. */
+static uint8_t (*tune_videos(const fzn_node_catalog_t *cat, size_t *n))[32]
+{
+	uint8_t (*roots)[32] = NULL;
+	size_t i, cap = 0;
+
+	*n = 0;
+	for (i = 0; i < cat->count; i++) {
+		const fzn_node_catalog_entry_t *e = &cat->entries[i];
+		fzn_catalog_assertion_t a;
+		uint8_t root[32];
+
+		if (!e->live || e->name_len != 5u || memcmp(e->name, "video", 5u) != 0)
+			continue;
+		memset(&a, 0, sizeof(a));
+		a.live = 1;
+		a.name = e->name;
+		a.name_len = e->name_len;
+		a.value = e->value;
+		a.value_len = e->value_len;
+		if (!companion_of(&a, 1u, "video", root))
+			continue;
+		if (*n == cap) {
+			uint8_t (*more)[32] = realloc(roots, (cap ? 2u * cap : 16u) * sizeof(*roots));
+
+			if (!more)
+				break;
+			roots = more;
+			cap = cap ? 2u * cap : 16u;
+		}
+		memcpy(roots[(*n)++], root, 32u);
+	}
+	if (*n)
+		qsort(roots, *n, sizeof(*roots), root_order);
+	return roots;
+}
+
 /* Every file that is music, or every photograph, a row each, then ok. */
 static int answer_media(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_node_library_file_t file,
                         void *file_ctx, unsigned op, struct rows *w)
 {
 	fzn_catalog_assertion_t *set = NULL;
-	size_t cap = 0, i;
+	size_t cap = 0, i, n_videos = 0;
+	uint8_t (*videos)[32] = op == FZN_FILES_LOCAL_OP_PHOTOS ? tune_videos(cat, &n_videos) : NULL;
 	int ok = 1;
 
 	for (i = 0; i < cat->count && ok; i++) {
@@ -411,6 +456,8 @@ static int answer_media(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_
 		for (j = e->same_entity; j != SIZE_MAX && j < i && !earlier; j = cat->entries[j].same_entity)
 			earlier = cat->entries[j].live != 0;
 		if (earlier)
+			continue;
+		if (n_videos && bsearch(e->entity, videos, n_videos, sizeof(*videos), root_order))
 			continue;
 		n = fzn_node_catalog_count_of(cat, e->entity);
 		if (n > cap) {
@@ -428,6 +475,7 @@ static int answer_media(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_
 		ok = media_row(set, n, &row, op, w) >= 0;
 	}
 	free(set);
+	free(videos);
 	if (!ok)
 		return status(w->put, w->ctx, FZN_STATUS_ERROR, "the catalogue did not list");
 	return status(w->put, w->ctx, FZN_STATUS_OK, NULL);

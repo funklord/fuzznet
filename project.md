@@ -77461,3 +77461,19 @@ before removing (the person's removal is the answer).
 Tests: `live_keep` f -- the tune B keeps, removed, is not back after two
 rounds and restarts; fetched plainly, it is whole again. Sabotage: one
 entry, caught.
+
+## 1477. A tune's music video is the music's, not the gallery's, 2026-11-26
+
+The photo catalogue lists a `video/` among the photographs, a phone's
+gallery being its photos and videos (sec 1460). A tune's music video
+(sec 1472) is a `video/` too, and so appeared in the gallery under "When
+unknown" beside a person's own clips. **The photo listing leaves out
+every file a tune names as its `video`**: the roots every live `video`
+claim names, gathered once a listing and sorted, each file looked up in
+them -- a listing of N files is N log N, not N squared. The file is
+still in the library, played from its tune (sec 1475) or by root, and a
+host keeping `video` keeps it (sec 1473).
+
+Tests: `library_binary_test` -- the film, named as the song's video,
+leaves the photo listing and the photograph stays. Sabotage: one entry,
+caught.

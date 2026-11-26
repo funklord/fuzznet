@@ -606,6 +606,17 @@ static void test_music_and_photos(void)
 	              && fzn_files_local_photo_row_place_get(b) == 0u
 	              && fzn_files_local_photo_row_latitude_get(b) == 0,
 	      "a latitude past the pole was taken as a place");
+	/* A TUNE'S MUSIC VIDEO, sec 1477, is the music's: the film, named as
+	 * the song's video, leaves the gallery -- the photograph alone. */
+	say(host_a, song, "video", "5454545454545454545454545454545454545454545454545454545454545454");
+	n_said = 0;
+	(void)fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_photos, sizeof(ask_photos), put, NULL);
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(n_said == 2u && fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_body_photo_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_photo_row_root_ptr(b), photo, 32u) == 0,
+	      "a tune's music video was listed among the photographs");
 	fzn_node_catalog_free(&cat);
 }
 
