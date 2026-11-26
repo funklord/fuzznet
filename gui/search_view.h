@@ -51,8 +51,14 @@ public:
 	 * SEARCH asks for `words`, with the contact named `with` or nobody
 	 * (empty): whether the node took it. POLL reads the page as far as it
 	 * is answered, once; whether it read. MORE asks for the page after the
-	 * last hit shown. OPEN hands the chosen hit to `on_open`. */
+	 * last hit shown. OPEN hands the chosen hit to `on_open`. The words
+	 * may carry a filter (sec 1482): `label:home` keeps what is labelled
+	 * home, `-kind:list` leaves lists out, any facet a store tags. */
 	bool search(const QString &words, const QString &with = QString());
+	/* The filter `text` carries, as the search takes it ("where label=home
+	 * not kind=list"), and the words left to search. */
+	static QString filter_of(const QString &text);
+	static QString filter_free(const QString &text);
 	bool poll();
 	bool more();
 	void select(int row);
@@ -73,7 +79,7 @@ private:
 	struct fzn_gui_rpc *m_rpc;
 	struct fzn_rpc_search_page *m_page;
 	std::function<void(const QString &, const QByteArray &)> m_open;
-	QString m_words, m_with;
+	QString m_words, m_with, m_where; /* m_where: the filter the words carried, sec 1482 */
 	int m_polls;
 	bool m_asked;
 

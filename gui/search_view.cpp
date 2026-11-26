@@ -16,6 +16,7 @@ extern "C" {
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -63,6 +64,8 @@ fzn_search_view::fzn_search_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWi
 	m_find = new QLineEdit(this);
 	m_find->setPlaceholderText(tr("Search everything"));
 	m_find->setAccessibleName(tr("Words to search for"));
+	m_find->setToolTip(tr("Words to find. NAME:VALUE keeps only what has it -- label:home, kind:audio/mpeg, "
+	                      "genre:Jazz -- and -NAME:VALUE leaves it out"));
 	m_find->setClearButtonEnabled(true);
 	fzn_name_clear_button(m_find);
 	/* WHOM WITH: this user's own hosts, or one contact -- who is then told
@@ -162,10 +165,42 @@ bool fzn_search_view::refresh()
 	return true;
 }
 
+/* A FILTER IN THE WORDS, sec 1482: `NAME:VALUE` keeps a hit at that facet
+ * -- `where NAME=VALUE`, as the search's filter takes it (sec 1324) -- and
+ * `-NAME:VALUE` leaves it out, `not NAME=VALUE`; the rest are the words
+ * searched. NAME lower-case letters and _, VALUE anything after the colon. */
+static const QRegularExpression &filter_term()
+{
+	static const QRegularExpression term(QStringLiteral("^(-?)([a-z_]+):(\\S+)$"));
+	return term;
+}
+
+QString fzn_search_view::filter_of(const QString &text)
+{
+	QStringList out;
+	for (const QString &w : text.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+		const QRegularExpressionMatch m = filter_term().match(w);
+		if (m.hasMatch())
+			out << QStringLiteral("%1 %2=%3")
+			               .arg(m.captured(1).isEmpty() ? QStringLiteral("where") : QStringLiteral("not"),
+			                    m.captured(2), m.captured(3));
+	}
+	return out.join(QLatin1Char(' '));
+}
+
+QString fzn_search_view::filter_free(const QString &text)
+{
+	QStringList out;
+	for (const QString &w : text.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+		if (!filter_term().match(w).hasMatch())
+			out << w;
+	return out.join(QLatin1Char(' '));
+}
+
 /* ASK FOR A PAGE: the first, or the one after the last hit shown. */
 bool fzn_search_view::ask_page(bool next)
 {
-	const QByteArray w = m_words.toUtf8(), with = m_with.toUtf8();
+	const QByteArray w = filter_free(m_words).toUtf8(), with = m_with.toUtf8(), where = m_where.toUtf8();
 	fzn_rpc_search_hit_t after;
 	size_t asked = 0;
 
@@ -175,8 +210,8 @@ bool fzn_search_view::ask_page(bool next)
 		after = m_page->hits[m_page->count - 1u];
 	}
 	m_timer->stop();
-	if (fzn_rpc_search_fetch(&m_rpc->c, with.isEmpty() ? nullptr : with.constData(), w.constData(),
-	                         next ? &after : nullptr, &asked)
+	if (fzn_rpc_search_fetch_where(&m_rpc->c, with.isEmpty() ? nullptr : with.constData(), w.constData(),
+	                               where.isEmpty() ? nullptr : where.constData(), next ? &after : nullptr, &asked)
 	    != FZN_RPC_OK) {
 		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;
@@ -194,7 +229,8 @@ bool fzn_search_view::search(const QString &text, const QString &with)
 {
 	m_words = text.trimmed();
 	m_with = with;
-	if (m_words.isEmpty()) {
+	m_where = filter_of(m_words);
+	if (filter_free(m_words).isEmpty()) {
 		m_status->setText(tr("Say what to search for."));
 		return false;
 	}

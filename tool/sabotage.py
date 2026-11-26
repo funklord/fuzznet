@@ -927,6 +927,13 @@ SABOTAGES = [
 		"a board divides 64-bit numbers as C does; make livecheck-board (qemu) -- sec 1481",
 	),
 	(
+		"search-view-filter-dropped",
+		"gui/search_view.cpp",
+		"\tm_where = filter_of(m_words);\n",
+		"\tm_where.clear();\n",
+		"a filter typed in the search words reaches the search -- sec 1482",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

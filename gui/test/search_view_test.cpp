@@ -91,6 +91,15 @@ int main(int argc, char **argv)
 	      "the next page was not asked after the last hit");
 	CHECK(view.search(QStringLiteral("heron"), QStringLiteral("bob")) && !strcmp(last, "fetch search with bob heron"),
 	      "a search with a contact did not name the contact");
+	/* A FILTER IN THE WORDS, sec 1482: kept as where, left out as not,
+	 * the rest searched; a filter alone is no search. */
+	CHECK(view.search(QStringLiteral("heron label:home -kind:list"))
+	              && !strcmp(last, "fetch search where label=home not kind=list heron"),
+	      "a filter in the words was not asked as the search's filter");
+	CHECK(!view.search(QStringLiteral("label:home")) && view.status() == QStringLiteral("Say what to search for."),
+	      "a filter with nothing to search for was asked");
+	CHECK(view.search(QStringLiteral("10:30 heron")) && !strcmp(last, "fetch search 10:30 heron"),
+	      "a word holding a colon was taken as a filter");
 	CHECK(!view.search(QStringLiteral("heron"), QStringLiteral("nobody")) && view.status().contains(QStringLiteral("no such contact")),
 	      "a search with no such contact was asked, or not said");
 	stopped_short = 1;

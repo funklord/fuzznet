@@ -77596,3 +77596,28 @@ ESP32-C3), which needs an IP stack fuzznet does not carry.
 
 Sabotage: a wrong 64-bit division on the board leaves it unanswered,
 caught by `livecheck-board`.
+
+## 1482. A filter typed in the search view's words, 2026-11-26
+
+**The holder's question for this run: is there a good GUI widget for
+everything?** Measured: 190 typed-client calls, of which about sixty
+no view names -- some plumbing, some reached by text or binary another
+way, and some a person cannot do from any view (audited in the next
+sections). The first found: **the one search's facet filter** (secs
+1319, 1324, 1468) -- `where label=home`, `not kind=list` -- had a client
+call, `fzn_rpc_search_fetch_where`, and no view asking it, so a person
+could filter a search only at the CLI.
+
+**The search view reads a filter out of its words**, the way a mail
+client's search box takes `from:`: `NAME:VALUE` keeps a hit at that
+facet, `-NAME:VALUE` leaves one out, any facet a store tags -- a note's
+`label` and `kind`, a file's `genre` or `key` (sec 1468), a line's
+`with`. The rest are the words searched; a filter alone is no search, as
+the search needs a word. NAME is lower-case letters and `_`, so "10:30"
+stays a word. A tooltip says how. Rejected: a facet chooser beside the
+box (each store's facets differ, and a row of controls past 320 px on a
+phone).
+
+Tests: `search_view_test` -- "heron label:home -kind:list" asked as
+`where label=home not kind=list heron`; a filter alone refused; "10:30"
+a word. Sabotage: one entry, caught.
