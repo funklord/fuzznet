@@ -78765,7 +78765,8 @@ held to a UUID's letters before it is asserted, as this host's labels;
 `identified` is asserted once AcoustID has answered, found or not. An
 error -- a bad key -- or no answer leaves the tune to be asked again,
 and a key set later has every tune heard before asked again by the next
-`add sound`. The answer is a stranger's, read by a JSON reader of the
+`add sound` -- every one that may be asked after: an `audio/` or one of no
+kind, never a `video/` (sec 1464). The answer is a stranger's, read by a JSON reader of the
 file's own, bounded in depth (32) and length (256 KiB), taking four
 fields and stepping over the rest. **Not yet situ's**, which is to own
 every layout and takes weak text formats in scope: its `example/json`
@@ -78924,3 +78925,26 @@ untagged tune is named "Night Drive -- Live" by "Svalbard Echo, Mira"; a
 tune titled "Mine" keeps that title alone. Sabotage
 `media-fingerprint-control-kept` and `media-fingerprint-artists-not-joined`,
 each caught.
+
+## 1464. A person's videos are heard, and never fingerprinted for AcoustID, 2026-11-26
+
+`add sound` takes `video/` as well as `audio/` (sec 1457) -- a music video
+has a tempo and a key -- and since sec 1460 a phone's videos stand in the
+photo catalogue. With an AcoustID key set (sec 1459), every one of them
+would have had its sound printed and sent to AcoustID: a person's own
+recordings, fingerprinted for a stranger by a key they set for their
+music. So **only a tune the catalogue calls `audio/`, or one of no kind,
+is asked after**; a `video/` is heard here, its tempo, key and loudness
+asserted as before, and nothing of it leaves the host. The child is handed
+no key for one, and `sound_wanted` queues a heard video again only if it
+was never heard -- without that, a video, never identified, would be heard
+again at every `add sound`.
+
+A music video goes unnamed by this, which is the cost, said rather than
+guessed around: telling a downloaded music video from a person's own by
+its metadata (no camera time, no place) was weighed and rejected as a
+guess that would sometimes send the wrong one.
+
+**Test:** `live_identify` phase f -- with the key set, a `video/` is heard
+at 128.00 BPM, AcoustID is asked nothing more, and asking again queues
+nothing.

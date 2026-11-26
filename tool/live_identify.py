@@ -18,6 +18,9 @@ into the store as a library does:
     e  the untagged tune of b is named by the recording, its `title` and
        `artist` (sec 1463); a tune that names itself keeps its own title and
        is given no second one
+    f  with the key set, a `video/` is heard and AcoustID is not asked of it
+       -- a person's own recording, which a key for their music did not ask
+       to have fingerprinted (sec 1464) -- and asking again queues nothing
 
 Against a daemon that sends with no key, phase a counts a request; against one
 that never asks again once heard, phase b times out.
@@ -200,6 +203,24 @@ def main(argv):
 			if titles != ["Mine"] or got.get("acoustid") != ACOUSTID:
 				raise failed("e: a tune naming itself has titles %r and lists %r" % (titles, got))
 			print("livecheck: e: an untagged tune named by its recording, one naming itself left its own")
+
+			# f: a video heard, not asked after.
+			video_path = os.path.join(scratch, "video.wav")
+			with open(tune_path, "rb") as src, open(video_path, "wb") as dst:
+				dst.write(src.read() + b"\0" * 48)
+			reply = ask(sock, "put file " + video_path)
+			video = reply.split()[1][:64]
+			expect(sock, "f", "add catalog %s kind video/mp4" % video, "ok")
+			before = len(acoustid.asked)
+			ask(sock, "add sound " + video)
+			got = until(video, "f: the hearing", lambda g: g.get("heard") == "1")
+			again = ask(sock, "add sound " + video).split()
+			if len(acoustid.asked) != before or "identified" in got or got.get("bpm") != "128.00" \
+			   or again != ["ok", "0", "0"]:
+				raise failed("f: a video lists %r, AcoustID asked %d more time(s), asked again: %r"
+				             % (got, len(acoustid.asked) - before, again))
+			print("livecheck: f: a video heard at %s BPM, AcoustID not asked of it, nothing queued again"
+			      % got["bpm"])
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

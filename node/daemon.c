@@ -17905,8 +17905,20 @@ static size_t catalog_first(const uint8_t root[FZN_PUBKEY_LEN], const char *name
 	return 0;
 }
 
-/* 1 when `root` is a tune held whole here that this host has not heard,
- * and is not waiting or being heard. */
+/* WHAT MAY BE ASKED OF ACOUSTID, sec 1464: a tune the catalogue calls
+ * `audio/`, or one of no kind -- never a `video/`, whose sound is most
+ * often a person's own recording, which a key set for their music did not
+ * ask to have fingerprinted for a stranger. A video is still heard here. */
+static int sound_identifiable(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	char kind[64];
+
+	return !catalog_first(root, "kind", kind, sizeof(kind)) || strncmp(kind, "audio/", 6u) == 0;
+}
+
+/* 1 when `root` is a tune held whole here that this host has not heard --
+ * or, with a key set, has heard and not had named where it may be -- and is
+ * not waiting or being heard. */
 static int sound_wanted(const uint8_t root[FZN_PUBKEY_LEN])
 {
 	fzn_node_file_status_t st;
@@ -17915,7 +17927,7 @@ static int sound_wanted(const uint8_t root[FZN_PUBKEY_LEN])
 
 	if (fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || !st.whole || !st.length
 	    || (catalog_says(root, "heard", SOUND_ANALYSIS, sizeof(SOUND_ANALYSIS) - 1u)
-	        && (!sound_key_set() || catalog_says(root, "identified", "1", 1u))))
+	        && (!sound_key_set() || !sound_identifiable(root) || catalog_says(root, "identified", "1", 1u))))
 		return 0;
 	if (catalog_first(root, "kind", kind, sizeof(kind))) {
 		if (strncmp(kind, "audio/", 6u) != 0 && strncmp(kind, "video/", 6u) != 0)
@@ -18026,7 +18038,10 @@ static void sound_start(void)
 		}
 		fzn_wipe(ref_bytes, sizeof(ref_bytes));
 		ref.length = st.length;
-		(void)sound_key_set(); /* the child's copy, as the setting stands now */
+		/* THE CHILD'S COPY of the key, as the setting stands now -- none for
+		 * a tune that may not be asked after. */
+		if (!sound_key_set() || !sound_identifiable(sound_root))
+			sound_key[0] = '\0';
 		n = snprintf(sound_path, sizeof(sound_path), "%s/.sound-XXXXXX", tags_dir);
 		if (n < 0 || (size_t)n >= sizeof(sound_path) || (fd = mkstemp(sound_path)) < 0) {
 			fzn_wipe(&ref, sizeof(ref));
