@@ -13,7 +13,9 @@
 
 #include <QAccessible>
 #include <QApplication>
+#include <QFile>
 #include <QTableWidget>
+#include <QTemporaryDir>
 
 #include <stdio.h>
 #include <string.h>
@@ -40,11 +42,24 @@ static char shares[200] = "ok 0 0";
 #define FAMILY "f0f0000000000000000000000000000000000000000000000000000000000009"
 #define BOB "b0b0000000000000000000000000000000000000000000000000000000000001"
 
+/* WHAT A FILE ADDED ASKED, sec 1485: its catalogue lines. */
+static QStringList catalogued;
+#define ADDED "add0000000000000000000000000000000000000000000000000000000000001"
+
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
 	if (silent)
 		return 0;
+	if (!strncmp(line, "put file ", 9)) {
+		if (strstr(line, "bad.bin"))
+			return (size_t)snprintf(reply, cap, "error the store is full\n");
+		return (size_t)snprintf(reply, cap, "ok " ADDED "%064d%016x private\n", 0, 5u);
+	}
+	if (!strncmp(line, "add catalog " ADDED " ", 12 + 64 + 1)) {
+		catalogued << QString::fromUtf8(line + 12 + 64 + 1);
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	/* A SONG another host catalogued, held here too; A TALK held only by
 	 * the host that catalogued it. */
 	if (!strcmp(line, "list catalog 0"))
@@ -116,6 +131,24 @@ int main(int argc, char **argv)
 	v.set_kind("");
 	CHECK(v.rows().size() == 3 && v.status().isEmpty(), "every file did not come back, the count unsaid");
 	CHECK(v.minimumSizeHint().width() <= 320, "the finding row made the view wider than a 320 px screen");
+
+	/* FILES ADDED FROM THIS MACHINE, sec 1485: stored, then catalogued by
+	 * name and by the kind the system names; one refused, said so. */
+	{
+		QTemporaryDir dir;
+		const QString tune = dir.filePath(QStringLiteral("tune.mp3")), bad = dir.filePath(QStringLiteral("bad.bin"));
+		QFile f(tune), g(bad);
+		CHECK(dir.isValid() && f.open(QIODevice::WriteOnly) && f.write("ID3\x04", 4) == 4 && g.open(QIODevice::WriteOnly),
+		      "fixture: two files");
+		f.close();
+		g.close();
+		CHECK(v.add_files({ tune }) == 1 && catalogued.contains(QStringLiteral("name tune.mp3"))
+		              && catalogued.contains(QStringLiteral("kind audio/mpeg"))
+		              && v.status() == "Added 1 file(s) to the library.",
+		      "a file was not stored and catalogued by its name and kind, or not said");
+		CHECK(v.add_files({ bad }) == 0 && v.status() == "bad.bin was not added: the store is full",
+		      "a file the store refused was not said so");
+	}
 
 	v.select(1);
 	last[0] = '\0';

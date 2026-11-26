@@ -77675,3 +77675,27 @@ this day) read back as this host's; added under the name it offers as
 `add contact ada ...`; under "bob", held already, refused unasked; "hello
 there" refused as no card; and, new to this test, the view fits 320 px.
 Sabotage: one entry, caught.
+
+## 1485. Files added to the library from the library view, 2026-11-26
+
+The same audit: **no view added a file to the library**. The library,
+music and photo views list, play, share, save, verify and remove what
+the estate catalogues, and the one way in, `fzn_rpc_library_add` after
+`fzn_rpc_blob_add`, was the CLI's and the share target's (which stores a
+file for a conversation, not the library). So on the desktop a person
+could play every song the estate held and add none.
+
+**Add...** in the library view: files chosen from this machine are each
+put in this host's store, private, and catalogued by their name and by
+the kind the system's MIME database names (Qt's `QMimeDatabase`, by
+contents and name) -- the kind the music and photo catalogues sort by --
+which, as `fzn_rpc_library_add` does, has the node read the file's tags,
+hear a tune and link its companions (secs 1447, 1457, 1472). A kind the
+system calls only `application/octet-stream` is left unsaid, as a file
+added by hand with no kind is. A file the store refuses stops the rest
+and is named. `add_files(paths)` is public for the headless test.
+
+Tests: `library_view_test` -- a real `tune.mp3` stored and catalogued as
+`name tune.mp3` and `kind audio/mpeg`, said; one the store refuses said
+so; the view still fits 320 px. Sabotage: one entry, caught.
+

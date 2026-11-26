@@ -948,6 +948,13 @@ SABOTAGES = [
 		"a card added with no name typed is named as it offers -- sec 1484",
 	),
 	(
+		"library-view-added-kindless",
+		"gui/library_view.cpp",
+		"\t\tif (kind != QStringLiteral(\"application/octet-stream\") && kind.size() < (int)sizeof(entry.kind)) {\n",
+		"\t\tif (0) {\n",
+		"a file added from the view is catalogued with the kind the system names, which the music and photo catalogues sort by -- sec 1485",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

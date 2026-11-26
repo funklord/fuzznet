@@ -59,6 +59,11 @@ public:
 	bool save_to(const QString &path);
 	bool verify();
 	bool remove();
+	/* FILES ADDED to the library from this machine (sec 1485): each put in
+	 * this host's store, private, and catalogued by its name and its kind
+	 * as the system names it, which has the node read its tags and hear a
+	 * tune. How many were added; the Add button asks which. */
+	int add_files(const QStringList &paths);
 
 	/* FINDING A FILE, sec 1207: the files whose name or kind holds `text`,
 	 * any case, and of the kind chosen -- empty for every kind. Both kept
@@ -95,6 +100,7 @@ private:
 	QPushButton *m_play_button;
 	QPushButton *m_share;
 	QPushButton *m_save;
+	QPushButton *m_add;
 	QPushButton *m_verify;
 	QPushButton *m_remove;
 	QPushButton *m_fetch;

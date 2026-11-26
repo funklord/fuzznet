@@ -18,7 +18,9 @@ extern "C" {
 #include <QMenu>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QFileInfo>
 #include <QLabel>
+#include <QMimeDatabase>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -81,6 +83,8 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_play_button = new QPushButton(tr("Play"), this);
 	m_share = new QPushButton(tr("Share..."), this);
 	m_save = new QPushButton(tr("Save..."), this);
+	m_add = new QPushButton(tr("Add..."), this);
+	m_add->setToolTip(tr("Add files from this machine to the library"));
 	m_verify = new QPushButton(tr("Verify"), this);
 	m_remove = new QPushButton(tr("Remove"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
@@ -95,6 +99,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	/* TWO ROWS MORE, two buttons each: four in one row made the view 360 px,
 	 * past a 320 px cover screen. */
 	auto *more = new QHBoxLayout;
+	more->addWidget(m_add);
 	more->addWidget(m_share);
 	more->addWidget(m_save);
 	more->addStretch(1);
@@ -121,6 +126,11 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
 	connect(m_verify, &QPushButton::clicked, [this]() { verify(); });
 	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
+	connect(m_add, &QPushButton::clicked, [this]() {
+		const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Add to the library"));
+		if (!paths.isEmpty())
+			add_files(paths);
+	});
 	connect(m_save, &QPushButton::clicked, [this]() {
 		const QString path = QFileDialog::getSaveFileName(this, tr("Save the file"), chosen_name());
 		if (!path.isEmpty())
@@ -171,6 +181,51 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 }
 
 fzn_library_view::~fzn_library_view() { delete m_rpc; }
+
+int fzn_library_view::add_files(const QStringList &paths)
+{
+	QMimeDatabase kinds;
+	int added = 0;
+
+	for (const QString &path : paths) {
+		const QByteArray at = path.toUtf8();
+		const QByteArray name = QFileInfo(path).fileName().toUtf8();
+		const QString kind = kinds.mimeTypeForFile(path).name();
+		fzn_rpc_blob_add_resp_t stored;
+		fzn_rpc_library_add_req_t entry;
+
+		if (fzn_rpc_blob_add(&m_rpc->c, at.constData(), (size_t)at.size(), FZN_RPC_BLOB_TIER_PRIVATE, &stored)
+		    != FZN_RPC_OK) {
+			m_status->setText(tr("%1 was not added: %2")
+			                          .arg(QString::fromUtf8(name), QString::fromUtf8(fzn_gui_rpc_silent(m_rpc))));
+			break;
+		}
+		memset(&entry, 0, sizeof(entry));
+		memcpy(entry.root, stored.root, sizeof(entry.root));
+		memcpy(entry.content_key, stored.key, sizeof(entry.content_key));
+		entry.size = stored.byte_len;
+		entry.name_len = (size_t)qMin(name.size(), (int)sizeof(entry.name) - 1);
+		memcpy(entry.name, name.constData(), entry.name_len);
+		/* THE SYSTEM'S NAME FOR ITS KIND, where it has one past "a run of
+		 * bytes": the music and photo catalogues sort by it. */
+		if (kind != QStringLiteral("application/octet-stream") && kind.size() < (int)sizeof(entry.kind)) {
+			entry.kind_len = (size_t)kind.toLatin1().size();
+			memcpy(entry.kind, kind.toLatin1().constData(), entry.kind_len);
+		}
+		if (fzn_rpc_library_add(&m_rpc->c, &entry) != FZN_RPC_OK) {
+			m_status->setText(tr("%1 was stored and not catalogued: %2")
+			                          .arg(QString::fromUtf8(name), QString::fromUtf8(fzn_gui_rpc_silent(m_rpc))));
+			break;
+		}
+		added++;
+	}
+	if (added) {
+		const QString said = m_status->text();
+		refresh();
+		m_status->setText(added == paths.size() ? tr("Added %n file(s) to the library.", nullptr, added) : said);
+	}
+	return added;
+}
 
 bool fzn_library_view::refresh()
 {
