@@ -253,7 +253,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/heard_row.c wire/generated/session_frame_wire.c \
              wire/generated/group_act_record.c wire/generated/group_line_wire.c \
              wire/generated/settings_registry.c wire/generated/permit.c wire/generated/verify_memo_record.c \
-             wire/generated/exif.c wire/generated/id3.c wire/generated/flac.c wire/generated/ogg.c wire/generated/mp4.c \
+             wire/generated/exif.c wire/generated/id3.c wire/generated/flac.c wire/generated/ogg.c wire/generated/mp4.c wire/generated/mpeg.c \
              wire/generated/contact_card_record.c wire/generated/routing_record.c \
              wire/generated/fix_row.c wire/generated/opjournal_row.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
@@ -3828,7 +3828,7 @@ $(BUILD_DIR)/media/test/media_test: $(BUILD_DIR)/media/test/media_test.o $(BUILD
 # mutagen, metaflac and Pillow, then cut and mangled.
 MEDIA_TAGS_OBJS := $(BUILD_DIR)/media/tags.o $(BUILD_DIR)/wire/generated/exif.o \
                    $(BUILD_DIR)/wire/generated/id3.o $(BUILD_DIR)/wire/generated/flac.o \
-                   $(BUILD_DIR)/wire/generated/ogg.o $(BUILD_DIR)/wire/generated/mp4.o \
+                   $(BUILD_DIR)/wire/generated/ogg.o $(BUILD_DIR)/wire/generated/mp4.o $(BUILD_DIR)/wire/generated/mpeg.o \
                    $(BUILD_DIR)/wire/generated/situ.o
 $(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_TAGS_OBJS)
 	@mkdir -p $(dir $@)
@@ -8125,7 +8125,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               node/heard_row.situ node/routing_record.situ node/contact_devices_wire.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
               node/settings_registry.situ node/group_line_wire.situ location/fix_row.situ sticker/pack.situ node/objects.situ node/rrpc_local.situ node/permit.situ \
-              media/exif.situ media/id3.situ media/flac.situ media/ogg.situ media/mp4.situ \
+              media/exif.situ media/id3.situ media/flac.situ media/ogg.situ media/mp4.situ media/mpeg.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
@@ -9047,7 +9047,7 @@ schema:
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_permit \
 	         --out $(BUILD_DIR)/.gen.new node/permit.situ >/dev/null 2>&1
 	@# AND WHAT A FILE SAYS OF ITSELF, sec 1447.
-	@for m in exif id3 flac ogg mp4; do \
+	@for m in exif id3 flac ogg mp4 mpeg; do \
 		$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_$$m \
 		         --out $(BUILD_DIR)/.gen.new media/$$m.situ >/dev/null 2>&1 || exit 1; \
 	done
@@ -9107,7 +9107,7 @@ schema:
 	          address_vectors.c \
 	          objects.c objects.h objects_edit.h objects_build.h objects_vectors.c \
 	          rrpc_local.c rrpc_local.h rrpc_local_edit.h rrpc_local_build.h rrpc_local_vectors.c \
-	          permit.c permit.h exif.c exif.h id3.c id3.h flac.c flac.h ogg.c ogg.h mp4.c mp4.h \
+	          permit.c permit.h exif.c exif.h id3.c id3.h flac.c flac.h ogg.c ogg.h mp4.c mp4.h mpeg.c mpeg.h \
 	          messages_local.c messages_local.h messages_local_edit.h messages_local_build.h \
 	          messages_local_vectors.c contacts_local.c contacts_local.h contacts_local_edit.h \
 	          contacts_local_build.h contacts_local_vectors.c groups_local.c groups_local.h \

@@ -378,6 +378,247 @@ situ_err_t fzn_ogg_opus_tags_packet_validate(situ_view_t view);
 situ_err_t fzn_ogg_opus_tags_packet_check(situ_view_t view, uint32_t *which);
 #define FZN_OGG_OPUS_TAGS_PACKET_MAGIC_CHECK 0u
 
+/* ---- struct vorbis_id_packet ---- */
+
+#define FZN_OGG_VORBIS_ID_PACKET_SIZE_FIXED 16u
+#define FZN_OGG_VORBIS_ID_PACKET_SIZE_MIN   16u
+#define FZN_OGG_VORBIS_ID_PACKET_SIZE_MAX   16u
+
+/* INVALIDATION: nothing invalidates a vorbis_id_packet view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_ogg_vorbis_id_packet_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_OGG_VORBIS_ID_PACKET_SIZE_FIXED, out);
+}
+
+#define FZN_OGG_VORBIS_ID_PACKET_TYPE_VALUE_MIN 1u
+#define FZN_OGG_VORBIS_ID_PACKET_TYPE_VALUE_MAX 1u
+
+/** vorbis_id_packet.type : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_ogg_vorbis_id_packet_type_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_ogg_vorbis_id_packet_type_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_ogg_vorbis_id_packet_type_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** vorbis_id_packet.magic : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(6) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_OGG_VORBIS_ID_PACKET_MAGIC_COUNT 6u
+static inline uint8_t *fzn_ogg_vorbis_id_packet_magic_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+#define FZN_OGG_VORBIS_ID_PACKET_VERSION_VALUE_MIN 0u
+#define FZN_OGG_VORBIS_ID_PACKET_VERSION_VALUE_MAX 0u
+
+/** vorbis_id_packet.version : u32  at AbsoluteStatic(0x07)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_ogg_vorbis_id_packet_version_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_le32(situ_base(view) + 7u));
+}
+static inline void fzn_ogg_vorbis_id_packet_version_set(situ_view_t view, uint32_t value)
+{
+	situ_put_le32(situ_base(view) + 7u, (uint32_t)value);
+}
+
+#define FZN_OGG_VORBIS_ID_PACKET_CHANNELS_VALUE_MIN 1u
+
+/** vorbis_id_packet.channels : u8  at AbsoluteStatic(0x0B)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_ogg_vorbis_id_packet_channels_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[11u]);
+}
+static inline uint8_t *fzn_ogg_vorbis_id_packet_channels_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 11u);
+}
+static inline void fzn_ogg_vorbis_id_packet_channels_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[11u] = (uint8_t)value;
+}
+
+#define FZN_OGG_VORBIS_ID_PACKET_RATE_VALUE_MIN 1u
+
+/** vorbis_id_packet.rate : u32  at AbsoluteStatic(0x0C)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_ogg_vorbis_id_packet_rate_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_le32(situ_base(view) + 12u));
+}
+static inline void fzn_ogg_vorbis_id_packet_rate_set(situ_view_t view, uint32_t value)
+{
+	situ_put_le32(situ_base(view) + 12u, (uint32_t)value);
+}
+
+/** How many bytes a whole `vorbis_id_packet` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_ogg_vorbis_id_packet_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_OGG_VORBIS_ID_PACKET_SIZE_FIXED;
+	return have >= FZN_OGG_VORBIS_ID_PACKET_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_ogg_vorbis_id_packet_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_ogg_vorbis_id_packet_check(situ_view_t view, uint32_t *which);
+#define FZN_OGG_VORBIS_ID_PACKET_TYPE_CHECK 0u
+#define FZN_OGG_VORBIS_ID_PACKET_MAGIC_CHECK 1u
+#define FZN_OGG_VORBIS_ID_PACKET_VERSION_CHECK 2u
+#define FZN_OGG_VORBIS_ID_PACKET_CHANNELS_CHECK 3u
+#define FZN_OGG_VORBIS_ID_PACKET_RATE_CHECK 4u
+
+/* ---- struct opus_head_packet ---- */
+
+#define FZN_OGG_OPUS_HEAD_PACKET_SIZE_FIXED 16u
+#define FZN_OGG_OPUS_HEAD_PACKET_SIZE_MIN   16u
+#define FZN_OGG_OPUS_HEAD_PACKET_SIZE_MAX   16u
+
+/* INVALIDATION: nothing invalidates a opus_head_packet view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_ogg_opus_head_packet_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_OGG_OPUS_HEAD_PACKET_SIZE_FIXED, out);
+}
+
+/** opus_head_packet.magic : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_OGG_OPUS_HEAD_PACKET_MAGIC_COUNT 8u
+static inline uint8_t *fzn_ogg_opus_head_packet_magic_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** opus_head_packet.version : u8  at AbsoluteStatic(0x08)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_ogg_opus_head_packet_version_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[8u]);
+}
+static inline uint8_t *fzn_ogg_opus_head_packet_version_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 8u);
+}
+static inline void fzn_ogg_opus_head_packet_version_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[8u] = (uint8_t)value;
+}
+
+#define FZN_OGG_OPUS_HEAD_PACKET_CHANNELS_VALUE_MIN 1u
+
+/** opus_head_packet.channels : u8  at AbsoluteStatic(0x09)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_ogg_opus_head_packet_channels_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[9u]);
+}
+static inline uint8_t *fzn_ogg_opus_head_packet_channels_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 9u);
+}
+static inline void fzn_ogg_opus_head_packet_channels_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[9u] = (uint8_t)value;
+}
+
+/** opus_head_packet.pre_skip : u16  at AbsoluteStatic(0x0A)
+ * size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_ogg_opus_head_packet_pre_skip_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_le16(situ_base(view) + 10u));
+}
+static inline void fzn_ogg_opus_head_packet_pre_skip_set(situ_view_t view, uint16_t value)
+{
+	situ_put_le16(situ_base(view) + 10u, (uint16_t)value);
+}
+
+/** opus_head_packet.input_rate : u32  at AbsoluteStatic(0x0C)
+ * size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_ogg_opus_head_packet_input_rate_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_le32(situ_base(view) + 12u));
+}
+static inline void fzn_ogg_opus_head_packet_input_rate_set(situ_view_t view, uint32_t value)
+{
+	situ_put_le32(situ_base(view) + 12u, (uint32_t)value);
+}
+
+/** How many bytes a whole `opus_head_packet` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_ogg_opus_head_packet_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_OGG_OPUS_HEAD_PACKET_SIZE_FIXED;
+	return have >= FZN_OGG_OPUS_HEAD_PACKET_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_ogg_opus_head_packet_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_ogg_opus_head_packet_check(situ_view_t view, uint32_t *which);
+#define FZN_OGG_OPUS_HEAD_PACKET_MAGIC_CHECK 0u
+#define FZN_OGG_OPUS_HEAD_PACKET_CHANNELS_CHECK 1u
+
 #ifdef __cplusplus
 }
 #endif

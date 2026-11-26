@@ -39,3 +39,27 @@ struct vorbis_comment_packet {
 struct opus_tags_packet {
 	u8   magic[8] [must_eq = "OpusTags"];
 }
+
+// THE LENGTH, sec 1456: an Ogg stream says it only at its last page, as
+// that page's granule position. The identification packet -- the stream's
+// first -- says what a granule counts.
+//
+// Vorbis I 4.2.2: type 1, "vorbis", a version of 0, the channels, then the
+// sample rate a granule counts.
+struct vorbis_id_packet {
+	u8   type     [must_eq = 1];
+	u8   magic[6] [must_eq = "vorbis"];
+	u32  version  [must_eq = 0];
+	u8   channels [min = 1];
+	u32  rate     [min = 1];
+}
+
+// RFC 7845 5.1: "OpusHead", a version, the channels, the samples to skip
+// at the start, the input's rate. An Opus granule always counts 48 kHz.
+struct opus_head_packet {
+	u8   magic[8] [must_eq = "OpusHead"];
+	u8   version;
+	u8   channels [min = 1];
+	u16  pre_skip;
+	u32  input_rate;
+}

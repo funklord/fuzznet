@@ -1,0 +1,34 @@
+# situ capability map v1
+# schema: mpeg.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct mpeg_header size=4 repr=ValueConverted atomic=NonAtomic
+  mpeg_header.sync                       offset=AbsoluteStatic(0x00) size=Fixed(11bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.version                    offset=AbsoluteStatic(0x01:3) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.layer                      offset=AbsoluteStatic(0x01:5) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.protection_absent          offset=AbsoluteStatic(0x01:7) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.bitrate                    offset=AbsoluteStatic(0x02) size=Fixed(4bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.rate                       offset=AbsoluteStatic(0x02:4) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.padding                    offset=AbsoluteStatic(0x02:6) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.private                    offset=AbsoluteStatic(0x02:7) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.mode                       offset=AbsoluteStatic(0x03) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.extension                  offset=AbsoluteStatic(0x03:2) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.copyright                  offset=AbsoluteStatic(0x03:4) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.original                   offset=AbsoluteStatic(0x03:5) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  mpeg_header.emphasis                   offset=AbsoluteStatic(0x03:6) size=Fixed(2bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+
+struct xing_frames size=4 repr=ValueConverted
+  xing_frames.frames                     offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct xing_header size=8 repr=ValueConverted atomic=NonAtomic
+  xing_header.magic                      offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  xing_header.flags                      offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord

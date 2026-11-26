@@ -815,6 +815,27 @@ SABOTAGES = [
 		"a photograph held here shows the camera's own thumbnail -- sec 1455",
 	),
 	(
+		"media-tags-opus-pre-skip-counted",
+		"media/tags.c",
+		"(unsigned long long)((granule - info->pre_skip) * 1000u / info->rate)",
+		"(unsigned long long)(granule * 1000u / info->rate)",
+		"an Opus stream's length is its last granule less the pre-skip -- sec 1456",
+	),
+	(
+		"media-tags-mp3-frame-samples",
+		"media/tags.c",
+		"\t\tspf = layer == 3u ? 384u : layer == 2u || version == 3u ? 1152u : 576u;\n",
+		"\t\tspf = layer == 3u ? 384u : 1152u;\n",
+		"an MPEG-2 or 2.5 layer III frame is 576 samples, not 1152 -- sec 1456",
+	),
+	(
+		"media-tags-mp3-side-info",
+		"media/tags.c",
+		"\t\tside = version == 3u ? (mono ? 17u : 32u) : (mono ? 9u : 17u);\n",
+		"\t\tside = version == 3u ? (mono ? 17u : 32u) : (mono ? 17u : 17u);\n",
+		"the Xing header stands after the side information, 9 bytes for MPEG-2 mono -- sec 1456",
+	),
+	(
 		"sticker-raster-any-canvas",
 		"gui/sticker_render.cpp",
 		"\treturn !s.isValid() || ((unsigned)s.width() <= APNG_SIDE_MAX && (unsigned)s.height() <= APNG_SIDE_MAX);\n",

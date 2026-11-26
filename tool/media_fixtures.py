@@ -12,10 +12,11 @@ after changing it; it writes only media/test/fixture/ and a scratch
 directory it removes.
 
 NOT BYTE FOR BYTE AGAIN: an Ogg stream's serial is drawn at random, so
-song.ogg and memo.opus differ at each run; keep the committed ones
-unless they are meant to change.
+song.ogg and memo.opus differ at each run, and jhead stamps
+photo_thumb.jpg; keep the committed ones unless they are meant to
+change.
 
-BOUNDED: twelve files, each from one tool run with a timeout; nothing loops.
+BOUNDED: thirteen files, each from one tool run with a timeout; nothing loops.
 """
 
 import os
@@ -89,6 +90,13 @@ def main():
 		run("ffmpeg", "-y", "-loglevel", "error", *tone, "-ac", "1", "-c:a", "libopus",
 		    "-metadata", "title=Voice memo", "-metadata", "artist=Anna",
 		    os.path.join(OUT, "memo.opus"))
+
+		# AN MP3 OF NO TAG AND NO XING HEADER, a constant bitrate: its length
+		# is its bytes over the bitrate (sec 1456).
+		run("ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+		    "sine=frequency=440:duration=1:sample_rate=44100", "-ac", "1", "-b:a", "64k",
+		    "-write_xing", "0", "-write_id3v2", "0", "-id3v2_version", "0",
+		    os.path.join(OUT, "cbr.mp3"))
 
 		# MP4 audio, ffmpeg's: the movie box after the media as it writes it
 		# by default, and before it with +faststart -- the reader must find

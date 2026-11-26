@@ -78598,3 +78598,34 @@ none in the photographs without one; the mangled files ask for it too.
 Pillow's or one held elsewhere. Sabotage
 `media-tags-thumbnail-offset-for-length` and
 `photo-view-no-thumbnails-wanted`.
+
+## 1456. A song's length where it says none: Ogg's last page, an MP3's first frame, 2026-11-26
+
+The music view listed lengths only where a file said one: FLAC's
+STREAMINFO, an MP4's movie header, an ID3 `TLEN` -- which most MP3s do
+not carry -- and never Ogg's, which a stream says only at its end.
+Both are read now through the ranged reader (sec 1452).
+
+**Ogg**: `media/ogg.situ` gains the identification packets -- Vorbis's
+rate, Opus's 48 kHz and pre-skip -- read from the stream's first packet;
+then the file's last 64 KiB (a page is at most 65,307 bytes) is searched
+from its end for the stream's last page with a granule set, and the
+length is the granule less the pre-skip over the rate. RFC 7845 section
+4 has Opus's playback so; ffprobe's 256.5 ms for the 250 ms fixture
+counts the skip.
+
+**MP3**: `media/mpeg.situ` describes the frame header and the Xing/Info
+header. The first frame after the ID3 tag (or at the file's start, an
+MP3 with no tag, `FZN_MEDIA_MP3`) gives the version, layer, bitrate and
+rate through ISO 11172-3's tables; where the encoder wrote a Xing or Info
+header after the side information, its frame count times the samples a
+frame over the rate is the length exactly (ffmpeg's 0.25 s at 8 kHz:
+6 x 576 / 8000 = 432 ms, as ffprobe says); otherwise, a constant
+bitrate, the audio's bytes over the bitrate (1044 ms for a 64 kbit/s
+file ffprobe says is 1.044875 s). A tag's `TLEN` still wins.
+
+**Tests:** `tags_test` (24): both Ogg lengths, neither from the head
+alone; the Info header's, TLEN winning, and the constant bitrate's;
+the new fixture mangled too; clean under ASan and UBSan. Sabotage
+`media-tags-opus-pre-skip-counted`, `media-tags-mp3-frame-samples`,
+`media-tags-mp3-side-info`.

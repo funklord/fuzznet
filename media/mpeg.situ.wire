@@ -1,0 +1,42 @@
+# situ wire signature v3
+# schema: mpeg.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+bit_order msb_first
+endian big
+target buffer
+
+struct mpeg_header size=4
+  @0x0000   11bit     u11        sync  big msb_first must_eq=2047
+  @0x0001:3 2bit      u2         version  msb_first
+  @0x0001:5 2bit      u2         layer  msb_first min=1
+  @0x0001:7 1bit      bool       protection_absent  msb_first
+  @0x0002   4bit      u4         bitrate  msb_first min=1 max=14
+  @0x0002:4 2bit      u2         rate  msb_first max=2
+  @0x0002:6 1bit      bool       padding  msb_first
+  @0x0002:7 1bit      bool       private  msb_first
+  @0x0003   2bit      u2         mode  msb_first
+  @0x0003:2 2bit      u2         extension  msb_first
+  @0x0003:4 1bit      bool       copyright  msb_first
+  @0x0003:5 1bit      bool       original  msb_first
+  @0x0003:6 2bit      u2         emphasis  msb_first
+
+struct xing_frames size=4
+  @0x0000   4         u32        frames  big min=1
+
+struct xing_header size=8
+  @0x0000   4         u8         magic  big
+  @0x0004   4         u32        flags  big

@@ -39,7 +39,8 @@ typedef enum fzn_media_format {
 	FZN_MEDIA_ID3 = 2,  /* an MP3, or anything else an ID3v2 tag opens */
 	FZN_MEDIA_FLAC = 3,
 	FZN_MEDIA_OGG = 4,  /* Ogg Vorbis or Opus, sec 1451 */
-	FZN_MEDIA_MP4 = 5   /* MP4, M4A, a phone's recording, sec 1452 */
+	FZN_MEDIA_MP4 = 5,  /* MP4, M4A, a phone's recording, sec 1452 */
+	FZN_MEDIA_MP3 = 6   /* an MP3 with no ID3v2 tag, its length alone, sec 1456 */
 } fzn_media_format_t;
 
 typedef struct fzn_media_tag {

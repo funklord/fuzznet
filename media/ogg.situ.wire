@@ -29,9 +29,23 @@ struct ogg_page size=27..282
   @0x001a   1         u8         segments
   @0x001b   0..255    u8         lacing  sized-by=segments
 
+struct opus_head_packet size=16
+  @0x0000   8         u8         magic  little must_eq="OpusHead"
+  @0x0008   1         u8         version
+  @0x0009   1         u8         channels  min=1
+  @0x000a   2         u16        pre_skip  little
+  @0x000c   4         u32        input_rate  little
+
 struct opus_tags_packet size=8
   @0x0000   8         u8         magic  little must_eq="OpusTags"
 
 struct vorbis_comment_packet size=7
   @0x0000   1         u8         type  must_eq=3
   @0x0001   6         u8         magic  little must_eq="vorbis"
+
+struct vorbis_id_packet size=16
+  @0x0000   1         u8         type  must_eq=1
+  @0x0001   6         u8         magic  little must_eq="vorbis"
+  @0x0007   4         u32        version  little must_eq=0
+  @0x000b   1         u8         channels  min=1
+  @0x000c   4         u32        rate  little min=1

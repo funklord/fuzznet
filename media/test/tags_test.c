@@ -313,6 +313,45 @@ int main(void)
 		printf("  an MP4 with a gigabyte before its movie box: %u reads, %llu bytes asked\n", f.reads,
 		       (unsigned long long)f.asked);
 	}
+	/* OGG'S LENGTH FROM ITS LAST PAGE, sec 1456: Vorbis's granule over its
+	 * rate; Opus's less its pre-skip over 48 kHz, as RFC 7845 section 4 has
+	 * playback -- 250 ms of input, where ffprobe's 256.5 counts the skip.
+	 * Read by its head alone, neither has a length. */
+	for (i = 6; i < 8u; i++) {
+		struct served f = { b[i], len[i], 0, 0, 0, 0 };
+
+		(void)fzn_media_tags_read_file(serve, &f, len[i], &t);
+		CHECK(t.format == FZN_MEDIA_OGG && is(&t, "duration", "250"), "an Ogg stream's length was not its last page's");
+		(void)fzn_media_tags_read(b[i], len[i], &t);
+		CHECK(absent(&t, "duration"), "an Ogg stream read by its head said a length");
+	}
+
+	/* AN MP3'S LENGTH FROM ITS FIRST FRAME, sec 1456: ffmpeg's Info header
+	 * says 6 frames of MPEG-2.5 layer III, 6 x 576 / 8000 = 432 ms as
+	 * ffprobe says; a tag's own TLEN wins where there is one; and an MP3 of
+	 * no tag and no Xing header, 64 kbit/s, is its bytes over the bitrate,
+	 * 8359 x 8 / 64 = 1044 ms (ffprobe 1.044875 s). */
+	{
+		struct served f = { b[0], len[0], 0, 0, 0, 0 };
+		size_t cbr_len = 0;
+		uint8_t *cbr = slurp("media/test/fixture/cbr.mp3", &cbr_len);
+
+		(void)fzn_media_tags_read_file(serve, &f, len[0], &t);
+		CHECK(is(&t, "duration", "432"), "an MP3's length was not its Info header's frames");
+		f.base = b[1];
+		f.len = len[1];
+		(void)fzn_media_tags_read_file(serve, &f, len[1], &t);
+		CHECK(is(&t, "duration", "250"), "an MP3's TLEN did not win over its frames");
+		f.base = cbr;
+		f.len = cbr_len;
+		(void)fzn_media_tags_read_file(serve, &f, cbr_len, &t);
+		CHECK(cbr && t.format == FZN_MEDIA_MP3 && is(&t, "duration", "1044"),
+		      "an MP3 of no tag at a constant bitrate was not its bytes over the bitrate");
+		if (cbr)
+			bad += mangle(cbr, cbr_len, &rng, 2000u);
+		free(cbr);
+	}
+
 	/* THE OTHER FORMATS by ranges read their head as before. */
 	{
 		struct served f = { b[1], len[1], 0, 0, 0, 0 };

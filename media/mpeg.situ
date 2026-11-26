@@ -1,0 +1,48 @@
+// An MP3's first frame, as far as a catalogue reads it for the length:
+// the MPEG audio frame header, and the Xing or Info header an encoder
+// writes into the first frame to say how many frames follow. project.md
+// sec 1456.
+//
+// SOURCES. ISO/IEC 11172-3 2.4.1.3 and 13818-3 (MPEG-1 and -2 audio, the
+// frame header; 2.5 is the Fraunhofer extension, version 0); the Xing VBR
+// header as LAME writes it (Info for a constant bitrate), after the side
+// information.
+//
+// WHAT C KEEPS (media/tags.c): the tables a header's indices name --
+// bitrates, sample rates, samples a frame -- where the side information
+// ends, and the length worked from them.
+
+target buffer;
+endian big;
+bit_order msb_first;
+
+// 2.4.1.3: eleven bits of sync, then the fields. A version of 1 and a layer
+// of 0 are reserved; a bitrate index of 0 is "free format", whose length
+// no header says, and 15 is forbidden; a sample rate index of 3 reserved.
+struct mpeg_header [allow_straddle] {
+	u11   sync      [must_eq = 0x7FF];
+	u2    version;
+	u2    layer     [min = 1];
+	bool  protection_absent;
+	u4    bitrate   [min = 1, max = 14];
+	u2    rate      [max = 2];
+	bool  padding;
+	bool  private;
+	u2    mode;
+	u2    extension;
+	bool  copyright;
+	bool  original;
+	u2    emphasis;
+}
+
+require size(mpeg_header) == 4;
+
+// "Xing" or "Info", then flags; where bit 0 is set, the frames.
+struct xing_header {
+	u8   magic[4];
+	u32  flags;
+}
+
+struct xing_frames {
+	u32  frames [min = 1];
+}

@@ -183,3 +183,130 @@ situ_err_t fzn_ogg_opus_tags_packet_validate(situ_view_t view)
 	return fzn_ogg_opus_tags_packet_check(view, NULL);
 }
 
+situ_err_t fzn_ogg_vorbis_id_packet_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_OGG_VORBIS_ID_PACKET_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* vorbis_id_packet.type [must_eq = 1] */
+	if (fzn_ogg_vorbis_id_packet_type_get(view) != 1) {
+		*which = FZN_OGG_VORBIS_ID_PACKET_TYPE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* vorbis_id_packet.magic [must_eq = "vorbis"] */
+	{
+		static const uint8_t want[][6] = {
+			{ 0x76u, 0x6Fu, 0x72u, 0x62u, 0x69u, 0x73u },
+		};
+		const uint32_t at = 1u;
+		uint32_t a, i;
+		int matched = 0;
+
+		for (a = 0; a < 1u && !matched; a++) {
+			matched = 1;
+			for (i = 0; i < 6u; i++) {
+				if ((situ_base(view))[at + i] != want[a][i]) {
+					matched = 0;
+					break;
+				}
+			}
+		}
+		if (!matched) {
+			*which = FZN_OGG_VORBIS_ID_PACKET_MAGIC_CHECK;
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	/* vorbis_id_packet.version [must_eq = 0] */
+	if (fzn_ogg_vorbis_id_packet_version_get(view) != 0) {
+		*which = FZN_OGG_VORBIS_ID_PACKET_VERSION_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* vorbis_id_packet.channels [min = 1] */
+	if (fzn_ogg_vorbis_id_packet_channels_get(view) < 1) {
+		*which = FZN_OGG_VORBIS_ID_PACKET_CHANNELS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* vorbis_id_packet.rate [min = 1] */
+	if (fzn_ogg_vorbis_id_packet_rate_get(view) < 1) {
+		*which = FZN_OGG_VORBIS_ID_PACKET_RATE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_ogg_vorbis_id_packet_validate(situ_view_t view)
+{
+	return fzn_ogg_vorbis_id_packet_check(view, NULL);
+}
+
+situ_err_t fzn_ogg_opus_head_packet_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_OGG_OPUS_HEAD_PACKET_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* opus_head_packet.magic [must_eq = "OpusHead"] */
+	{
+		static const uint8_t want[][8] = {
+			{ 0x4Fu, 0x70u, 0x75u, 0x73u, 0x48u, 0x65u, 0x61u, 0x64u },
+		};
+		const uint32_t at = 0u;
+		uint32_t a, i;
+		int matched = 0;
+
+		for (a = 0; a < 1u && !matched; a++) {
+			matched = 1;
+			for (i = 0; i < 8u; i++) {
+				if ((situ_base(view))[at + i] != want[a][i]) {
+					matched = 0;
+					break;
+				}
+			}
+		}
+		if (!matched) {
+			*which = FZN_OGG_OPUS_HEAD_PACKET_MAGIC_CHECK;
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	/* opus_head_packet.channels [min = 1] */
+	if (fzn_ogg_opus_head_packet_channels_get(view) < 1) {
+		*which = FZN_OGG_OPUS_HEAD_PACKET_CHANNELS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_ogg_opus_head_packet_validate(situ_view_t view)
+{
+	return fzn_ogg_opus_head_packet_check(view, NULL);
+}
+

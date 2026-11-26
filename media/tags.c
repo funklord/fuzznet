@@ -5,6 +5,7 @@
 #include "../wire/generated/flac.h"
 #include "../wire/generated/id3.h"
 #include "../wire/generated/mp4.h"
+#include "../wire/generated/mpeg.h"
 #include "../wire/generated/ogg.h"
 
 #include <stdio.h>
@@ -899,10 +900,34 @@ static void flac_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 
 /* ---- Ogg, media/ogg.situ, sec 1451 ------------------------------------------ */
 
+/* WHAT A STREAM'S LAST PAGE NEEDS to say its length (sec 1456): which
+ * stream, what its granule counts, and what it skips at the start. */
+struct ogg_info {
+	uint32_t serial;
+	uint32_t rate;     /* granules a second, 0 where the head said none */
+	uint32_t pre_skip; /* granules not heard, Opus's */
+};
+
+/* The identification packet's `n` bytes at `p`: the rate and the skip. */
+static void ogg_identify(const uint8_t *p, size_t n, struct ogg_info *info)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)p, (uint32_t)n);
+	if (fzn_ogg_vorbis_id_packet_view(&m, 0, &v) == SITU_OK && fzn_ogg_vorbis_id_packet_validate(v) == SITU_OK)
+		info->rate = fzn_ogg_vorbis_id_packet_rate_get(v);
+	else if (fzn_ogg_opus_head_packet_view(&m, 0, &v) == SITU_OK && fzn_ogg_opus_head_packet_validate(v) == SITU_OK) {
+		info->rate = 48000u;
+		info->pre_skip = fzn_ogg_opus_head_packet_pre_skip_get(v);
+	}
+}
+
 /* The first logical stream's second packet -- its comments, Vorbis's or
  * Opus's -- joined across the pages it runs over, and read. A packet goes
- * on while a lacing value is 255; pages of another stream are passed over. */
-static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
+ * on while a lacing value is 255; pages of another stream are passed over.
+ * `info`, where given, takes the stream and its first packet's rate. */
+static void ogg_read_info(const uint8_t *b, size_t len, fzn_media_tags_t *out, struct ogg_info *info)
 {
 	situ_msg_t msg;
 	uint32_t have = len > UINT32_MAX ? UINT32_MAX : (uint32_t)len, at = 0, serial = 0;
@@ -923,8 +948,11 @@ static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 		    || fzn_ogg_ogg_page_view(&msg, at, need, &page) != SITU_OK
 		    || fzn_ogg_ogg_page_validate(page) != SITU_OK)
 			break;
-		if (first)
+		if (first) {
 			serial = fzn_ogg_ogg_page_serial_get(page);
+			if (info)
+				info->serial = serial;
+		}
 		first = 0;
 		segments = fzn_ogg_ogg_page_segments_get(page);
 		lacing = fzn_ogg_ogg_page_lacing_ptr(page);
@@ -939,6 +967,10 @@ static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 			/* A PAGE CUT SHORT: what of the packet is here is read. */
 			uint32_t take = lacing[i] <= have - body ? lacing[i] : have - body;
 
+			/* THE FIRST PACKET'S HEAD, which says what a granule counts:
+			 * it fits in its first segment. */
+			if (packets == 0u && info && i == 0u && !info->rate)
+				ogg_identify(b + body, take, info);
 			if (packets == 1u) {
 				memcpy(packet + packet_len, b + body, take);
 				packet_len += take;
@@ -969,6 +1001,45 @@ static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 	free(packet);
 }
 
+static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
+{
+	ogg_read_info(b, len, out, NULL);
+}
+
+/* THE LENGTH FROM THE LAST PAGE, sec 1456: `tail`, the file's last bytes,
+ * searched from its end for a page of the stream, the first whose granule
+ * is set (a page ending no packet says -1). Its granule less the skip, over
+ * the rate. */
+static void ogg_length(const uint8_t *tail, size_t len, const struct ogg_info *info, fzn_media_tags_t *out)
+{
+	situ_msg_t msg;
+	size_t i;
+
+	if (!info->rate || len < 27u)
+		return;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)tail, (uint32_t)len);
+	for (i = len - 27u + 1u; i-- > 0;) {
+		situ_view_t page;
+		uint32_t need = 0;
+		uint64_t granule;
+		char ms[24];
+
+		if (memcmp(tail + i, "OggS", 4) != 0
+		    || fzn_ogg_ogg_page_required(tail + i, (uint32_t)(len - i), &need) != SITU_OK
+		    || fzn_ogg_ogg_page_view(&msg, (uint32_t)i, need, &page) != SITU_OK
+		    || fzn_ogg_ogg_page_validate(page) != SITU_OK || fzn_ogg_ogg_page_serial_get(page) != info->serial)
+			continue;
+		granule = fzn_ogg_ogg_page_granule_get(page);
+		if (granule == UINT64_MAX)
+			continue;
+		if (granule <= info->pre_skip || granule - info->pre_skip > UINT64_MAX / 1000u)
+			return;
+		(void)snprintf(ms, sizeof(ms), "%llu", (unsigned long long)((granule - info->pre_skip) * 1000u / info->rate));
+		put_text(out, N_DURATION, ms);
+		return;
+	}
+}
+
 /* ---- by what the file is ---------------------------------------------------- */
 
 /* ---- MP4, media/mp4.situ, sec 1452 ------------------------------------------ */
@@ -976,6 +1047,9 @@ static void ogg_read(const uint8_t *b, size_t len, fzn_media_tags_t *out)
 /* THE WALK'S BOUNDS: boxes read in all, and the item list's bytes. A file
  * whose boxes would take more is read as far as they go. */
 #define MP4_READS_MAX 256u
+/* An Ogg stream's last page lies within its last 64 KiB: a page is at most
+ * 27 + 255 + 255 * 255 bytes. */
+#define OGG_TAIL (64u * 1024u + 512u)
 #define MP4_ILST_MAX (256u * 1024u)
 
 struct mp4 {
@@ -1148,6 +1222,89 @@ static void mp4_read(struct mp4 *m, fzn_media_tags_t *out)
 	}
 }
 
+/* ---- an MP3's length, media/mpeg.situ, sec 1456 ------------------------------ */
+
+/* 2.4.2.3's tables, by version (3 MPEG-1, 2 MPEG-2, 0 MPEG-2.5) and layer
+ * (3 I, 2 II, 1 III): kbit/s by the bitrate index, Hz by the rate index. */
+static uint32_t mpeg_kbps(unsigned version, unsigned layer, unsigned index)
+{
+	static const uint16_t v1[3][15] = {
+		{ 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448 },   /* I */
+		{ 0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384 },      /* II */
+		{ 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320 },       /* III */
+	};
+	static const uint16_t v2[2][15] = {
+		{ 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256 },      /* I */
+		{ 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 },           /* II, III */
+	};
+
+	if (index > 14u || layer < 1u || layer > 3u)
+		return 0;
+	return version == 3u ? v1[3u - layer][index] : v2[layer == 3u ? 0 : 1][index];
+}
+
+static uint32_t mpeg_hz(unsigned version, unsigned index)
+{
+	static const uint32_t v1[3] = { 44100u, 48000u, 32000u };
+
+	if (index > 2u || version == 1u)
+		return 0;
+	return v1[index] / (version == 3u ? 1u : version == 2u ? 2u : 4u);
+}
+
+/* THE LENGTH OF AN MP3 from its first frame (sec 1456): a Xing or Info
+ * header's frame count where the encoder wrote one, the frames over the
+ * rate; else, a constant bitrate, the audio's bytes over the bitrate. The
+ * frame is sought in the 4 KiB from `at`, where the tag ends. */
+static void mp3_length(fzn_media_read_t read, void *ctx, uint64_t file_len, uint64_t at, fzn_media_tags_t *out)
+{
+	uint8_t b[4096];
+	situ_msg_t msg;
+	size_t got, i;
+	char ms[24];
+
+	if (at >= file_len || fzn_media_tag_find(out, N_DURATION))
+		return;
+	got = read(ctx, at, b, file_len - at < sizeof(b) ? (size_t)(file_len - at) : sizeof(b));
+	situ_msg_init(&msg, b, (uint32_t)got);
+	for (i = 0; i + 4u <= got; i++) {
+		situ_view_t h, x, fr;
+		unsigned version, layer, mono;
+		uint32_t kbps, hz, spf, side;
+		uint64_t length;
+
+		if (b[i] != 0xFFu || (b[i + 1u] & 0xE0u) != 0xE0u || fzn_mpeg_mpeg_header_view(&msg, (uint32_t)i, &h) != SITU_OK
+		    || fzn_mpeg_mpeg_header_validate(h) != SITU_OK)
+			continue;
+		version = fzn_mpeg_mpeg_header_version_get(h);
+		layer = fzn_mpeg_mpeg_header_layer_get(h);
+		kbps = mpeg_kbps(version, layer, fzn_mpeg_mpeg_header_bitrate_get(h));
+		hz = mpeg_hz(version, fzn_mpeg_mpeg_header_rate_get(h));
+		if (!kbps || !hz)
+			continue;
+		mono = fzn_mpeg_mpeg_header_mode_get(h) == 3u;
+		spf = layer == 3u ? 384u : layer == 2u || version == 3u ? 1152u : 576u;
+		side = version == 3u ? (mono ? 17u : 32u) : (mono ? 9u : 17u);
+		/* XING OR INFO, after the side information. */
+		if (layer == 1u && i + 4u + side + 12u <= got
+		    && fzn_mpeg_xing_header_view(&msg, (uint32_t)(i + 4u + side), &x) == SITU_OK
+		    && (!memcmp(b + i + 4u + side, "Xing", 4) || !memcmp(b + i + 4u + side, "Info", 4))
+		    && (fzn_mpeg_xing_header_flags_get(x) & 1u)
+		    && fzn_mpeg_xing_frames_view(&msg, (uint32_t)(i + 4u + side + 8u), &fr) == SITU_OK
+		    && fzn_mpeg_xing_frames_validate(fr) == SITU_OK) {
+			length = (uint64_t)fzn_mpeg_xing_frames_frames_get(fr) * spf * 1000u / hz;
+		} else {
+			/* A CONSTANT BITRATE: kbit/s is bits a millisecond. */
+			length = (file_len - at - i) * 8u / kbps;
+		}
+		if (length) {
+			(void)snprintf(ms, sizeof(ms), "%llu", (unsigned long long)length);
+			put_text(out, N_DURATION, ms);
+		}
+		return;
+	}
+}
+
 /* ---- a file read by ranges ------------------------------------------------- */
 
 size_t fzn_media_tags_read_file(fzn_media_read_t read, void *ctx, uint64_t file_len, fzn_media_tags_t *out)
@@ -1168,8 +1325,32 @@ size_t fzn_media_tags_read_file(fzn_media_read_t read, void *ctx, uint64_t file_
 	if (got >= 12u && memcmp(head + 4, "ftyp", 4) == 0) {
 		struct mp4 m = { read, ctx, file_len, 0 };
 		mp4_read(&m, out);
+	} else if (got >= 4u && memcmp(head, "OggS", 4) == 0) {
+		/* OGG'S LENGTH is at its end, sec 1456: the last 64 KiB read for it. */
+		struct ogg_info info = { 0, 0, 0 };
+		size_t tail_len = file_len < OGG_TAIL ? (size_t)file_len : OGG_TAIL;
+		uint8_t *tail;
+
+		ogg_read_info(head, got, out, &info);
+		if (info.rate && (tail = malloc(tail_len)) != NULL) {
+			size_t n = read(ctx, file_len - tail_len, tail, tail_len);
+			ogg_length(tail, n, &info, out);
+			wipe(tail, n);
+			free(tail);
+		}
 	} else {
 		(void)fzn_media_tags_read(head, got, out);
+		/* AN MP3, its tag first or none, sec 1456: its length from its
+		 * first frame, where the tag said none. */
+		if (out->format == FZN_MEDIA_ID3 && got >= 10u) {
+			const uint64_t tag = 10u + ((uint64_t)(head[6] & 0x7Fu) << 21 | (uint64_t)(head[7] & 0x7Fu) << 14
+			                            | (uint64_t)(head[8] & 0x7Fu) << 7 | (head[9] & 0x7Fu))
+			                     + ((head[5] & 0x10u) ? 10u : 0u);
+			mp3_length(read, ctx, file_len, tag, out);
+		} else if (out->format == FZN_MEDIA_UNKNOWN && head[0] == 0xFFu && (head[1] & 0xE0u) == 0xE0u) {
+			out->format = FZN_MEDIA_MP3;
+			mp3_length(read, ctx, file_len, 0, out);
+		}
 	}
 	wipe(head, got);
 	free(head);

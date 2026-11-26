@@ -22,9 +22,23 @@ struct ogg_page size=27..282 mutate=Shifting repr=ValueConverted atomic=NonAtomi
   ogg_page.segments                      offset=AbsoluteStatic(0x1A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   ogg_page.lacing                        offset=AbsoluteStatic(0x1B) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
+struct opus_head_packet size=16 repr=ValueConverted atomic=NonAtomic
+  opus_head_packet.magic                 offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  opus_head_packet.version               offset=AbsoluteStatic(0x08) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  opus_head_packet.channels              offset=AbsoluteStatic(0x09) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  opus_head_packet.pre_skip              offset=AbsoluteStatic(0x0A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  opus_head_packet.input_rate            offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+
 struct opus_tags_packet size=8 atomic=NonAtomic
   opus_tags_packet.magic                 offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
 struct vorbis_comment_packet size=7 atomic=NonAtomic
   vorbis_comment_packet.type             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   vorbis_comment_packet.magic            offset=AbsoluteStatic(0x01) size=Fixed(6) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct vorbis_id_packet size=16 repr=ValueConverted atomic=NonAtomic
+  vorbis_id_packet.type                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  vorbis_id_packet.magic                 offset=AbsoluteStatic(0x01) size=Fixed(6) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  vorbis_id_packet.version               offset=AbsoluteStatic(0x07) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  vorbis_id_packet.channels              offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  vorbis_id_packet.rate                  offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
