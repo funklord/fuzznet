@@ -1,0 +1,61 @@
+# situ wire signature v3
+# schema: exif.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+target buffer
+
+struct exif_app1 size=6
+  @0x0000   6         u8         identifier  must_eq="Exif\0\0"
+
+struct ifd size=6..786426
+  parameter -         byte_order order [stream]
+  @0x0000   2         u16        count  endian-from=order
+  @0x0002   0..786420 ifd_entry  entries  args order=order endian-from=order sized-by=count
+  ~         4         u32        next  endian-from=order
+  value switch: type
+  value case 3: shorts
+  value case default: long
+
+struct ifd_entry size=12
+  parameter -         byte_order order [stream]
+  @0x0000   2         u16        tag  endian-from=order
+  @0x0002   2         u16        type  endian-from=order
+  @0x0004   4         u32        count  endian-from=order
+  @0x0008   4         variant    value
+  value switch: type
+  value case 3: shorts u16
+  value case default: long u32
+
+struct jpeg_frame size=5
+  @0x0000   1         u8         precision
+  @0x0001   2         u16        height  big
+  @0x0003   2         u16        width  big min=1
+
+struct jpeg_segment size=4..65537
+  @0x0000   1         u8         fill  must_eq=255
+  @0x0001   1         u8         marker  min=192 max=254
+  @0x0002   2         u16        length  big min=2
+  @0x0004   0..65533  u8         body  sized-by=length-2
+
+struct rational size=8
+  parameter -         byte_order order [stream]
+  @0x0000   4         u32        numerator  endian-from=order
+  @0x0004   4         u32        denominator  endian-from=order
+
+struct tiff_header size=8
+  @0x0000   2         byte_order byte_order
+  @0x0002   2         u16        magic  endian-from=byte_order must_eq=42
+  @0x0004   4         u32        ifd_offset  endian-from=byte_order

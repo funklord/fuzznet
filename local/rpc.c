@@ -109,6 +109,14 @@ void fzn_rpc_library_list_release(fzn_rpc_library_list_all_t *v) {
 	free(v->entries);
 	memset(v, 0, sizeof *v);
 }
+void fzn_rpc_music_list_release(fzn_rpc_music_list_t *v) {
+	free(v->entries);
+	memset(v, 0, sizeof *v);
+}
+void fzn_rpc_photo_list_release(fzn_rpc_photo_list_t *v) {
+	free(v->entries);
+	memset(v, 0, sizeof *v);
+}
 
 static int unreadable(fzn_rpc_t *c) {
 	c->unreadable = 1;
@@ -5512,8 +5520,218 @@ static int file_status_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_blob
 	return FZN_RPC_OK;
 }
 
+/* A FILE READ FOR WHAT IT SAYS OF ITSELF, sec 1447: a tags_done and a
+ * STATUS ok, or the node's refusal. `ask` is a `tags` or a `tags_page`. */
+struct tags_answer {
+	uint32_t next, total, asserted;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void tags_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct tags_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK
+	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_TAGS_DONE
+	    || fzn_files_local_message_body_tags_done_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->rows++;
+	a->next = fzn_files_local_tags_done_next_get(b);
+	a->total = fzn_files_local_tags_done_total_get(b);
+	a->asserted = fzn_files_local_tags_done_asserted_get(b);
+}
+
+static int library_tags(fzn_rpc_t *c, const uint8_t *ask, size_t ask_len, struct tags_answer *a) {
+	int text = 0;
+	memset(a, 0, sizeof *a);
+	const int rc = fzn_rpc_binary(c, ask, ask_len, tags_each, a, &text);
+	if (text) return fail(c, FZN_RPC_ERR_MALFORMED, "this node reads no tags");
+	if (rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen || (a->code == FZN_STATUS_OK && a->rows != 1)) return unreadable(c);
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {
-	return node_library_add(c, entry);
+	const int rc = node_library_add(c, entry);
+	if (rc != FZN_RPC_OK) return rc;
+	/* AND WHAT THE FILE SAYS OF ITSELF, sec 1447, read where its bytes are.
+	 * The entry stands whatever this answers: a node from before, or a file
+	 * held elsewhere, has nothing to read, and the catalogue has it as before. */
+	uint8_t ask[2 + 32] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_TAGS };
+	struct tags_answer a;
+	memcpy(ask + 2, entry->root, 32);
+	(void)library_tags(c, ask, sizeof ask, &a);
+	c->error[0] = '\0';
+	c->error_code = 0;
+	return FZN_RPC_OK;
+}
+
+/* THE MUSIC OR THE PHOTO CATALOGUE, sec 1449: a row each, then a STATUS ok. */
+struct media_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_music_list_t *music;
+	fzn_rpc_photo_list_t *photos;
+	int bad, no_room, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+/* `n` bytes at `p` into `out` of `cap`, NUL-terminated, cut to fit. */
+static void words_into(char *out, size_t cap, const uint8_t *p, size_t n) {
+	if (n > cap - 1) n = cap - 1;
+	memcpy(out, p, n);
+	out[n] = '\0';
+}
+
+static void media_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct media_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->music) {
+		fzn_rpc_music_list_t *all = a->music;
+		if (fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_MUSIC_ROW
+		    || fzn_files_local_message_body_music_row_view(v, &b) != SITU_OK) {
+			a->bad = 1;
+			return;
+		}
+		if (room_for(a->c, &all->entries, &all->room, all->count + 1, sizeof *all->entries) != FZN_RPC_OK) {
+			a->no_room = 1;
+			return;
+		}
+		fzn_rpc_music_entry_t *e = &all->entries[all->count++];
+		memset(e, 0, sizeof *e);
+		memcpy(e->root, fzn_files_local_music_row_root_ptr(b), 32);
+		e->duration_ms = fzn_files_local_music_row_duration_ms_get(b);
+		e->holders = fzn_files_local_music_row_holders_get(b);
+		e->held_here = fzn_files_local_music_row_held_here_get(b);
+		e->track = fzn_files_local_music_row_track_get(b);
+		e->track_total = fzn_files_local_music_row_track_total_get(b);
+		e->disc = fzn_files_local_music_row_disc_get(b);
+		e->disc_total = fzn_files_local_music_row_disc_total_get(b);
+		e->year = fzn_files_local_music_row_year_get(b);
+#define WORDS(f) words_into(e->f, sizeof e->f, fzn_files_local_music_row_##f##_ptr(b), fzn_files_local_music_row_##f##_len(b))
+		WORDS(title);
+		WORDS(artist);
+		WORDS(album);
+		WORDS(album_artist);
+		WORDS(genre);
+		WORDS(composer);
+		WORDS(bpm);
+		WORDS(key);
+		WORDS(name);
+#undef WORDS
+		return;
+	}
+	fzn_rpc_photo_list_t *all = a->photos;
+	if (fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_PHOTO_ROW
+	    || fzn_files_local_message_body_photo_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (room_for(a->c, &all->entries, &all->room, all->count + 1, sizeof *all->entries) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_photo_entry_t *e = &all->entries[all->count++];
+	memset(e, 0, sizeof *e);
+	memcpy(e->root, fzn_files_local_photo_row_root_ptr(b), 32);
+	e->size = fzn_files_local_photo_row_size_get(b);
+	e->holders = fzn_files_local_photo_row_holders_get(b);
+	e->held_here = fzn_files_local_photo_row_held_here_get(b);
+	e->width = fzn_files_local_photo_row_width_get(b);
+	e->height = fzn_files_local_photo_row_height_get(b);
+	e->orientation = fzn_files_local_photo_row_orientation_get(b);
+	e->place = fzn_files_local_photo_row_place_get(b);
+	e->latitude_e7 = fzn_files_local_photo_row_latitude_get(b);
+	e->longitude_e7 = fzn_files_local_photo_row_longitude_get(b);
+#define WORDS(f) words_into(e->f, sizeof e->f, fzn_files_local_photo_row_##f##_ptr(b), fzn_files_local_photo_row_##f##_len(b))
+	WORDS(taken);
+	WORDS(camera);
+	WORDS(name);
+#undef WORDS
+}
+
+static int media_list(fzn_rpc_t *c, uint8_t op, fzn_rpc_music_list_t *music, fzn_rpc_photo_list_t *photos) {
+	const uint8_t ask[2] = { FZN_CMD_FILES, op };
+	struct media_answer a;
+	int text = 0;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.music = music;
+	a.photos = photos;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, media_each, &a, &text);
+	if (text) return fail(c, FZN_RPC_ERR_MALFORMED, "this node keeps no music or photo catalogue");
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory for that list");
+	if (!a.status_seen || a.bad) return unreadable(c);
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+		               : a.code == FZN_STATUS_MALFORMED ? FZN_RPC_ERR_MALFORMED
+		                                                : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_music_list(fzn_rpc_t *c, fzn_rpc_music_list_t *out) {
+	out->count = 0;
+	return media_list(c, FZN_FILES_LOCAL_OP_MUSIC, out, NULL);
+}
+
+int fzn_rpc_photo_list(fzn_rpc_t *c, fzn_rpc_photo_list_t *out) {
+	out->count = 0;
+	return media_list(c, FZN_FILES_LOCAL_OP_PHOTOS, NULL, out);
+}
+
+int fzn_rpc_library_read_tags(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint32_t *total, uint32_t *asserted) {
+	uint8_t ask[2 + 4] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_TAGS_PAGE, (uint8_t)(from >> 24), (uint8_t)(from >> 16),
+	                       (uint8_t)(from >> 8), (uint8_t)from };
+	struct tags_answer a;
+	const int rc = library_tags(c, ask, sizeof ask, &a);
+	if (rc != FZN_RPC_OK) return rc;
+	if (next) *next = a.next;
+	if (total) *total = a.total;
+	if (asserted) *asserted = a.asserted;
+	return FZN_RPC_OK;
 }
 
 /* WHAT THIS NODE HAS MOVED, IN BINARY, sec 1177: every family's totals and

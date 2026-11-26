@@ -2,6 +2,7 @@
 #include "library_binary.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -219,6 +220,184 @@ static int answer_one(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_no
 	return w->ok && status(w->put, w->ctx, FZN_STATUS_OK, NULL);
 }
 
+/* ---- the music and photo catalogues, sec 1449 ---------------------------- */
+
+/* The first live value of `name` among a file's claims, or none. */
+static size_t word_of(const fzn_catalog_assertion_t *set, size_t n, const char *name, const uint8_t **value)
+{
+	size_t k, len = strlen(name);
+
+	for (k = 0; k < n; k++)
+		if (set[k].live && named(&set[k], name, len) && set[k].value_len) {
+			*value = set[k].value;
+			return set[k].value_len < 255u ? set[k].value_len : 255u;
+		}
+	*value = NULL;
+	return 0;
+}
+
+/* The leading digits of a value as a number, at most `max`: "3/12" is 3,
+ * "1961-06-25" is 1961. 0 for none, or one past `max`. */
+static uint32_t leading(const uint8_t *p, size_t len, uint32_t max)
+{
+	uint32_t v = 0;
+	size_t i;
+
+	for (i = 0; i < len && i < 10u && p[i] >= '0' && p[i] <= '9'; i++)
+		v = v * 10u + (uint32_t)(p[i] - '0');
+	return i && i < 10u && v <= max ? v : 0u;
+}
+
+/* "N/M"'s M, as `leading` reads N. */
+static uint32_t total_of(const uint8_t *p, size_t len, uint32_t max)
+{
+	const uint8_t *slash = p ? memchr(p, '/', len) : NULL;
+
+	return slash ? leading(slash + 1, len - (size_t)(slash + 1 - p), max) : 0u;
+}
+
+/* A kind's family: "audio/flac" begins "audio/". */
+static int kind_is(const uint8_t *kind, size_t len, const char *family)
+{
+	size_t f = strlen(family);
+
+	return len > f && memcmp(kind, family, f) == 0;
+}
+
+/* `place`'s "LAT,LON" in ten-millionths of a degree: 1, or 0 where it is no
+ * place. */
+static int place_of(const uint8_t *p, size_t len, int32_t *lat, int32_t *lon)
+{
+	char text[64], *comma, *end;
+	double a, b;
+
+	if (!p || !len || len >= sizeof(text))
+		return 0;
+	memcpy(text, p, len);
+	text[len] = '\0';
+	if (!(comma = strchr(text, ',')))
+		return 0;
+	*comma = '\0';
+	a = strtod(text, &end);
+	if (end == text || *end)
+		return 0;
+	b = strtod(comma + 1, &end);
+	if (end == comma + 1 || *end || !(a >= -90.0 && a <= 90.0) || !(b >= -180.0 && b <= 180.0))
+		return 0;
+	*lat = (int32_t)(a * 1e7 + (a < 0 ? -0.5 : 0.5));
+	*lon = (int32_t)(b * 1e7 + (b < 0 ? -0.5 : 0.5));
+	return 1;
+}
+
+/* ONE FILE'S MUSIC ROW, or its photo row, from its claims and the library
+ * row they make: 1 when it is one, written; 0 when it is not; -1 when the
+ * row would not write. Music is a kind of `audio/`, or no kind and an
+ * artist or an album; a photo a kind of `image/`, or no kind and a time
+ * taken or a camera. */
+static int media_row(const fzn_catalog_assertion_t *set, size_t n, const fzn_node_library_row_t *r, unsigned op,
+                     struct rows *w)
+{
+	static uint8_t row[16u * 1024u], out[16u * 1024u + 8u];
+	const uint8_t *v[9];
+	size_t l[9];
+	uint32_t row_len = 0, out_len = 0;
+	int ok;
+
+	if (op == FZN_FILES_LOCAL_OP_MUSIC) {
+		static const char *names[9] = { "title", "artist", "album", "album_artist", "genre",
+			                        "composer", "bpm", "key", "track" };
+		const uint8_t *disc, *year;
+		size_t disc_len, year_len, i;
+
+		for (i = 0; i < 9u; i++)
+			l[i] = word_of(set, n, names[i], &v[i]);
+		if (r->kind_len ? !kind_is(r->kind, r->kind_len, "audio/") : !l[1] && !l[2])
+			return 0;
+		disc_len = word_of(set, n, "disc", &disc);
+		year_len = word_of(set, n, "year", &year);
+		if (l[6] > 16u)
+			l[6] = 0;
+		if (l[7] > 16u)
+			l[7] = 0;
+		ok = fzn_files_local_music_row_build(
+		             row, sizeof(row), r->root, r->duration_ms, r->holders, r->held_here,
+		             (uint16_t)leading(v[8], l[8], 0xffffu), (uint16_t)total_of(v[8], l[8], 0xffffu),
+		             (uint16_t)leading(disc, disc_len, 0xffffu), (uint16_t)total_of(disc, disc_len, 0xffffu),
+		             (uint16_t)leading(year, year_len, 0xffffu), v[0], (uint32_t)l[0], v[1], (uint32_t)l[1], v[2],
+		             (uint32_t)l[2], v[3], (uint32_t)l[3], v[4], (uint32_t)l[4], v[5], (uint32_t)l[5], v[6],
+		             (uint32_t)l[6], v[7], (uint32_t)l[7], r->name, (uint32_t)r->name_len, &row_len)
+		             == SITU_OK
+		     && fzn_files_local_message_build_music_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
+		                                                &out_len)
+		                == SITU_OK;
+	} else {
+		const uint8_t *taken, *camera, *place, *width, *height, *orientation;
+		size_t taken_len = word_of(set, n, "taken", &taken), camera_len = word_of(set, n, "camera", &camera);
+		size_t place_len = word_of(set, n, "place", &place), width_len = word_of(set, n, "width", &width);
+		size_t height_len = word_of(set, n, "height", &height);
+		size_t orientation_len = word_of(set, n, "orientation", &orientation);
+		int32_t lat = 0, lon = 0;
+		int where;
+
+		if (r->kind_len ? !kind_is(r->kind, r->kind_len, "image/") : !taken_len && !camera_len)
+			return 0;
+		if (taken_len > 19u)
+			taken_len = 0;
+		where = place_of(place, place_len, &lat, &lon);
+		ok = fzn_files_local_photo_row_build(
+		             row, sizeof(row), r->root, r->size, r->holders, r->held_here,
+		             leading(width, width_len, 0x7fffffffu), leading(height, height_len, 0x7fffffffu),
+		             (uint8_t)leading(orientation, orientation_len, 8u), (uint8_t)where, lat, lon, taken,
+		             (uint32_t)taken_len, camera, (uint32_t)camera_len, r->name, (uint32_t)r->name_len, &row_len)
+		             == SITU_OK
+		     && fzn_files_local_message_build_photo_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
+		                                                &out_len)
+		                == SITU_OK;
+	}
+	return ok && w->put(w->ctx, out, out_len) ? 1 : -1;
+}
+
+/* Every file that is music, or every photograph, a row each, then ok. */
+static int answer_media(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_node_library_file_t file,
+                        void *file_ctx, unsigned op, struct rows *w)
+{
+	fzn_catalog_assertion_t *set = NULL;
+	size_t cap = 0, i;
+	int ok = 1;
+
+	for (i = 0; i < cat->count && ok; i++) {
+		const fzn_node_catalog_entry_t *e = &cat->entries[i];
+		fzn_node_library_row_t row;
+		size_t j, n;
+		int earlier = 0;
+
+		if (!e->live)
+			continue;
+		for (j = e->same_entity; j != SIZE_MAX && j < i && !earlier; j = cat->entries[j].same_entity)
+			earlier = cat->entries[j].live != 0;
+		if (earlier)
+			continue;
+		n = fzn_node_catalog_count_of(cat, e->entity);
+		if (n > cap) {
+			fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
+
+			if (!more) {
+				ok = 0;
+				break;
+			}
+			set = more;
+			cap = n;
+		}
+		n = fzn_node_catalog_assertions(cat, e->entity, set, n);
+		row_of(set, n, e->entity, host, file, file_ctx, &row);
+		ok = media_row(set, n, &row, op, w) >= 0;
+	}
+	free(set);
+	if (!ok)
+		return status(w->put, w->ctx, FZN_STATUS_ERROR, "the catalogue did not list");
+	return status(w->put, w->ctx, FZN_STATUS_OK, NULL);
+}
+
 int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
                             fzn_node_library_file_t file, void *file_ctx, const uint8_t *msg,
                             size_t len, fzn_node_library_put_t put, void *put_ctx)
@@ -239,6 +418,8 @@ int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
 	op = (unsigned)fzn_files_local_message_op_get(v);
 	if (op == FZN_FILES_LOCAL_OP_LIBRARY_FILE)
 		return answer_one(cat, host, file, file_ctx, v, &w);
+	if (op == FZN_FILES_LOCAL_OP_MUSIC || op == FZN_FILES_LOCAL_OP_PHOTOS)
+		return answer_media(cat, host, file, file_ctx, op, &w);
 	if (op != FZN_FILES_LOCAL_OP_LIBRARY)
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a library request");
 	/* A ROW EACH, then a STATUS ok: an ended list told from a cut one. */

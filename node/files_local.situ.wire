@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136 catalog_add=137
+  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136 catalog_add=137 tags=138 tags_page=139 tags_done=140 music=141 music_row=142 photos=143 photo_row=144
 
 struct catalog_add size=36..603
   @0x0000   32        u8         root  big
@@ -55,10 +55,10 @@ struct library_row size=55..374
   ~         1         u8         name_len
   ~         0..255    u8         name  sized-by=name_len
 
-struct message size=2..605
+struct message size=2..1881
   @0x0000   1         u8         cmd  must_eq=1
   @0x0001   1         op         op
-  @0x0002   0..603    variant    body
+  @0x0002   0..1879   variant    body
   body switch: op
   body case 128: library nothing
   body case 129: library_row library_row
@@ -70,9 +70,63 @@ struct message size=2..605
   body case 135: shares file
   body case 136: share_row share_row
   body case 137: catalog_add catalog_add
+  body case 138: tags file
+  body case 139: tags_page tags_page
+  body case 140: tags_done tags_done
+  body case 141: music nothing
+  body case 142: music_row music_row
+  body case 143: photos nothing
+  body case 144: photo_row photo_row
   body case default: error
 
+struct music_row size=62..1879
+  @0x0000   32        u8         root  big
+  @0x0020   8         u64        duration_ms  big
+  @0x0028   2         u16        holders  big
+  @0x002a   1         u8         held_here  max=1
+  @0x002b   2         u16        track  big
+  @0x002d   2         u16        track_total  big
+  @0x002f   2         u16        disc  big
+  @0x0031   2         u16        disc_total  big
+  @0x0033   2         u16        year  big
+  @0x0035   1         u8         title_len
+  @0x0036   0..255    u8         title  sized-by=title_len
+  ~         1         u8         artist_len
+  ~         0..255    u8         artist  sized-by=artist_len
+  ~         1         u8         album_len
+  ~         0..255    u8         album  sized-by=album_len
+  ~         1         u8         album_artist_len
+  ~         0..255    u8         album_artist  sized-by=album_artist_len
+  ~         1         u8         genre_len
+  ~         0..255    u8         genre  sized-by=genre_len
+  ~         1         u8         composer_len
+  ~         0..255    u8         composer  sized-by=composer_len
+  ~         1         u8         bpm_len  max=16
+  ~         0..16     u8         bpm  sized-by=bpm_len
+  ~         1         u8         key_len  max=16
+  ~         0..16     u8         key  sized-by=key_len
+  ~         1         u8         name_len
+  ~         0..255    u8         name  sized-by=name_len
+
 struct nothing size=0
+
+struct photo_row size=64..593
+  @0x0000   32        u8         root  big
+  @0x0020   8         u64        size  big
+  @0x0028   2         u16        holders  big
+  @0x002a   1         u8         held_here  max=1
+  @0x002b   4         u32        width  big
+  @0x002f   4         u32        height  big
+  @0x0033   1         u8         orientation  max=8
+  @0x0034   1         u8         place  max=1
+  @0x0035   4         i32        latitude  big min=-900000000 max=900000000
+  @0x0039   4         i32        longitude  big min=-1800000000 max=1800000000
+  @0x003d   1         u8         taken_len  max=19
+  @0x003e   0..19     u8         taken  sized-by=taken_len
+  ~         1         u8         camera_len
+  ~         0..255    u8         camera  sized-by=camera_len
+  ~         1         u8         name_len
+  ~         0..255    u8         name  sized-by=name_len
 
 struct share size=34..67
   @0x0000   32        u8         root  big
@@ -85,3 +139,11 @@ struct share_row size=34..66
   @0x0001   32        u8         key  big
   @0x0021   1         u8         name_len  max=32
   @0x0022   0..32     u8         name  sized-by=name_len
+
+struct tags_done size=12
+  @0x0000   4         u32        next  big
+  @0x0004   4         u32        total  big
+  @0x0008   4         u32        asserted  big
+
+struct tags_page size=4
+  @0x0000   4         u32        from  big

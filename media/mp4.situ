@@ -1,0 +1,70 @@
+// An MP4 file's own account of itself, as far as a catalogue reads it: the
+// boxes walked to the movie header and the iTunes-style item list.
+// project.md sec 1452, the music catalogue's M4A and the phone's recordings.
+//
+// SOURCES. ISO/IEC 14496-12 (the base media file format), 4.2 (a box's
+// size and type, a size of 1 meaning a 64-bit size follows, 0 meaning to
+// the file's end), 4.2's full box (a version and 24 bits of flags), and
+// 8.2.2 (mvhd, version 0 and 1). The item list (`udta/meta/ilst`, each
+// item holding a `data` box of a type, a locale and the value) is Apple's
+// QuickTime File Format, as every tagger writes it.
+//
+// WHAT C KEEPS (media/tags.c): the walk from box to box -- the movie box
+// may stand after gigabytes of media data, so the walk asks for each
+// header where the sizes put it rather than reading the file through --
+// and turning an item into a catalogue name.
+
+target buffer;
+endian big;
+
+// 4.2: a box's size, counting itself, and its type.
+struct box {
+	u32  size;
+	u8   type[4];
+}
+
+require size(box) == 8;
+
+// 4.2: where `size` is 1, the true size follows.
+struct box_large {
+	u64  size;
+}
+
+// 4.2: a full box's version and flags, after the box header.
+struct full_box {
+	u8   version;
+	u24  flags;
+}
+
+// 8.2.2: the movie header, version 0 -- its times in 32 bits.
+struct mvhd_v0 {
+	u32  creation;
+	u32  modification;
+	u32  timescale;
+	u32  duration;
+}
+
+// 8.2.2: version 1 -- in 64.
+struct mvhd_v1 {
+	u64  creation;
+	u64  modification;
+	u32  timescale;
+	u64  duration;
+}
+
+// An item's value: a `data` box, its type (1 UTF-8 text, 0 binary as
+// `trkn` and `disk` are, 21 a big-endian integer), a locale, the value.
+struct item_data {
+	u32  size      [min = 16];
+	u8   type[4]   [must_eq = "data"];
+	u32  kind;
+	u32  locale;
+	u8   value[size - 16];
+}
+
+// `trkn` and `disk`: two bytes of nothing, the number, the total.
+struct item_pair {
+	u16  reserved;
+	u16  number;
+	u16  total;
+}

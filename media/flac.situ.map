@@ -1,0 +1,40 @@
+# situ capability map v1
+# schema: flac.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct flac_block_header size=4 repr=ValueConverted atomic=NonAtomic
+  flac_block_header.last                 offset=AbsoluteStatic(0x00) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_block_header.type                 offset=AbsoluteStatic(0x00:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_block_header.length               offset=AbsoluteStatic(0x01) size=Fixed(3) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct flac_marker size=4 atomic=NonAtomic
+  flac_marker.magic                      offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct flac_streaminfo size=34 repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.min_block              offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  flac_streaminfo.max_block              offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  flac_streaminfo.min_frame              offset=AbsoluteStatic(0x04) size=Fixed(3) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.max_frame              offset=AbsoluteStatic(0x07) size=Fixed(3) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.sample_rate            offset=AbsoluteStatic(0x0A) size=Fixed(20bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.channels_less_one      offset=AbsoluteStatic(0x0C:4) size=Fixed(3bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.bits_less_one          offset=AbsoluteStatic(0x0C:7) size=Fixed(5bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.samples                offset=AbsoluteStatic(0x0D:4) size=Fixed(36bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  flac_streaminfo.md5                    offset=AbsoluteStatic(0x12) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+
+struct vorbis_comment size=4..4294967299 mutate=Shifting repr=ValueConverted
+  vorbis_comment.length                  offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  vorbis_comment.text                    offset=AbsoluteStatic(0x04) size=Bounded(0, 4294967295) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct vorbis_comment_head size=8..4294967303 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  vorbis_comment_head.vendor_length      offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  vorbis_comment_head.vendor             offset=AbsoluteStatic(0x04) size=Bounded(0, 4294967295) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  vorbis_comment_head.count              offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable

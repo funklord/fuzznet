@@ -418,6 +418,638 @@ static inline situ_err_t fzn_files_local_catalog_add_build(
 	return SITU_OK;
 }
 
+/** Build a tags_page into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete tags_page
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_tags_page_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint32_t from,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)from);
+	situ_at += 4u;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_tags_page_view(&situ_msg, 0, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_tags_page_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a tags_done into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete tags_done
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_tags_done_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint32_t next,
+		uint32_t total,
+		uint32_t asserted,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)next);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)total);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)asserted);
+	situ_at += 4u;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_tags_done_view(&situ_msg, 0, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_tags_done_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a music_row into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete music_row
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_music_row_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		const uint8_t *root,
+		uint64_t duration_ms,
+		uint16_t holders,
+		uint8_t held_here,
+		uint16_t track,
+		uint16_t track_total,
+		uint16_t disc,
+		uint16_t disc_total,
+		uint16_t year,
+		const uint8_t *title_,
+		uint32_t title__len,
+		const uint8_t *artist_,
+		uint32_t artist__len,
+		const uint8_t *album_,
+		uint32_t album__len,
+		const uint8_t *album_artist_,
+		uint32_t album_artist__len,
+		const uint8_t *genre_,
+		uint32_t genre__len,
+		const uint8_t *composer_,
+		uint32_t composer__len,
+		const uint8_t *bpm_,
+		uint32_t bpm__len,
+		const uint8_t *key_,
+		uint32_t key__len,
+		const uint8_t *name_,
+		uint32_t name__len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (root == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 32u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put(situ_out + situ_at, root, 32u);
+	situ_at += 32u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)duration_ms);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)holders);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)held_here;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)track);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)track_total);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)disc);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)disc_total);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)year);
+	situ_at += 2u;
+
+	/* title_len: the length of `title_`, which the schema states. */
+	if (title__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)title__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < title__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (title__len != 0u) {
+		if (title_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, title_, title__len);
+	}
+	situ_at += title__len;
+
+	/* artist_len: the length of `artist_`, which the schema states. */
+	if (artist__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)artist__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < artist__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (artist__len != 0u) {
+		if (artist_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, artist_, artist__len);
+	}
+	situ_at += artist__len;
+
+	/* album_len: the length of `album_`, which the schema states. */
+	if (album__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)album__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < album__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (album__len != 0u) {
+		if (album_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, album_, album__len);
+	}
+	situ_at += album__len;
+
+	/* album_artist_len: the length of `album_artist_`, which the schema states. */
+	if (album_artist__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)album_artist__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < album_artist__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (album_artist__len != 0u) {
+		if (album_artist_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, album_artist_, album_artist__len);
+	}
+	situ_at += album_artist__len;
+
+	/* genre_len: the length of `genre_`, which the schema states. */
+	if (genre__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)genre__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < genre__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (genre__len != 0u) {
+		if (genre_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, genre_, genre__len);
+	}
+	situ_at += genre__len;
+
+	/* composer_len: the length of `composer_`, which the schema states. */
+	if (composer__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)composer__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < composer__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (composer__len != 0u) {
+		if (composer_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, composer_, composer__len);
+	}
+	situ_at += composer__len;
+
+	/* bpm_len: the length of `bpm_`, which the schema states. */
+	if (bpm__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)bpm__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < bpm__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (bpm__len != 0u) {
+		if (bpm_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, bpm_, bpm__len);
+	}
+	situ_at += bpm__len;
+
+	/* key_len: the length of `key_`, which the schema states. */
+	if (key__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)key__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < key__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (key__len != 0u) {
+		if (key_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, key_, key__len);
+	}
+	situ_at += key__len;
+
+	/* name_len: the length of `name_`, which the schema states. */
+	if (name__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)name__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < name__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (name__len != 0u) {
+		if (name_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, name_, name__len);
+	}
+	situ_at += name__len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_music_row_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_music_row_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a photo_row into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete photo_row
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_photo_row_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		const uint8_t *root,
+		uint64_t size,
+		uint16_t holders,
+		uint8_t held_here,
+		uint32_t width,
+		uint32_t height,
+		uint8_t orientation,
+		uint8_t place,
+		int32_t latitude,
+		int32_t longitude,
+		const uint8_t *taken_,
+		uint32_t taken__len,
+		const uint8_t *camera_,
+		uint32_t camera__len,
+		const uint8_t *name_,
+		uint32_t name__len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (root == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 32u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put(situ_out + situ_at, root, 32u);
+	situ_at += 32u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)size);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)holders);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)held_here;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)width);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)height);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)orientation;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)place;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)latitude);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)longitude);
+	situ_at += 4u;
+
+	/* taken_len: the length of `taken_`, which the schema states. */
+	if (taken__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)taken__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < taken__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (taken__len != 0u) {
+		if (taken_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, taken_, taken__len);
+	}
+	situ_at += taken__len;
+
+	/* camera_len: the length of `camera_`, which the schema states. */
+	if (camera__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)camera__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < camera__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (camera__len != 0u) {
+		if (camera_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, camera_, camera__len);
+	}
+	situ_at += camera__len;
+
+	/* name_len: the length of `name_`, which the schema states. */
+	if (name__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)name__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < name__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (name__len != 0u) {
+		if (name_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, name_, name__len);
+	}
+	situ_at += name__len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_photo_row_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_photo_row_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
 /** Build a share_row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -1572,6 +2204,671 @@ static inline situ_err_t fzn_files_local_message_build_catalog_add(
 		situ_put(situ_out + situ_at, catalog_add, catalog_add_len);
 	}
 	situ_at += catalog_add_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `tags` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_tags(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *tags,
+		uint32_t tags_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 138, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)138u;
+	situ_at += 1u;
+
+	/* body.tags: one whole `file`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (tags_len != 0u && tags == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_file_required(tags, tags_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != tags_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < tags_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (tags_len != 0u) {
+		if (tags == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, tags, tags_len);
+	}
+	situ_at += tags_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `tags_page` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_tags_page(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *tags_page,
+		uint32_t tags_page_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 139, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)139u;
+	situ_at += 1u;
+
+	/* body.tags_page: one whole `tags_page`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (tags_page_len != 0u && tags_page == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_tags_page_required(tags_page, tags_page_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != tags_page_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < tags_page_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (tags_page_len != 0u) {
+		if (tags_page == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, tags_page, tags_page_len);
+	}
+	situ_at += tags_page_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `tags_done` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_tags_done(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *tags_done,
+		uint32_t tags_done_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 140, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)140u;
+	situ_at += 1u;
+
+	/* body.tags_done: one whole `tags_done`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (tags_done_len != 0u && tags_done == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_tags_done_required(tags_done, tags_done_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != tags_done_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < tags_done_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (tags_done_len != 0u) {
+		if (tags_done == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, tags_done, tags_done_len);
+	}
+	situ_at += tags_done_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `music` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_music(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *music,
+		uint32_t music_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 141, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)141u;
+	situ_at += 1u;
+
+	/* body.music: one whole `nothing`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (music_len != 0u && music == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_nothing_required(music, music_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != music_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < music_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (music_len != 0u) {
+		if (music == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, music, music_len);
+	}
+	situ_at += music_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `music_row` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_music_row(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *music_row,
+		uint32_t music_row_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 142, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)142u;
+	situ_at += 1u;
+
+	/* body.music_row: one whole `music_row`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (music_row_len != 0u && music_row == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_music_row_required(music_row, music_row_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != music_row_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < music_row_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (music_row_len != 0u) {
+		if (music_row == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, music_row, music_row_len);
+	}
+	situ_at += music_row_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `photos` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_photos(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *photos,
+		uint32_t photos_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 143, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)143u;
+	situ_at += 1u;
+
+	/* body.photos: one whole `nothing`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (photos_len != 0u && photos == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_nothing_required(photos, photos_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != photos_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < photos_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (photos_len != 0u) {
+		if (photos == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, photos, photos_len);
+	}
+	situ_at += photos_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_files_local_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_files_local_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `photo_row` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_files_local_message_build_photo_row(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *photo_row,
+		uint32_t photo_row_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* op: 144, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)144u;
+	situ_at += 1u;
+
+	/* body.photo_row: one whole `photo_row`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (photo_row_len != 0u && photo_row == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_files_local_photo_row_required(photo_row, photo_row_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != photo_row_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < photo_row_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (photo_row_len != 0u) {
+		if (photo_row == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, photo_row, photo_row_len);
+	}
+	situ_at += photo_row_len;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how

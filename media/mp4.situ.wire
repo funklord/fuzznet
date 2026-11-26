@@ -1,0 +1,54 @@
+# situ wire signature v3
+# schema: mp4.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct box size=8
+  @0x0000   4         u32        size  big
+  @0x0004   4         u8         type  big
+
+struct box_large size=8
+  @0x0000   8         u64        size  big
+
+struct full_box size=4
+  @0x0000   1         u8         version
+  @0x0001   3         u24        flags  big
+
+struct item_data size=16..4294967295
+  @0x0000   4         u32        size  big min=16
+  @0x0004   4         u8         type  big must_eq="data"
+  @0x0008   4         u32        kind  big
+  @0x000c   4         u32        locale  big
+  @0x0010   0..4294967279 u8         value  sized-by=size-16
+
+struct item_pair size=6
+  @0x0000   2         u16        reserved  big
+  @0x0002   2         u16        number  big
+  @0x0004   2         u16        total  big
+
+struct mvhd_v0 size=16
+  @0x0000   4         u32        creation  big
+  @0x0004   4         u32        modification  big
+  @0x0008   4         u32        timescale  big
+  @0x000c   4         u32        duration  big
+
+struct mvhd_v1 size=28
+  @0x0000   8         u64        creation  big
+  @0x0008   8         u64        modification  big
+  @0x0010   4         u32        timescale  big
+  @0x0014   8         u64        duration  big

@@ -253,6 +253,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/heard_row.c wire/generated/session_frame_wire.c \
              wire/generated/group_act_record.c wire/generated/group_line_wire.c \
              wire/generated/settings_registry.c wire/generated/permit.c wire/generated/verify_memo_record.c \
+             wire/generated/exif.c wire/generated/id3.c wire/generated/flac.c wire/generated/ogg.c wire/generated/mp4.c \
              wire/generated/contact_card_record.c wire/generated/routing_record.c \
              wire/generated/fix_row.c wire/generated/opjournal_row.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
@@ -305,7 +306,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              local/rpc.c local/rpc_err.c local/rpc_describe.c local/call_sound.c \
              local/rpc_encoding.c local/rpc_sticker_read.c local/rpc_media.c local/rpc_binary.c \
-             hex/hex.c net/own_address.c media/ulaw.c media/jitter.c \
+             hex/hex.c net/own_address.c media/ulaw.c media/jitter.c media/tags.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/meter_binary.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c node/clocks_binary.c \
              net/udp.c net/ports.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
@@ -407,7 +408,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h media/tags.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
              local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h local/call_sound.h \
@@ -500,7 +501,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c media/test/tags_test.c \
              local/test/rpc_test.c local/test/call_sound_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
@@ -642,6 +643,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/hex/test/hex_test \
              $(BUILD_DIR)/media/test/media_test \
+             $(BUILD_DIR)/media/test/tags_test \
              $(BUILD_DIR)/local/test/rpc_test \
              $(BUILD_DIR)/local/test/call_sound_test \
              $(BUILD_DIR)/location/test/geo_test \
@@ -3819,6 +3821,17 @@ $(BUILD_DIR)/media/test/media_test: $(BUILD_DIR)/media/test/media_test.o $(BUILD
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# WHAT A FILE SAYS OF ITSELF, sec 1447: EXIF, ID3v2 and FLAC read through
+# situ's code from the fixtures tool/media_fixtures.py writes with ffmpeg,
+# mutagen, metaflac and Pillow, then cut and mangled.
+MEDIA_TAGS_OBJS := $(BUILD_DIR)/media/tags.o $(BUILD_DIR)/wire/generated/exif.o \
+                   $(BUILD_DIR)/wire/generated/id3.o $(BUILD_DIR)/wire/generated/flac.o \
+                   $(BUILD_DIR)/wire/generated/ogg.o $(BUILD_DIR)/wire/generated/mp4.o \
+                   $(BUILD_DIR)/wire/generated/situ.o
+$(BUILD_DIR)/media/test/tags_test: $(BUILD_DIR)/media/test/tags_test.o $(MEDIA_TAGS_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5878,7 +5891,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
-FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o $(MEDIA_TAGS_OBJS) \
               $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
               $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
@@ -8094,6 +8107,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               node/heard_row.situ node/routing_record.situ node/contact_devices_wire.situ \
               node/contact_card_record.situ node/contact_request_record.situ node/group_act_record.situ \
               node/settings_registry.situ node/group_line_wire.situ location/fix_row.situ sticker/pack.situ node/objects.situ node/rrpc_local.situ node/permit.situ \
+              media/exif.situ media/id3.situ media/flac.situ media/ogg.situ media/mp4.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
@@ -8276,6 +8290,7 @@ endif
 	@timeout 1160 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 60 python3 tool/live_help.py $(FUZZNETD) $(BRIDGE)
+	@timeout 150 python3 tool/live_tags.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 170 python3 tool/live_location.py $(FUZZNETD)
@@ -9012,6 +9027,11 @@ schema:
 	@# AND THE LOCAL PERMIT'S GRAMMAR, sec 1415.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_permit \
 	         --out $(BUILD_DIR)/.gen.new node/permit.situ >/dev/null 2>&1
+	@# AND WHAT A FILE SAYS OF ITSELF, sec 1447.
+	@for m in exif id3 flac ogg mp4; do \
+		$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_$$m \
+		         --out $(BUILD_DIR)/.gen.new media/$$m.situ >/dev/null 2>&1 || exit 1; \
+	done
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_group_line_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/group_line_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_group_line_wire \
@@ -9068,7 +9088,7 @@ schema:
 	          address_vectors.c \
 	          objects.c objects.h objects_edit.h objects_build.h objects_vectors.c \
 	          rrpc_local.c rrpc_local.h rrpc_local_edit.h rrpc_local_build.h rrpc_local_vectors.c \
-	          permit.c permit.h \
+	          permit.c permit.h exif.c exif.h id3.c id3.h flac.c flac.h ogg.c ogg.h mp4.c mp4.h \
 	          messages_local.c messages_local.h messages_local_edit.h messages_local_build.h \
 	          messages_local_vectors.c contacts_local.c contacts_local.h contacts_local_edit.h \
 	          contacts_local_build.h contacts_local_vectors.c groups_local.c groups_local.h \

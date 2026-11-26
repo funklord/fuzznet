@@ -1166,6 +1166,56 @@ typedef struct fzn_rpc_library_list_entry {
 
 #define FZN_RPC_LIBRARY_DETAIL_ROWS 256u
 
+/*
+ * THE MUSIC CATALOGUE, sec 1449: every file this user's hosts hold that is
+ * music, as `fzn_rpc_music_list` gathers it. The words are what the file
+ * says of itself (sec 1447), or a player asserted, NUL-terminated and raw;
+ * a number is 0 where none was said. `name` is the file's, for a list to
+ * show where there is no title.
+ */
+typedef struct fzn_rpc_music_entry {
+	uint8_t root[32];
+	uint64_t duration_ms;
+	uint16_t holders;
+	uint8_t held_here;
+	uint16_t track, track_total, disc, disc_total, year;
+	char title[256], artist[256], album[256], album_artist[256], genre[256], composer[256];
+	char bpm[17], key[17];
+	char name[256];
+} fzn_rpc_music_entry_t;
+
+typedef struct fzn_rpc_music_list {
+	fzn_rpc_music_entry_t *entries;
+	size_t room;
+	size_t count;
+} fzn_rpc_music_list_t;
+
+/*
+ * THE PHOTO CATALOGUE, sec 1449: every photograph. `taken` the camera's
+ * "YYYY-MM-DDTHH:MM:SS" in its own local time, empty where unsaid; `place`
+ * 1 when it was said where, the latitude and longitude then in
+ * ten-millionths of a degree, north and east positive; `orientation`
+ * EXIF's 1 to 8, 0 unsaid.
+ */
+typedef struct fzn_rpc_photo_entry {
+	uint8_t root[32];
+	uint64_t size;
+	uint16_t holders;
+	uint8_t held_here;
+	uint32_t width, height;
+	uint8_t orientation, place;
+	int32_t latitude_e7, longitude_e7;
+	char taken[20];
+	char camera[256];
+	char name[256];
+} fzn_rpc_photo_entry_t;
+
+typedef struct fzn_rpc_photo_list {
+	fzn_rpc_photo_entry_t *entries;
+	size_t room;
+	size_t count;
+} fzn_rpc_photo_list_t;
+
 /* The most files any listing can have -- one per claim at most, so the claim
  * store's bound (FZN_RPC_LIBRARY_MAX, asserted equal in library_service.c). What
  * a client gathers its pages into. */

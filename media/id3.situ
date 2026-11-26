@@ -1,0 +1,100 @@
+// The tag an MP3 carries before its audio, ID3v2.3 and v2.4, as far as a
+// catalogue reads one: the header, the extended header to step over, and
+// one frame at a time. project.md sec 1447, the music catalogue.
+//
+// SOURCES. id3v2.4.0-structure.txt and id3v2.3.0.txt. The v2.4 shapes follow
+// situ's `example/id3/id3.situ`, proved there against a real tag; v2.3 is
+// read here because most tagged files in the wild still carry it, and it
+// differs in the one field every parse depends on -- a frame's size is a
+// plain u32 in v2.3 and synchsafe in v2.4 -- so the two are two frame
+// structs, not one with a flag.
+//
+// WHAT C KEEPS (media/tags.c): the walk from frame to frame inside the tag,
+// stopping at padding; turning a text frame's encoding into UTF-8; and
+// refusing a tag that is unsynchronised as a whole, which v2.3 allows and a
+// catalogue does not undo.
+
+endian big;
+bit_order msb_first;
+
+// 3.1, both versions: ten bytes, the tag's size not counting them, as four
+// seven-bit groups.
+struct id3_header {
+	u8  magic[3]  [must_eq = "ID3"];
+	u8  major     [min = 3, max = 4];
+	u8  revision;
+	bool  unsynchronisation;
+	bool  extended_header;
+	bool  experimental;
+	bool  footer;
+	reserved u4;
+	reserved u1  [must_be_zero];
+	u7       size_0;
+	reserved u1  [must_be_zero];
+	u7       size_1;
+	reserved u1  [must_be_zero];
+	u7       size_2;
+	reserved u1  [must_be_zero];
+	u7       size_3;
+}
+
+require size(id3_header) == 10;
+
+// v2.3 3.2: the extended header's size, a plain u32 not counting itself.
+struct id3v23_extended {
+	u32  size  [max = 10];
+	u8   rest[size];
+}
+
+// v2.4 3.2: synchsafe, counting itself; six to fifteen bytes, as situ's
+// example pins it.
+struct id3v24_extended {
+	reserved u1  [must_be_zero];
+	u7       size_0  [must_eq = 0];
+	reserved u1  [must_be_zero];
+	u7       size_1  [must_eq = 0];
+	reserved u1  [must_be_zero];
+	u7       size_2  [must_eq = 0];
+	reserved u1  [must_be_zero];
+	u7       size_3  [min = 6, max = 15];
+	u8       rest[size_3 - 4];
+}
+
+// v2.3 3.3: four characters, a plain u32 size, two flag bytes.
+struct id3v23_frame {
+	u8   identifier[4];
+	u32  size;
+	u16  flags;
+	u8   content[size];
+}
+
+// v2.4 4: the same, the size synchsafe.
+struct id3v24_frame {
+	u8   identifier[4];
+	reserved u1  [must_be_zero];
+	u7       size_0;
+	reserved u1  [must_be_zero];
+	u7       size_1;
+	reserved u1  [must_be_zero];
+	u7       size_2;
+	reserved u1  [must_be_zero];
+	u7       size_3;
+	u16  flags;
+	u8   content[(size_0 << 21) | (size_1 << 14) | (size_2 << 7) | size_3];
+}
+
+// 4.2 (v2.4), 4.2 (v2.3): every T??? frame, one byte of encoding and then
+// the text. v2.3 knows the first two encodings only; a 2 or 3 there is a
+// v2.4 writer's habit, read as it means.
+struct id3_text {
+	id3_encoding  encoding;
+	u8            text[remaining];
+}
+
+enum id3_encoding : u8 {
+	iso_8859_1 = 0,
+	utf_16     = 1,
+	utf_16_be  = 2,
+	utf_8      = 3,
+	default    = error,
+}

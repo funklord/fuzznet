@@ -1,0 +1,47 @@
+# situ wire signature v3
+# schema: flac.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+bit_order msb_first
+target buffer
+
+struct flac_block_header size=4
+  @0x0000   1bit      bool       last  msb_first
+  @0x0000:1 7bit      u7         type  msb_first max=126
+  @0x0001   3         u24        length  big
+
+struct flac_marker size=4
+  @0x0000   4         u8         magic  must_eq="fLaC"
+
+struct flac_streaminfo size=34
+  @0x0000   2         u16        min_block  big min=16
+  @0x0002   2         u16        max_block  big min=16
+  @0x0004   3         u24        min_frame  big
+  @0x0007   3         u24        max_frame  big
+  @0x000a   20bit     u20        sample_rate  big msb_first
+  @0x000c:4 3bit      u3         channels_less_one  msb_first
+  @0x000c:7 5bit      u5         bits_less_one  msb_first
+  @0x000d:4 36bit     u36        samples  big msb_first
+  @0x0012   16        u8         md5  big
+
+struct vorbis_comment size=4..4294967299
+  @0x0000   4         u32        length  little
+  @0x0004   0..4294967295 u8         text  sized-by=length
+
+struct vorbis_comment_head size=8..4294967303
+  @0x0000   4         u32        vendor_length  little
+  @0x0004   0..4294967295 u8         vendor  sized-by=vendor_length
+  ~         4         u32        count  little

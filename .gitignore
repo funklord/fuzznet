@@ -47,6 +47,7 @@
 /tool/sticker_convert_test
 /location/test/geo_test
 /media/test/media_test
+/media/test/tags_test
 /net/test/own_address_test
 /record/test/store_file_test
 /record/test/store_file_nopunch_test

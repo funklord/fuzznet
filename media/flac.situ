@@ -1,0 +1,60 @@
+// A FLAC file's metadata, as far as a catalogue reads it: the blocks before
+// the audio, the stream's own length, and the Vorbis comments that carry its
+// tags. project.md sec 1447, the music catalogue.
+//
+// SOURCES. RFC 9639 (FLAC), sections 8.1 to 8.6, and the Vorbis I
+// specification's comment header (section 5), which FLAC carries whole in
+// its VORBIS_COMMENT block -- little-endian inside a big-endian file, which
+// is why the comment structs say so for themselves.
+//
+// WHAT C KEEPS (media/tags.c): the walk from block to block until the one
+// marked last, or the head it was given ends, and the walk from comment to comment inside the comment
+// block, splitting each at its first `=`.
+
+target buffer;
+bit_order msb_first;
+
+struct flac_marker {
+	u8  magic[4]  [must_eq = "fLaC"];
+}
+
+// 8.1: one bit saying whether this block is the last, seven of type, and a
+// 24-bit length of what follows. The header alone, so the walk steps over a
+// block it was not given whole -- a cover picture can be megabytes, and the
+// comments are often after it.
+struct flac_block_header [endian = big] {
+	bool  last;
+	u7    type  [max = 126];
+	u24   length;
+}
+
+require size(flac_block_header) == 4;
+
+// 8.2: STREAMINFO, type 0, always first and always 34 bytes. The stream's
+// length is its samples over its rate.
+struct flac_streaminfo [endian = big, allow_straddle] {
+	u16  min_block  [min = 16];
+	u16  max_block  [min = 16];
+	u24  min_frame;
+	u24  max_frame;
+	u20  sample_rate;
+	u3   channels_less_one;
+	u5   bits_less_one;
+	u36  samples;
+	u8   md5[16];
+}
+
+require size(flac_streaminfo) == 34;
+
+// 8.6 and Vorbis I 5.2.1: the vendor string, then the count of comments.
+struct vorbis_comment_head [endian = little] {
+	u32  vendor_length;
+	u8   vendor[vendor_length];
+	u32  count;
+}
+
+// One comment: its length, then `NAME=value` in UTF-8.
+struct vorbis_comment [endian = little] {
+	u32  length;
+	u8   text[length];
+}

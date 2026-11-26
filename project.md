@@ -65682,7 +65682,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074); the media -- jitter, mu-law, `call_sound`, `call_audio`, `call_video` (secs 1234-1237), Opus where FFmpeg is (sec 1254); `call_bar` over every page, a screen while it rings (secs 1238, 1247); each conversation's call history (sec 1255) | fuzzypickles' own call screens, to move onto these | |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257); what a file says of itself read where its bytes are -- EXIF, ID3v2, FLAC, Ogg, MP4 (secs 1447-1452) -- and the music and photo catalogues, `fzn_rpc_music_list`, `fzn_rpc_photo_list`, `music_view`, `photo_view` (secs 1449-1450) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
 | Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | none measured (sec 1414): the listing pages and fetches a row's detail on demand, and a facet query cannot list a kind alone |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
@@ -78285,3 +78285,223 @@ Lottie of 165 layers draws in at most 18 ms a tick, inside the 40 ms one.
 saying why, 1025 tall refused and counted as no frames, 1024 drawn; the
 two refusals fail with the check sabotaged
 (`sticker-raster-any-canvas`).
+
+## 1447. The music and photo catalogues: the plan, 2026-11-25 {#media-catalogues}
+
+Status:  settled 2026-11-25
+Decides: media-catalogues
+
+**The holder, 2026-11-25**: "add the music and photo catalogs" -- the
+image and photo manager of sec 1268, and its music sibling. Under the
+register's rule (sec 1070) both are fuzznet's: the estate's catalogue
+(`catalog/`, `node/catalog.c`) already carries every file a user's
+hosts hold, its name, kind and duration; what no host can do today is
+**list its music by artist and album, or its photos by when and where
+they were taken**, because nothing reads a file's own tags.
+
+**What snurra already does, measured in its tree** (its project.md sec
+3, the estate): it lists the estate's catalogue beside a folder and
+plays it through fuzznet's calls; it reads a file's title and artist
+through FFmpeg, fingerprints through Chromaprint, asks AcoustID for a
+MusicBrainz recording, and finds BPM and key -- **all kept in its own
+per-host cache** (`beats.ini`), so another host, or fuzzypickles, never
+sees them. So fuzznet's part is the estate's: the names, the reading of
+what a file says of itself where the bytes are, and the listing; what
+only a player can learn (BPM, key, a fingerprint's identity) it asserts
+onto the same file with `add catalog`, under names fixed here.
+
+**The vocabulary**, flat lower-case names as Vorbis comments spell them,
+each a catalogue attribute on the file's root:
+
+| name | from | class |
+|---|---|---|
+| `title`, `artist`, `album`, `album_artist`, `genre`, `composer` | ID3 `TIT2` `TPE1` `TALB` `TPE2` `TCON` `TCOM`; Vorbis comments | label |
+| `track`, `disc` | `TRCK`, `TPOS`; `TRACKNUMBER`, `DISCNUMBER` -- "N" or "N/M" | label |
+| `year` | `TDRC`/`TYER`; `DATE` -- as written, its first four digits read | label |
+| `duration` | FLAC's STREAMINFO; otherwise the consumer's, as today | fact (hint, sec 652) |
+| `taken` | EXIF `DateTimeOriginal`, else `DateTime` -- "YYYY-MM-DDTHH:MM:SS", the camera's local time | label |
+| `camera` | EXIF `Make` and `Model` | label |
+| `width`, `height` | EXIF pixel dimensions, else the JPEG frame's | fact (hint) |
+| `place` | EXIF GPS -- "LAT,LON" in degrees, seven places | label |
+| `orientation` | EXIF `Orientation`, 1 to 8 | fact (hint) |
+| `bpm`, `key`, `musicbrainz_recording`, `acoustid` | a player (snurra) | label |
+
+A tag's text is a label, not a fact, though the bytes hold it: it is
+what somebody wrote, a person may assert another, and DISTINCT merge
+shows both. Sizes are carried facts for C3's reason -- needed before the
+bytes are fetched.
+
+**Where it is read: the host storing the file, when it is catalogued.**
+`library add` already runs where the bytes are; it reads the file's
+first 256 KiB from its own store and asserts what it finds as this
+host's, beside the name and kind. A file already catalogued is read by
+a verb asking for it (`add tags [ROOT]`), so no start of a daemon reads
+a library unasked. Rejected: reading at every host that fetches the file
+(the attributes are estate-wide already, and N hosts asserting the same
+words is N copies of one fact), and reading in the consumer (snurra has
+FFmpeg, fuzzypickles' phone app and a lamp do not, and the catalogue
+would then say different things by who stored a file).
+
+**The readers are situ schemas** (sec 1311's rule, situ owns every
+layout): JPEG segments to EXIF's APP1, the TIFF directory with its
+byte-order marker (situ's `example/tiff`), ID3v2.4 and v2.3 (situ's
+`example/id3`, whose v2.3 sizes are plain `u32`), FLAC's metadata blocks
+and the Vorbis comment block. What situ cannot state -- a text frame's
+encoding turned into UTF-8, a rational turned into degrees -- is C beside
+the generated views, as `node/permit.c` keeps its residue. Ogg and MP4
+follow once the first three stand; a file in another container is
+catalogued as today, by name and kind.
+
+**Listed as typed rows**: FZN_CMD_FILES gains `music` and `photos`
+beside `library` (`node/files_local.situ`), one row a file carrying the
+vocabulary above, holders and held here; the typed client
+`fzn_rpc_music_list` and `fzn_rpc_photo_list`; and two views,
+`music_view` (artist, album, track, played through the host's player as
+the library's Play is, sec 1156) and `photo_view` (by month taken, a
+thumbnail each -- EXIF's own where the camera wrote one, else the frame
+decoded small). Searching by artist or album needs nothing new: the
+search's `files` store reads every catalogue value (sec 1299).
+
+**Stages**, each committed with its tests: (1) the schemas and
+`media/tags`, reading a buffer into name/value pairs, fuzzed; (2) the
+node reading at `library add` and `add tags`; (3) the rows and the
+client calls; (4) `music_view`; (5) `photo_view`. snurra is told the
+names once stage 2 stands, to assert its BPM, key and identities there.
+
+## 1448. What a file says of itself, read and catalogued, 2026-11-26
+
+Stages 1 and 2 of sec 1447.
+
+**The readers** (`media/tags.c`, through `media/exif.situ`,
+`media/id3.situ` and `media/flac.situ`): a JPEG's segments to EXIF's
+APP1 and the frame's size, EXIF's TIFF directories in either byte order
+(IFD0, the EXIF directory, GPS), ID3v2.3 and v2.4 frame by frame, FLAC's
+blocks to STREAMINFO and the Vorbis comments. Each struct is one record
+-- a segment, a frame, a block header, a comment -- and C walks them, as
+the formats stop on rules of their own (a zero byte where an
+identifier would start, the block marked last, the scan). Text in
+ISO-8859-1 and UTF-16 either way round becomes UTF-8; a value is cut at
+a character's edge, controls become spaces, the ends are trimmed. A
+track and Vorbis's separate total become "N/M"; EXIF's colons become
+ISO 8601; GPS's three rationals become signed degrees to seven places; a
+camera's maker is said once ("Canon EOS 5D Mark IV", not "Canon Canon
+EOS..."). The v2.3 schema is its own: its frame size is a plain `u32`,
+and below 128 bytes the two encodings are the same bytes -- so the
+fixture carries a 183-byte album, and a reader taking one for the other
+fails on it.
+
+**Proved against other hands**: `tool/media_fixtures.py` writes the six
+fixtures with ffmpeg (ID3v2.4), mutagen (ID3v2.3, UTF-16 past the BMP's
+edge), metaflac (comments in mixed case after a picture block) and
+Pillow (EXIF big- and little-endian, GPS both hemispheres, a JPEG with
+none). `tags_test` reads each back name by name, then cuts each at every
+length and mangles it 24,000 ways, seeded: clean under ASan and UBSan,
+every value well formed. Five sabotages (`media-tags-*`) each fail it.
+
+**The node reads where the bytes are** (`add tags ROOT`, `add tags from
+N`; binary `tags` 138, `tags_page` 139, answered by `tags_done` 140 in
+`node/files_local.situ`): the file's first 256 KiB opened from its own
+store into a scratch file beside the store, read, removed, and wiped
+from memory; what it says asserted as this host's, a size or a length a
+carried fact and the rest labels. An assertion this host already makes
+is not made again, so asking twice grows nothing. A page is 32 held
+files, so a large library is read a request at a time and the loop is
+never held long. `fzn_rpc_library_add` asks for the file it has just
+catalogued, and its answer never fails the add -- a node from before
+refuses the op, and the entry stands as it did; `fzn_rpc_library_read_tags`
+pages through a library catalogued before.
+
+**Tests:** `tool/live_tags.py` in `livecheck` -- a song's tag read and
+listed (title in UTF-16, artist, album, track, year, length), nothing
+new asked twice, a page walk reading a photo's time, camera and place
+and a FLAC's title and length, no head left in the store, a root not
+held and a FROM past the end refused, a text file asserting nothing, and
+the same in binary. With the no-repeat check removed phase b fails; with
+the scratch file kept, phase c names it.
+
+**Next**: stage 3, the music and photo rows (sec 1447).
+
+## 1449. The music and photo catalogues listed, and the music on a widget, 2026-11-26
+
+Stages 3 and 4 of sec 1447.
+
+**The rows** (`node/files_local.situ`): `music` 141 answered by a
+`music_row` 142 a file, `photos` 143 by a `photo_row` 144, then a STATUS
+ok, built by `node/library_binary.c` over the same walk as the library's
+-- the first live value of each name, holders by issuer, held here as
+the bytes. A file is music by a kind of `audio/`, or with no kind by an
+artist or an album; a photograph by `image/`, or with no kind by a time
+taken or a camera -- so a film that says a title is neither, and a JPEG
+catalogued with no kind and saying nothing is not a photograph. The
+catalogue's words become numbers where a list sorts or places by them:
+"3/12" is track 3 of 12, "1961-06-25" the year 1961, "LAT,LON" ten-
+millionths of a degree, and a latitude past a pole no place at all. BPM
+and key, a player's words (sec 1447), are carried as said, at most 16
+bytes. `fzn_rpc_music_list` and `fzn_rpc_photo_list` gather them; a
+node from before answers MALFORMED.
+
+**`gui/music_view`**: the music by album -- the album artist where one
+is said, else the track's -- the year its earliest track says, then the
+tracks by disc and track, each titled (its file's name where it says
+none), its artist named only where it is not the album's, its length
+and where it is. A track plays through the host's player (`on_play`), an
+album in its order (`on_play_all`); a track not held here is asked for;
+"Read the tags" reads a library from before a page at a time and says
+what it learned. Found by a word of the title, artist, album, album
+artist or genre, any case; an album left with no track is hidden.
+
+**Tests:** `library_binary_test` (102): a song by its kind and one by
+its words, a photograph, a film that is neither, the numbers read from
+the words, a place past the pole refused. `music_view_test` (13),
+answered by the node's own `library_binary.c` over a catalogue the test
+fills: two albums and a track of none in order, a guest named, a track
+and an album played, fetching, finding, a library read a page at a
+time, a silent node, 320 px. `live_tags` phase g lists two songs and two
+photographs from the real daemon. Sabotage: three `music-view-*` and
+two `library-binary-*` entries, each failing its test.
+
+## 1451. Ogg Vorbis and Opus read too, 2026-11-26
+
+The containers a phone records into and much music comes in. `media/ogg.situ`
+describes the page header (RFC 3533 section 6) and the two packet heads
+-- Vorbis's type 3 and "vorbis", Opus's "OpusTags" -- after which the
+comments are the Vorbis comment structure FLAC carries
+(`media/flac.situ`), read by the same code. C keeps the walk: a page's
+body is the sum of its lacing values, a packet runs on across pages while
+a lacing value is 255, the stream's second packet is its comments, and
+pages of another stream are passed over. A packet cut by the head is read
+as far as it is whole. No length is read: Ogg says it only at the
+stream's last page, past the head.
+
+**Tests:** two fixtures more by ffmpeg (`song.ogg`, `memo.opus`);
+`tags_test` reads each and mangles all eight files 32,000 ways, clean
+under ASan and UBSan. Sabotage `media-tags-ogg-first-packet` fails it.
+
+## 1452. MP4 read by its boxes, wherever the movie box stands, 2026-11-26
+
+M4A music and a phone's recordings. An MP4 keeps what it says of itself
+in its movie box, and many writers -- ffmpeg by default, most phones --
+put that box after the media, gigabytes from the start, so the head the
+other formats are read from never reaches it. **`fzn_media_tags_read_file`
+reads by ranges**: given a callback that reads `len` bytes at an offset,
+it reads the head as before, and an MP4 (its `ftyp` at byte 4) is walked
+box by box where the sizes put each header -- `moov`, its `mvhd` for the
+length (version 0 or 1, the duration over the time scale), and
+`udta/meta/ilst` for `©nam`, `©ART`, `©alb`, `aART`, `©gen`, `©wrt`,
+`©day`, `trkn` and `disk` (each item's first `data` box; text as UTF-8,
+the two pairs as "N/M"). `meta` is a full box, and is read as a plain one
+where a writer made it so (its first child `hdlr` straight after). At
+most 256 box reads and a 256 KiB item list. The node's `add tags` reads
+through it, each range opened into a scratch file and removed, as before.
+
+`media/mp4.situ` describes the box header, the 64-bit size, the full
+box, `mvhd` in both versions, an item's `data` and the number pairs; C
+keeps the walk.
+
+**Tests:** two fixtures by ffmpeg, the movie box after the media and,
+with `+faststart`, before it; `tags_test` reads both, and a virtual file
+-- `song.m4a` served with its media grown by a gigabyte -- in 15 reads
+and 262 KB asked. All ten fixtures are mangled 40,000 ways through both
+readers, clean under ASan and UBSan. `live_tags` phase h stores an M4A
+and reads it at the node. Sabotage: `media-tags-mp4-moov-in-the-head`,
+`media-tags-mp4-meta-full-box`.

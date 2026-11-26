@@ -159,6 +159,276 @@ static inline situ_err_t fzn_files_local_catalog_add_edit_decode(const situ_msg_
 	return SITU_OK;
 }
 
+/* `music_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint64_t duration_ms;
+	uint16_t holders;
+	uint8_t held_here;
+	uint16_t track;
+	uint16_t track_total;
+	uint16_t disc;
+	uint16_t disc_total;
+	uint16_t year;
+	uint8_t title_len;
+	const uint8_t *title;	/* into your backing */
+	uint32_t title_span;
+	uint8_t artist_len;
+	const uint8_t *artist;	/* into your backing */
+	uint32_t artist_span;
+	uint8_t album_len;
+	const uint8_t *album;	/* into your backing */
+	uint32_t album_span;
+	uint8_t album_artist_len;
+	const uint8_t *album_artist;	/* into your backing */
+	uint32_t album_artist_span;
+	uint8_t genre_len;
+	const uint8_t *genre;	/* into your backing */
+	uint32_t genre_span;
+	uint8_t composer_len;
+	const uint8_t *composer;	/* into your backing */
+	uint32_t composer_span;
+	uint8_t bpm_len;
+	const uint8_t *bpm;	/* into your backing */
+	uint32_t bpm_span;
+	uint8_t key_len;
+	const uint8_t *key;	/* into your backing */
+	uint32_t key_span;
+	uint8_t name_len;
+	const uint8_t *name;	/* into your backing */
+	uint32_t name_span;
+} fzn_files_local_music_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_files_local_music_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_files_local_music_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_files_local_music_row_title_len(view);
+	*need += fzn_files_local_music_row_artist_len(view);
+	*need += fzn_files_local_music_row_album_len(view);
+	*need += fzn_files_local_music_row_album_artist_len(view);
+	*need += fzn_files_local_music_row_genre_len(view);
+	*need += fzn_files_local_music_row_composer_len(view);
+	*need += fzn_files_local_music_row_bpm_len(view);
+	*need += fzn_files_local_music_row_key_len(view);
+	*need += fzn_files_local_music_row_name_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_files_local_music_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_files_local_music_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_files_local_music_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_files_local_music_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->duration_ms = fzn_files_local_music_row_duration_ms_get(view);
+	out->holders = fzn_files_local_music_row_holders_get(view);
+	out->held_here = fzn_files_local_music_row_held_here_get(view);
+	out->track = fzn_files_local_music_row_track_get(view);
+	out->track_total = fzn_files_local_music_row_track_total_get(view);
+	out->disc = fzn_files_local_music_row_disc_get(view);
+	out->disc_total = fzn_files_local_music_row_disc_total_get(view);
+	out->year = fzn_files_local_music_row_year_get(view);
+	out->title_len = fzn_files_local_music_row_title_len_get(view);
+	out->title_span = fzn_files_local_music_row_title_len(view);
+	out->title     = backing + at;
+	for (uint32_t i = 0u; i < out->title_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_title_ptr(view)[i];
+	}
+	at += out->title_span;
+	out->artist_len = fzn_files_local_music_row_artist_len_get(view);
+	out->artist_span = fzn_files_local_music_row_artist_len(view);
+	out->artist     = backing + at;
+	for (uint32_t i = 0u; i < out->artist_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_artist_ptr(view)[i];
+	}
+	at += out->artist_span;
+	out->album_len = fzn_files_local_music_row_album_len_get(view);
+	out->album_span = fzn_files_local_music_row_album_len(view);
+	out->album     = backing + at;
+	for (uint32_t i = 0u; i < out->album_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_album_ptr(view)[i];
+	}
+	at += out->album_span;
+	out->album_artist_len = fzn_files_local_music_row_album_artist_len_get(view);
+	out->album_artist_span = fzn_files_local_music_row_album_artist_len(view);
+	out->album_artist     = backing + at;
+	for (uint32_t i = 0u; i < out->album_artist_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_album_artist_ptr(view)[i];
+	}
+	at += out->album_artist_span;
+	out->genre_len = fzn_files_local_music_row_genre_len_get(view);
+	out->genre_span = fzn_files_local_music_row_genre_len(view);
+	out->genre     = backing + at;
+	for (uint32_t i = 0u; i < out->genre_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_genre_ptr(view)[i];
+	}
+	at += out->genre_span;
+	out->composer_len = fzn_files_local_music_row_composer_len_get(view);
+	out->composer_span = fzn_files_local_music_row_composer_len(view);
+	out->composer     = backing + at;
+	for (uint32_t i = 0u; i < out->composer_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_composer_ptr(view)[i];
+	}
+	at += out->composer_span;
+	out->bpm_len = fzn_files_local_music_row_bpm_len_get(view);
+	out->bpm_span = fzn_files_local_music_row_bpm_len(view);
+	out->bpm     = backing + at;
+	for (uint32_t i = 0u; i < out->bpm_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_bpm_ptr(view)[i];
+	}
+	at += out->bpm_span;
+	out->key_len = fzn_files_local_music_row_key_len_get(view);
+	out->key_span = fzn_files_local_music_row_key_len(view);
+	out->key     = backing + at;
+	for (uint32_t i = 0u; i < out->key_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_key_ptr(view)[i];
+	}
+	at += out->key_span;
+	out->name_len = fzn_files_local_music_row_name_len_get(view);
+	out->name_span = fzn_files_local_music_row_name_len(view);
+	out->name     = backing + at;
+	for (uint32_t i = 0u; i < out->name_span; i++) {
+		backing[at + i] = fzn_files_local_music_row_name_ptr(view)[i];
+	}
+	at += out->name_span;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `photo_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint64_t size;
+	uint16_t holders;
+	uint8_t held_here;
+	uint32_t width;
+	uint32_t height;
+	uint8_t orientation;
+	uint8_t place;
+	int32_t latitude;
+	int32_t longitude;
+	uint8_t taken_len;
+	const uint8_t *taken;	/* into your backing */
+	uint32_t taken_span;
+	uint8_t camera_len;
+	const uint8_t *camera;	/* into your backing */
+	uint32_t camera_span;
+	uint8_t name_len;
+	const uint8_t *name;	/* into your backing */
+	uint32_t name_span;
+} fzn_files_local_photo_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_files_local_photo_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_files_local_photo_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_files_local_photo_row_taken_len(view);
+	*need += fzn_files_local_photo_row_camera_len(view);
+	*need += fzn_files_local_photo_row_name_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_files_local_photo_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_files_local_photo_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_files_local_photo_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_files_local_photo_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->size = fzn_files_local_photo_row_size_get(view);
+	out->holders = fzn_files_local_photo_row_holders_get(view);
+	out->held_here = fzn_files_local_photo_row_held_here_get(view);
+	out->width = fzn_files_local_photo_row_width_get(view);
+	out->height = fzn_files_local_photo_row_height_get(view);
+	out->orientation = fzn_files_local_photo_row_orientation_get(view);
+	out->place = fzn_files_local_photo_row_place_get(view);
+	out->latitude = fzn_files_local_photo_row_latitude_get(view);
+	out->longitude = fzn_files_local_photo_row_longitude_get(view);
+	out->taken_len = fzn_files_local_photo_row_taken_len_get(view);
+	out->taken_span = fzn_files_local_photo_row_taken_len(view);
+	out->taken     = backing + at;
+	for (uint32_t i = 0u; i < out->taken_span; i++) {
+		backing[at + i] = fzn_files_local_photo_row_taken_ptr(view)[i];
+	}
+	at += out->taken_span;
+	out->camera_len = fzn_files_local_photo_row_camera_len_get(view);
+	out->camera_span = fzn_files_local_photo_row_camera_len(view);
+	out->camera     = backing + at;
+	for (uint32_t i = 0u; i < out->camera_span; i++) {
+		backing[at + i] = fzn_files_local_photo_row_camera_ptr(view)[i];
+	}
+	at += out->camera_span;
+	out->name_len = fzn_files_local_photo_row_name_len_get(view);
+	out->name_span = fzn_files_local_photo_row_name_len(view);
+	out->name     = backing + at;
+	for (uint32_t i = 0u; i < out->name_span; i++) {
+		backing[at + i] = fzn_files_local_photo_row_name_ptr(view)[i];
+	}
+	at += out->name_span;
+	(void)at;
+	return SITU_OK;
+}
+
 /* `share_row`, decoded into storage you own.
  *
  * Call `backing` for how many bytes the variable members need, then

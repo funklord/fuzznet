@@ -136,6 +136,8 @@ void fzn_rpc_group_list_release(fzn_rpc_group_list_resp_t *v);
 void fzn_rpc_group_show_release(fzn_rpc_group_show_resp_t *v);
 void fzn_rpc_notes_list_release(fzn_rpc_notes_list_resp_t *v);
 void fzn_rpc_library_list_release(fzn_rpc_library_list_all_t *v);
+void fzn_rpc_music_list_release(fzn_rpc_music_list_t *v);
+void fzn_rpc_photo_list_release(fzn_rpc_photo_list_t *v);
 int fzn_rpc_peer_list(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out);
 /* Whether location is shared with each contact, filled into a list read above:
  * one listing, of who holds the stream. */
@@ -266,8 +268,20 @@ int fzn_rpc_library_show(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]
 int fzn_rpc_library_list(fzn_rpc_t *c, fzn_rpc_library_list_all_t *out);
 /* Rows `from` on, `count` of them, given what the listing left out. */
 int fzn_rpc_library_detail(fzn_rpc_t *c, fzn_rpc_library_list_all_t *list, size_t from, size_t count);
-/* An empty acknowledgement: FZN_RPC_OK means it is catalogued. */
+/* An empty acknowledgement: FZN_RPC_OK means it is catalogued. The node is
+ * then asked to read what the file says of itself (sec 1447) -- its title,
+ * artist, when and where a photo was taken -- which a node from before, or
+ * one not holding the bytes, declines without the entry failing. */
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry);
+/* A LIBRARY FROM BEFORE, read for its tags a page at a time (sec 1447): the
+ * held files from `from`, as many as one request reads. Ask again from
+ * *next until it is *total. *asserted counts what the page asserted anew. */
+int fzn_rpc_library_read_tags(fzn_rpc_t *c, uint32_t from, uint32_t *next, uint32_t *total, uint32_t *asserted);
+/* THE MUSIC AND PHOTO CATALOGUES, sec 1449: every file this user's hosts
+ * hold that is music, or a photograph, into `out` (released by the
+ * matching _release). A node from before answers FZN_RPC_ERR_MALFORMED. */
+int fzn_rpc_music_list(fzn_rpc_t *c, fzn_rpc_music_list_t *out);
+int fzn_rpc_photo_list(fzn_rpc_t *c, fzn_rpc_photo_list_t *out);
 int fzn_rpc_transfer_list(fzn_rpc_t *c, fzn_rpc_transfer_list_resp_t *out);
 int fzn_rpc_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out);
 /* `instance` and `expected` NULL or empty where there is none. On FZN_RPC_OK,

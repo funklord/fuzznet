@@ -1,0 +1,68 @@
+# situ capability map v1
+# schema: id3.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct id3_header size=10 repr=ValueConverted atomic=NonAtomic
+  id3_header.magic                       offset=AbsoluteStatic(0x00) size=Fixed(3) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  id3_header.major                       offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  id3_header.revision                    offset=AbsoluteStatic(0x04) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  id3_header.unsynchronisation           offset=AbsoluteStatic(0x05) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.extended_header             offset=AbsoluteStatic(0x05:1) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.experimental                offset=AbsoluteStatic(0x05:2) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.footer                      offset=AbsoluteStatic(0x05:3) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.<reserved0>                 offset=AbsoluteStatic(0x05:4) size=Fixed(4bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.<reserved1>                 offset=AbsoluteStatic(0x06) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.size_0                      offset=AbsoluteStatic(0x06:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.<reserved2>                 offset=AbsoluteStatic(0x07) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.size_1                      offset=AbsoluteStatic(0x07:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.<reserved3>                 offset=AbsoluteStatic(0x08) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.size_2                      offset=AbsoluteStatic(0x08:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.<reserved4>                 offset=AbsoluteStatic(0x09) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3_header.size_3                      offset=AbsoluteStatic(0x09:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+
+struct id3_text size=1.. mutate=Shifting
+  id3_text.encoding                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  id3_text.text                          offset=AbsoluteStatic(0x01) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct id3v23_extended size=4..14 mutate=Shifting repr=ValueConverted
+  id3v23_extended.size                   offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  id3v23_extended.rest                   offset=AbsoluteStatic(0x04) size=Bounded(0, 10) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct id3v23_frame size=10..4294967305 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  id3v23_frame.identifier                offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  id3v23_frame.size                      offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  id3v23_frame.flags                     offset=AbsoluteStatic(0x08) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  id3v23_frame.content                   offset=AbsoluteStatic(0x0A) size=Bounded(0, 4294967295) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct id3v24_extended size=6..15 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.<reserved0>            offset=AbsoluteStatic(0x00) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.size_0                 offset=AbsoluteStatic(0x00:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.<reserved1>            offset=AbsoluteStatic(0x01) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.size_1                 offset=AbsoluteStatic(0x01:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.<reserved2>            offset=AbsoluteStatic(0x02) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.size_2                 offset=AbsoluteStatic(0x02:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.<reserved3>            offset=AbsoluteStatic(0x03) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.size_3                 offset=AbsoluteStatic(0x03:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_extended.rest                   offset=AbsoluteStatic(0x04) size=Bounded(2, 11) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct id3v24_frame size=10..268435465 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.identifier                offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  id3v24_frame.<reserved0>               offset=AbsoluteStatic(0x04) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.size_0                    offset=AbsoluteStatic(0x04:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.<reserved1>               offset=AbsoluteStatic(0x05) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.size_1                    offset=AbsoluteStatic(0x05:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.<reserved2>               offset=AbsoluteStatic(0x06) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.size_2                    offset=AbsoluteStatic(0x06:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.<reserved3>               offset=AbsoluteStatic(0x07) size=Fixed(1bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.size_3                    offset=AbsoluteStatic(0x07:1) size=Fixed(7bit) align=Unaligned repr=ValueConverted atomic=NonAtomic
+  id3v24_frame.flags                     offset=AbsoluteStatic(0x08) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  id3v24_frame.content                   offset=AbsoluteStatic(0x0A) size=Bounded(0, 268435455) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

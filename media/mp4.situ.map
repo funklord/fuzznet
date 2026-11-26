@@ -1,0 +1,47 @@
+# situ capability map v1
+# schema: mp4.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct box size=8 repr=ValueConverted atomic=NonAtomic
+  box.size                               offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  box.type                               offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct box_large size=8 repr=ValueConverted
+  box_large.size                         offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct full_box size=4 repr=ValueConverted atomic=NonAtomic
+  full_box.version                       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  full_box.flags                         offset=AbsoluteStatic(0x01) size=Fixed(3) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct item_data size=16..4294967295 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  item_data.size                         offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  item_data.type                         offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+  item_data.kind                         offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  item_data.locale                       offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  item_data.value                        offset=AbsoluteStatic(0x10) size=Bounded(0, 4294967279) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct item_pair size=6 repr=ValueConverted
+  item_pair.reserved                     offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  item_pair.number                       offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  item_pair.total                        offset=AbsoluteStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+
+struct mvhd_v0 size=16 repr=ValueConverted
+  mvhd_v0.creation                       offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  mvhd_v0.modification                   offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  mvhd_v0.timescale                      offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  mvhd_v0.duration                       offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+
+struct mvhd_v1 size=28 repr=ValueConverted atomic=NonAtomic
+  mvhd_v1.creation                       offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  mvhd_v1.modification                   offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  mvhd_v1.timescale                      offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  mvhd_v1.duration                       offset=AbsoluteStatic(0x14) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic

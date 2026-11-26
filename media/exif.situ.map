@@ -1,0 +1,59 @@
+# situ capability map v1
+# schema: exif.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct exif_app1 size=6 atomic=NonAtomic
+  exif_app1.identifier                   offset=AbsoluteStatic(0x00) size=Fixed(6) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct ifd size=6..786426 mutate=Shifting address=Unstable repr=ConditionallyConverted(order) atomic=NonAtomic canonical=CanonicalGiven(order)
+  ifd.order                              parameter
+  ifd.count                              offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd.entries                            offset=AbsoluteStatic(0x02) size=Bounded(0, 786420) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  ifd.entries[]                          offset=FrameStatic(0x00) size=Fixed(12) align=Aligned(8) repr=ConditionallyConverted(order) atomic=NonAtomic canonical=CanonicalGiven(order)
+  ifd.entries[].order                    parameter
+  ifd.entries[].tag                      offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd.entries[].type                     offset=FrameStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd.entries[].count                    offset=FrameStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd.entries[].value                    offset=FrameStatic(0x08) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  ifd.entries[].value.shorts             offset=FrameStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ConditionallyConverted(order) atomic=NonAtomic canonical=CanonicalGiven(order)
+  ifd.entries[].value.long               offset=FrameStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd.next                               offset=Dynamic size=Fixed(4) align=Unaligned repr=ConditionallyConverted(order) atomic=NonAtomic address=Unstable canonical=CanonicalGiven(order)
+
+struct ifd_entry size=12 repr=ConditionallyConverted(order) atomic=NonAtomic canonical=CanonicalGiven(order)
+  ifd_entry.order                        parameter
+  ifd_entry.tag                          offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd_entry.type                         offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd_entry.count                        offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  ifd_entry.value                        offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  ifd_entry.value.shorts                 offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ConditionallyConverted(order) atomic=NonAtomic canonical=CanonicalGiven(order)
+  ifd_entry.value.long                   offset=AbsoluteStatic(0x08) size=Fixed(4) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+
+struct jpeg_frame size=5 repr=ValueConverted atomic=NonAtomic
+  jpeg_frame.precision                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  jpeg_frame.height                      offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  jpeg_frame.width                       offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct jpeg_segment size=4..65537 mutate=Shifting repr=ValueConverted
+  jpeg_segment.fill                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  jpeg_segment.marker                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  jpeg_segment.length                    offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  jpeg_segment.body                      offset=AbsoluteStatic(0x04) size=Bounded(0, 65533) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct rational size=8 repr=ConditionallyConverted(order) canonical=CanonicalGiven(order)
+  rational.order                         parameter
+  rational.numerator                     offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+  rational.denominator                   offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ConditionallyConverted(order) atomic=AtomicWord canonical=CanonicalGiven(order)
+
+struct tiff_header size=8 repr=ConditionallyConverted(byte_order) canonical=CanonicalGiven(byte_order)
+  tiff_header.byte_order                 offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  tiff_header.magic                      offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ConditionallyConverted(byte_order) atomic=AtomicWord canonical=CanonicalGiven(byte_order)
+  tiff_header.ifd_offset                 offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ConditionallyConverted(byte_order) atomic=AtomicWord canonical=CanonicalGiven(byte_order)

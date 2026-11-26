@@ -67,6 +67,7 @@
 #include "streams.h"
 #include "catalog.h"
 #include "file_refs.h"
+#include "../media/tags.h"
 #include "../claim/claim.h"
 #include "../local/client.h"
 #include "../local/escape.h"
@@ -571,6 +572,7 @@ static size_t node_local(const fzn_request_t *request, char *reply, size_t cap)
 }
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
+static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 /* `add call`, `set call`, `list call`, `add frame`, `list frame`: sec 1020. */
@@ -731,6 +733,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = catalog_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = tags_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = calls_local(origin, request, reply, reply_cap);
 	if (n) {
@@ -17559,6 +17563,215 @@ static size_t catalog_adopt(const uint8_t root[FZN_BLOB_HASH_LEN])
 }
 #endif /* FZN_CATALOG_ON */
 
+/* ---- what a stored file says of itself, sec 1447 ---------------------------------
+ *
+ *     add tags ROOT      a file this host holds read for its own tags --
+ *                        EXIF, ID3v2, FLAC (media/tags.h) -- and what it says
+ *                        asserted as this host's, as `add catalog` does:
+ *                        `ok N`, N the assertions new
+ *     add tags from N    the held files from the Nth, in their order, at most
+ *                        TAGS_PER_CALL a call: `ok NEXT TOTAL N`, asked again
+ *                        from NEXT until it is TOTAL
+ *
+ * READ WHERE THE BYTES ARE, once, by the host storing a file: a library adds
+ * it (`fzn_rpc_library_add` asks last), and a library from before asks a
+ * page at a time. Never at start, unasked: a large library read whole would
+ * hold the loop. The first FZN_MEDIA_TAGS_HEAD bytes are opened into a file
+ * of this host's own scratch, read and removed. An assertion this host
+ * already makes is not made again, so asking twice grows nothing. */
+#if defined(FZN_CATALOG_ON) && defined(FZN_FILES_ON)
+#define TAGS_PER_CALL 32u
+static char tags_dir[FZN_NODE_SHELF_DIR_MAX];
+
+/* 1 when this host already asserts `name` = `value` of `root`. */
+static int catalog_says(const uint8_t root[FZN_PUBKEY_LEN], const char *name, const char *value,
+                        size_t value_len)
+{
+	static fzn_catalog_assertion_t *set;
+	static size_t set_cap;
+	size_t n = fzn_node_catalog_count_of(&node_catalog, root), i, name_len = strlen(name);
+
+	if (n > set_cap) {
+		fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
+
+		if (!more)
+			return 0;
+		set = more;
+		set_cap = n;
+	}
+	n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+	for (i = 0; i < n && i < set_cap; i++)
+		if (set[i].live && set[i].issuer_len == FZN_PUBKEY_LEN
+		    && memcmp(set[i].issuer, contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+		    && set[i].name_len == name_len && memcmp(set[i].name, name, name_len) == 0
+		    && set[i].value_len == value_len && memcmp(set[i].value, value, value_len) == 0)
+			return 1;
+	return 0;
+}
+
+/* `name` = `value` of `root`, this host's, onto its catalogue stream. A
+ * size or a length is a carried fact (C3, sec 652's duration); the rest are
+ * labels. 1 when the journal took it. */
+static int catalog_put(const uint8_t root[FZN_PUBKEY_LEN], const char *name, const char *value,
+                       size_t value_len)
+{
+	static uint8_t body[FZN_RECORD_MAX_LEN];
+	fzn_catalog_assertion_t a;
+	size_t len = 0;
+	int fact = !strcmp(name, "duration") || !strcmp(name, "width") || !strcmp(name, "height")
+	           || !strcmp(name, "orientation");
+
+	memset(&a, 0, sizeof(a));
+	a.name = (const uint8_t *)name;
+	a.name_len = strlen(name);
+	a.value = (const uint8_t *)value;
+	a.value_len = value_len;
+	a.attr_class = fact ? FZN_CATALOG_FACT : FZN_CATALOG_LABEL;
+	a.scope = FZN_CATALOG_ESTATE;
+	a.merge = FZN_CATALOG_DISTINCT;
+	a.capability = FZN_CATALOG_CAP_HOLDER;
+	return value_len <= FZN_NODE_CATALOG_VALUE_MAX
+	       && fzn_catalog_attribute_encode(&a, body, sizeof(body), &len) == FZN_CATALOG_OK
+	       && fzn_node_journal_append_on(&node_journal, contact_id->pubkey, FZN_CATALOG_STREAM,
+	                                     contact_id->sign, FZN_CATALOG_ATTRIBUTE_KIND, root, body, len,
+	                                     wall_ms(), NULL)
+	                  == FZN_NODE_JOURNAL_OK;
+}
+
+/* A RANGE OF A HELD FILE, for media/tags.h's walk (sec 1452): opened from
+ * the store into a scratch file beside it, read back, removed, the bytes
+ * the caller's to wipe. How many were read. */
+struct tags_reading {
+	fzn_node_file_ref_t ref;
+	uint64_t length;
+};
+
+static size_t tags_range(void *ctx, uint64_t offset, uint8_t *buf, size_t len)
+{
+	struct tags_reading *r = ctx;
+	char path[FZN_NODE_SHELF_DIR_MAX + 16u];
+	size_t got = 0;
+	int fd, whole = 0, n;
+	FILE *f;
+
+	if (offset >= r->length || !len)
+		return 0;
+	if (len > r->length - offset)
+		len = (size_t)(r->length - offset);
+	n = snprintf(path, sizeof(path), "%s/.tags-XXXXXX", tags_dir);
+	if (n < 0 || (size_t)n >= sizeof(path) || (fd = mkstemp(path)) < 0)
+		return 0;
+	close(fd);
+	(void)unlink(path); /* the name kept: a range is written to a file that is not there */
+	if (fzn_node_files_read_range(&files, &r->ref, offset, len, path, &whole) == FZN_NODE_FILES_OK
+	    && (f = fopen(path, "rb")) != NULL) {
+		got = fread(buf, 1, len, f);
+		fclose(f);
+	}
+	(void)unlink(path);
+	return got;
+}
+
+/* One held file read and its tags asserted: how many were new, or -1 where
+ * it is not held whole here or would not open. */
+static int tags_of(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	static fzn_media_tags_t found;
+	static struct tags_reading r;
+	uint8_t ref_bytes[FZN_NODE_FILE_REF_LEN];
+	fzn_node_file_status_t st;
+	size_t i;
+	int put = 0;
+
+	if (!files_on || !node_apply.store || !tags_dir[0]
+	    || fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK || !st.whole || !st.length)
+		return -1;
+	if (!fzn_node_file_ref_get(node_apply.store, root, ref_bytes) || !fzn_node_file_ref_read(ref_bytes, &r.ref)) {
+		fzn_wipe(ref_bytes, sizeof(ref_bytes));
+		return -1;
+	}
+	fzn_wipe(ref_bytes, sizeof(ref_bytes));
+	r.length = st.length;
+	(void)fzn_media_tags_read_file(tags_range, &r, st.length, &found);
+	fzn_wipe(&r, sizeof(r));
+	for (i = 0; i < found.count; i++) {
+		const fzn_media_tag_t *t = &found.tags[i];
+
+		if (!catalog_says(root, t->name, t->value, t->value_len) && catalog_put(root, t->name, t->value, t->value_len))
+			put++;
+	}
+	fzn_wipe(&found, sizeof(found));
+	return put;
+}
+
+static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	static uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+	static size_t roots_cap;
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, held = 0, from = 0, i;
+	uint8_t root[FZN_PUBKEY_LEN];
+	int put = 0, r, one = 0;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 4u
+	    || memcmp(subject, "tags", 4u) != 0 || request->parsed != FZN_VERB_ADD)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied the catalogue needs this node's own user\n");
+	if (!journal_on || !contact_id || !files_on)
+		return (size_t)snprintf(reply, cap, "error this node keeps no catalogue of files\n");
+	if (!next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed add tags ROOT|from N\n");
+	if (w_len == 4u && memcmp(w, "from", 4u) == 0) {
+		if (!next_word(&at, &left, &w, &w_len) || !catalog_from(w, w_len, &from) || left)
+			return (size_t)snprintf(reply, cap, "malformed add tags from N\n");
+		if (fzn_node_files_list(&files, NULL, 0u, &held) != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, cap, "error the files did not read\n");
+		if (held > roots_cap) {
+			uint8_t (*more)[FZN_BLOB_HASH_LEN] = realloc(roots, held * sizeof(*more));
+
+			if (!more)
+				return (size_t)snprintf(reply, cap, "error no memory\n");
+			roots = more;
+			roots_cap = held;
+		}
+		if (held && fzn_node_files_list(&files, roots, roots_cap, &held) != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, cap, "error the files did not read\n");
+		if (held > roots_cap)
+			held = roots_cap;
+		if (from > held)
+			return (size_t)snprintf(reply, cap, "malformed past the last file\n");
+		for (i = from; i < held && i < from + TAGS_PER_CALL; i++)
+			if ((r = tags_of(roots[i])) > 0)
+				put += r;
+	} else {
+		if (w_len != 2u * FZN_PUBKEY_LEN || !unhex32(w, w_len, root) || left)
+			return (size_t)snprintf(reply, cap, "malformed add tags ROOT|from N\n");
+		if ((put = tags_of(root)) < 0)
+			return (size_t)snprintf(reply, cap, "error that file is not held whole here\n");
+		one = 1;
+	}
+	if (put) {
+		catalog_hushed = 1;
+		index_catalog();
+		catalog_hushed = 0;
+		journal_pushed = 1;
+	}
+	if (one)
+		return (size_t)snprintf(reply, cap, "ok %d\n", put);
+	return (size_t)snprintf(reply, cap, "ok %zu %zu %d\n", i, held, put);
+}
+#else
+static size_t tags_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	(void)origin;
+	(void)request;
+	(void)reply;
+	(void)cap;
+	return 0;
+}
+#endif
+
 /* ---- the references of the estate's files, sec 634 --------------------------------
  *
  * THE FILE VERBS, with every reference they see kept: a put's answer, and
@@ -19529,6 +19742,62 @@ static int local_catalog_add(int fd, fzn_origin_t origin, const uint8_t *msg, si
 	return verb_status(fd, reply, n);
 }
 
+/* A FILE READ FOR ITS TAGS, OR A PAGE OF THEM, sec 1447: `add tags ROOT`
+ * and `add tags from N` as the socket runs them, answered by a tags_done
+ * and a STATUS ok, or by the verb's refusal. */
+static int local_tags(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static char arg[16u + 2u * FZN_PUBKEY_LEN], reply[256];
+	unsigned long numbers[3] = { 0, 0, 0 };
+	uint8_t row[12], out[24];
+	uint32_t row_len = 0, out_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_request_t req;
+	size_t n;
+	int got;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no catalogue"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+	if (msg[1] == FZN_FILES_LOCAL_OP_TAGS) {
+		if (fzn_files_local_message_body_tags_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		memcpy(arg, "tags ", 5u);
+		hex_of(fzn_files_local_file_root_ptr(b), FZN_PUBKEY_LEN, arg + 5);
+		n = 5u + 2u * FZN_PUBKEY_LEN;
+	} else {
+		if (fzn_files_local_message_body_tags_page_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		n = (size_t)snprintf(arg, sizeof(arg), "tags from %lu",
+		                     (unsigned long)fzn_files_local_tags_page_from_get(b));
+	}
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_ADD;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node reads no tags"), 0;
+	reply[n] = '\0';
+	if (strncmp(reply, "ok ", 3u) != 0)
+		return verb_status(fd, reply, n);
+	got = msg[1] == FZN_FILES_LOCAL_OP_TAGS ? sscanf(reply + 3, "%lu", &numbers[2])
+	                                        : sscanf(reply + 3, "%lu %lu %lu", &numbers[0], &numbers[1], &numbers[2]);
+	if (got != (msg[1] == FZN_FILES_LOCAL_OP_TAGS ? 1 : 3)
+	    || fzn_files_local_tags_done_build(row, sizeof(row), (uint32_t)numbers[0], (uint32_t)numbers[1],
+	                                       (uint32_t)numbers[2], &row_len)
+	               != SITU_OK
+	    || fzn_files_local_message_build_tags_done(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len, &out_len)
+	               != SITU_OK
+	    || !local_put(&fd, out, out_len))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the reading's answer did not read"), 0;
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	static struct library_files lf;
@@ -19538,6 +19807,9 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 	/* A FILE DESCRIBED, sec 1309: the catalogue's verb, as the socket runs it. */
 	if (len >= 2u && msg[1] == FZN_FILES_LOCAL_OP_CATALOG_ADD)
 		return local_catalog_add(fd, origin, msg, len);
+	/* A FILE READ FOR WHAT IT SAYS OF ITSELF, sec 1447. */
+	if (len >= 2u && (msg[1] == FZN_FILES_LOCAL_OP_TAGS || msg[1] == FZN_FILES_LOCAL_OP_TAGS_PAGE))
+		return local_tags(fd, origin, msg, len);
 	/* A FILE LET GO, SHARED, OR ITS SHARES, sec 1303: files alone. */
 	if (len >= 2u
 	    && (msg[1] == FZN_FILES_LOCAL_OP_REMOVE || msg[1] == FZN_FILES_LOCAL_OP_SHARE
@@ -27650,6 +27922,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					files.also_shared = files_also_shared;
 					files_on = 1;
 					file_holds_begin();
+#ifdef FZN_CATALOG_ON
+					(void)snprintf(tags_dir, sizeof(tags_dir), "%s", bulk_dir);
+#endif
 #ifdef FZND_STICKERS
 					node_stickers.files = &files;
 					node_stickers.settings = &node_settings;

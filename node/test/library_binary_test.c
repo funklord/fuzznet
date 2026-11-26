@@ -461,6 +461,114 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* THE MUSIC AND PHOTO CATALOGUES, sec 1449: a song by its kind and one by
+ * its words alone, a photograph, and a film that is neither; the rows read
+ * back with the catalogue's words turned into numbers -- "3/12", a year
+ * from a date, a place in ten-millionths of a degree. */
+static void test_music_and_photos(void)
+{
+	static const uint8_t ask_music[] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_MUSIC };
+	static const uint8_t ask_photos[] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_PHOTOS };
+	uint8_t song[32], bare[32], photo[32], film[32], copy[FZN_NODE_LIBRARY_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len;
+
+	memset(song, 0x51, sizeof(song));
+	memset(bare, 0x52, sizeof(bare));
+	memset(photo, 0x53, sizeof(photo));
+	memset(film, 0x54, sizeof(film));
+	fzn_node_catalog_init(&cat);
+	say(host_a, song, "name", "03 night.mp3");
+	say(host_a, song, "kind", "audio/mpeg");
+	say(host_a, song, "title", "Night Drive");
+	say(host_a, song, "artist", "Svalbard Echo");
+	say(host_a, song, "album", "Polar Lights");
+	say(host_a, song, "track", "3/12");
+	say(host_a, song, "disc", "1");
+	say(host_a, song, "year", "2019-05-02");
+	say(host_a, song, "duration", "251000");
+	say(host_b, song, "bpm", "118.00");
+	say(host_a, bare, "artist", "Bill Evans");
+	say(host_a, photo, "kind", "image/jpeg");
+	say(host_a, photo, "taken", "2023-07-14T21:45:30");
+	say(host_a, photo, "camera", "Canon EOS 5D");
+	say(host_a, photo, "width", "4000");
+	say(host_a, photo, "height", "3000");
+	say(host_a, photo, "orientation", "6");
+	say(host_a, photo, "place", "-33.8650000,20.2250000");
+	say(host_a, film, "kind", "video/webm");
+	say(host_a, film, "title", "A film");
+
+	n_said = 0;
+	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_music, sizeof(ask_music), put, NULL)
+	              && n_said == 3u,
+	      "two pieces of music were not two rows and a STATUS");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_validate(v) == SITU_OK
+	              && fzn_files_local_message_body_music_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_music_row_root_ptr(b), song, 32u) == 0
+	              && fzn_files_local_music_row_track_get(b) == 3u
+	              && fzn_files_local_music_row_track_total_get(b) == 12u
+	              && fzn_files_local_music_row_disc_get(b) == 1u
+	              && fzn_files_local_music_row_disc_total_get(b) == 0u
+	              && fzn_files_local_music_row_year_get(b) == 2019u
+	              && fzn_files_local_music_row_duration_ms_get(b) == 251000u
+	              && fzn_files_local_music_row_title_len(b) == 11u
+	              && memcmp(fzn_files_local_music_row_title_ptr(b), "Night Drive", 11u) == 0
+	              && fzn_files_local_music_row_bpm_len(b) == 6u
+	              && fzn_files_local_music_row_name_len(b) == 12u,
+	      "a song's row did not carry its words and their numbers");
+	memcpy(copy, said[1], said_len[1]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[1]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[1], &v) == SITU_OK
+	              && fzn_files_local_message_body_music_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_music_row_root_ptr(b), bare, 32u) == 0
+	              && fzn_files_local_music_row_track_get(b) == 0u && fzn_files_local_music_row_year_get(b) == 0u,
+	      "a file of no kind saying an artist was not music");
+	CHECK(fzn_status_read(said[2], said_len[2], &code, &why, &why_len) && code == FZN_STATUS_OK,
+	      "the music did not end with a STATUS ok");
+
+	n_said = 0;
+	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_photos, sizeof(ask_photos), put, NULL)
+	              && n_said == 2u,
+	      "one photograph was not a row and a STATUS");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_validate(v) == SITU_OK
+	              && fzn_files_local_message_body_photo_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_photo_row_root_ptr(b), photo, 32u) == 0
+	              && fzn_files_local_photo_row_width_get(b) == 4000u
+	              && fzn_files_local_photo_row_height_get(b) == 3000u
+	              && fzn_files_local_photo_row_orientation_get(b) == 6u
+	              && fzn_files_local_photo_row_place_get(b) == 1u
+	              && fzn_files_local_photo_row_latitude_get(b) == -338650000
+	              && fzn_files_local_photo_row_longitude_get(b) == 202250000
+	              && fzn_files_local_photo_row_taken_len(b) == 19u
+	              && fzn_files_local_photo_row_camera_len(b) == 12u,
+	      "a photograph's row did not carry when, where and its size");
+
+	/* A PLACE THAT IS NO PLACE is said as none, not as 0,0. */
+	say(host_a, photo, "place", "north,east");
+	retract(host_a, photo, "place");
+	say(host_a, photo, "place", "95.0,10.0");
+	n_said = 0;
+	(void)fzn_node_library_binary(&cat, host_a, NULL, NULL, ask_photos, sizeof(ask_photos), put, NULL);
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(n_said == 2u && fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_body_photo_row_view(v, &b) == SITU_OK
+	              && fzn_files_local_photo_row_place_get(b) == 0u
+	              && fzn_files_local_photo_row_latitude_get(b) == 0,
+	      "a latitude past the pole was taken as a place");
+	fzn_node_catalog_free(&cat);
+}
+
 int main(void)
 {
 	memset(host_a, 0xaa, sizeof(host_a));
@@ -475,6 +583,7 @@ int main(void)
 	test_long_labels_are_cut();
 	test_the_answer_on_the_wire();
 	test_one_file_by_its_root();
+	test_music_and_photos();
 	if (failures) {
 		fprintf(stderr, "node library_binary_test: %d of %d checks failed\n", failures, checks);
 		return 1;

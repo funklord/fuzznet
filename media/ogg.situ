@@ -1,0 +1,41 @@
+// An Ogg stream's first pages, as far as a catalogue reads them: the page
+// header, and the packet heads that say which codec's comments follow.
+// project.md sec 1451, the music catalogue's Ogg Vorbis and Opus.
+//
+// SOURCES. RFC 3533 (the Ogg encapsulation), section 6, the page header;
+// the Vorbis I specification, section 4.2.1, a header packet's type byte
+// and "vorbis"; RFC 7845 (Ogg Opus), section 5.2, "OpusTags". The comments
+// themselves are the Vorbis comment structure media/flac.situ describes,
+// carried after either head.
+//
+// WHAT C KEEPS (media/tags.c): the walk from page to page; a page's body
+// length, which is the sum of its lacing values; and joining a packet that
+// runs across pages, a lacing value of 255 saying the packet goes on.
+
+target buffer;
+endian little;
+
+// RFC 3533 6: 27 bytes, then a lacing value per segment.
+struct ogg_page {
+	u8   magic[4]     [must_eq = "OggS"];
+	u8   version      [must_eq = 0];
+	u8   header_type  [max = 7];
+	u64  granule;
+	u32  serial;
+	u32  sequence;
+	u32  crc;
+	u8   segments;
+	u8   lacing[segments];
+}
+
+// Vorbis I 4.2.1: a header packet opens with its type -- 3 for comments --
+// and "vorbis"; the comments follow.
+struct vorbis_comment_packet {
+	u8   type    [must_eq = 3];
+	u8   magic[6] [must_eq = "vorbis"];
+}
+
+// RFC 7845 5.2: "OpusTags", then the comments.
+struct opus_tags_packet {
+	u8   magic[8] [must_eq = "OpusTags"];
+}

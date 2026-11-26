@@ -23,6 +23,13 @@ enum op : u8 {
 	shares      = 135, // whom a file is shared with, as `get file ROOT shares`
 	share_row   = 136, // an answer: one share
 	catalog_add = 137, // a file described, as `add catalog ROOT NAME VALUE` (sec 1309)
+	tags        = 138, // a held file read for its own tags, as `add tags ROOT` (sec 1447)
+	tags_page   = 139, // the held files from FROM read so, as `add tags from N`
+	tags_done   = 140, // an answer: how far the reading got, and what it asserted
+	music       = 141, // every file that is music, as the music catalogue lists it (sec 1449)
+	music_row   = 142, // an answer: one piece of music
+	photos      = 143, // every file that is a photograph
+	photo_row   = 144, // an answer: one photograph
 	default     = error,
 }
 
@@ -77,6 +84,81 @@ struct catalog_add {
 	u8   value[value_len];
 }
 
+// THE HELD FILES FROM THE FROM-TH read for their tags, at most a page of
+// them a request (sec 1447). Answered by a tags_done, then a STATUS ok.
+struct tags_page {
+	u32  from;
+}
+// HOW FAR A READING GOT: NEXT the FROM to ask again from, TOTAL the files
+// held -- the pages are done when NEXT is TOTAL -- and ASSERTED the
+// catalogue's assertions it made that were not made already. For one file
+// (`tags`), NEXT and TOTAL are 0.
+struct tags_done {
+	u32  next;
+	u32  total;
+	u32  asserted;
+}
+// ONE PIECE OF MUSIC, sec 1449: ROOT the file's; DURATION_MS, HOLDERS and
+// HELD_HERE as the library row says them. TRACK and DISC with their
+// totals, and YEAR, are the catalogue's words read as numbers -- "3/12"
+// is 3 of 12, "1961-06-25" is 1961 -- 0 where none is said or it is no
+// number. The words are the first live value of each, raw, at most 255
+// bytes: the title, artist, album, album artist, genre and composer a file
+// says of itself, the BPM and key a player asserts, and the file's NAME,
+// which a list shows where it has no title.
+struct music_row {
+	u8   root[32];
+	u64  duration_ms;
+	u16  holders;
+	u8   held_here [max = 1];
+	u16  track;
+	u16  track_total;
+	u16  disc;
+	u16  disc_total;
+	u16  year;
+	u8   title_len;
+	u8   title[title_len];
+	u8   artist_len;
+	u8   artist[artist_len];
+	u8   album_len;
+	u8   album[album_len];
+	u8   album_artist_len;
+	u8   album_artist[album_artist_len];
+	u8   genre_len;
+	u8   genre[genre_len];
+	u8   composer_len;
+	u8   composer[composer_len];
+	u8   bpm_len [max = 16];
+	u8   bpm[bpm_len];
+	u8   key_len [max = 16];
+	u8   key[key_len];
+	u8   name_len;
+	u8   name[name_len];
+}
+// ONE PHOTOGRAPH, sec 1449: ROOT, SIZE, HOLDERS and HELD_HERE as the
+// library row says them. WIDTH, HEIGHT and ORIENTATION (EXIF's 1 to 8) 0
+// where unsaid. PLACE 1 when it was said where, LATITUDE and LONGITUDE then
+// in ten-millionths of a degree, north and east positive. TAKEN the
+// camera's "YYYY-MM-DDTHH:MM:SS", its own local time, empty where unsaid;
+// CAMERA and NAME raw, at most 255 bytes.
+struct photo_row {
+	u8   root[32];
+	u64  size;
+	u16  holders;
+	u8   held_here [max = 1];
+	u32  width;
+	u32  height;
+	u8   orientation [max = 8];
+	u8   place [max = 1];
+	i32  latitude [min = -900000000, max = 900000000];
+	i32  longitude [min = -1800000000, max = 1800000000];
+	u8   taken_len [max = 19];
+	u8   taken[taken_len];
+	u8   camera_len;
+	u8   camera[camera_len];
+	u8   name_len;
+	u8   name[name_len];
+}
 // ONE SHARE of a file: KIND 0 every contact, 1 a contact, 2 a group; KEY
 // the contact's root or the group's id, zeros for every contact; NAME as
 // this host knows it, empty where it knows none.
@@ -123,6 +205,13 @@ struct message {
 		case op.shares:      file        shares;
 		case op.share_row:   share_row   share_row;
 		case op.catalog_add: catalog_add catalog_add;
+		case op.tags:        file        tags;
+		case op.tags_page:   tags_page   tags_page;
+		case op.tags_done:   tags_done   tags_done;
+		case op.music:       nothing     music;
+		case op.music_row:   music_row   music_row;
+		case op.photos:      nothing     photos;
+		case op.photo_row:   photo_row   photo_row;
 		default: error;
 	}
 }
