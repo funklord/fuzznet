@@ -7484,7 +7484,7 @@ style: $(OBJS)
 	@# kept apart so it can be retired (sec 1278).
 	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(GEN_TEST_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
 	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c \
-	         qr/decode.c qr/test/decode_test.c tool/rpc_probe.c tool/sticker_convert.c "; \
+	         qr/decode.c qr/test/decode_test.c tool/rpc_probe.c tool/sticker_convert.c $(BOARD_SRCS) "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
@@ -8416,6 +8416,39 @@ livecheck-lean: lean $(FUZZNETD)
 EMBEDDED_BSS_MAX := 16777216
 embedded:
 	$(MAKE) PRESET=embedded-device BUILD_DIR=$(BUILD_DIR)/embedded $(BUILD_DIR)/embedded/fuzznetd
+
+# THE SMALLEST HOST ON A BOARD, sec 1481: the device core, `device/board/`'s
+# start and UARTs and the EABI's helpers, built by clang for a Cortex-M3 and
+# linked by lld into an ELF qemu boots as Arm's MPS2 AN385. Its own target,
+# as the build needs a cross toolchain no other target does: clang names
+# the target, and lld is `ld.lld` or Debian's `ld.lld-19`. Each object keeps
+# its .d beside it, read below, so a header changed rebuilds it.
+BOARD_CC ?= clang
+BOARD_LD ?= $(firstword $(shell for l in ld.lld ld.lld-19; do command -v $$l; done 2>/dev/null))
+BOARD_DIR := $(BUILD_DIR)/device-board
+BOARD_SRCS := device/board/mps2.c device/board/aeabi.c
+BOARD_ALL := $(BOARD_SRCS) $(DEVICE_BOARD_SRCS) monocypher/src/monocypher.c \
+             wire/generated/situ.c wire/generated/frame.c wire/generated/session_frame_wire.c \
+             wire/generated/frame_relate.c
+BOARD_OBJS := $(addprefix $(BOARD_DIR)/,$(BOARD_ALL:.c=.o))
+BOARD_CFLAGS = --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -std=c11 -Os -g -ffreestanding \
+               -nostdinc -isystem $(shell $(BOARD_CC) -print-file-name=include) -Itool/freestanding \
+               -I$(MONOCYPHER_DIR)/src -Iwire/generated -I. -ffunction-sections -fdata-sections \
+               -Wall -Wextra -MMD -MP
+.PHONY: device-board livecheck-board
+device-board: $(BOARD_DIR)/mps2.elf
+$(BOARD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(BOARD_CC) $(BOARD_CFLAGS) -c $< -o $@
+$(BOARD_DIR)/mps2.elf: $(BOARD_OBJS) device/board/mps2.ld
+	@test -n "$(BOARD_LD)" || { echo "device-board: no ld.lld here"; exit 1; }
+	$(BOARD_LD) -T device/board/mps2.ld --gc-sections $(BOARD_OBJS) -o $@
+-include $(BOARD_OBJS:.o=.d)
+
+# THE BOARD ASKING A REAL HOST, sec 1481: qemu-system-arm boots the ELF,
+# fuzznet-bridge holds its UART0, and tool/live_board.py is the bench.
+livecheck-board: device-board $(BRIDGE) $(FUZZNETD)
+	@timeout 300 python3 tool/live_board.py $(FUZZNETD) $(BRIDGE) $(BOARD_DIR)/mps2.elf
 
 livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@bss=$$(size $(BUILD_DIR)/embedded/fuzznetd | awk 'NR==2{print $$3}'); \
@@ -9732,7 +9765,7 @@ clean:
 	@# thorvg's objects too (sec 1151), kept out of the submodule, and
 	@# quirc's the devices view links (sec 1158).
 	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean" "$(BUILD_DIR)/embedded" \
-	          "$(BUILD_DIR)/thorvg-build" "$(BUILD_DIR)/quirc-build"; do \
+	          "$(BUILD_DIR)/thorvg-build" "$(BUILD_DIR)/quirc-build" "$(BOARD_DIR)"; do \
 		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
 	done
 	@# AND `arrangements`' trees, one an arrangement, each named from the

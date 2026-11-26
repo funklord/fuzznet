@@ -920,6 +920,13 @@ SABOTAGES = [
 		"a document nested past the schema's sixteen levels is refused before framing, which overflows the stack; fingerprint_test -- sec 1480",
 	),
 	(
+		"board-division-wrong",
+		"device/board/aeabi.c",
+		"\t\t\tq |= (uint64_t)1 << i;\n",
+		"\t\t\tq |= (uint64_t)1 << (i / 2);\n",
+		"a board divides 64-bit numbers as C does; make livecheck-board (qemu) -- sec 1481",
+	),
+	(
 		"music-view-empty-album-shown",
 		"gui/music_view.cpp",
 		"\t\talbum->setHidden(!left);\n",

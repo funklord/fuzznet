@@ -394,6 +394,7 @@ __pycache__/
 /embedded/
 /fuzznet-bridge
 /device-check/
+/device-board/
 /device/test/device_sim
 /device/test/device_test
 /net/test/bearer_test

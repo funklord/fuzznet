@@ -64778,7 +64778,10 @@ this commit: a FLAG is its toggle, a COUNT its number, the other three words the
 The holder: "we may soon be able to test an embedded version using hal9001 on hull or zephyr on
 hull". The embedded profile (sec 922) has run here only as a host build (`make embedded`,
 `livecheck-embedded`). When either is usable on hull, run that profile's fuzznetd and its live
-scripts there; hal9001 is being fixed and modernised first (its `project.md`).
+scripts there; hal9001 is being fixed and modernised first (its `project.md`). **The first
+step is built** (sec 1481): the smallest host on an emulated Cortex-M3,
+by plain qemu; through hull, and the embedded fuzznetd on a board, are
+the next.
 
 ## 1101. The local leg in binary: a plan for sec 1061 step 5, 2026-11-13
 
@@ -77533,3 +77536,54 @@ does; the guard goes when it does.
 Tests: `fingerprint_test` -- an answer a hundred thousand deep refused,
 plain and under ASan, where without the guard it is a segfault. Sabotage:
 one entry, caught.
+
+## 1481. The smallest host on a Cortex-M3: built for a board, answered by a real host, 2026-11-26
+
+Sec 1100's first step. The device core (sec 912) had been built
+freestanding (`device-check`) and run only on x86-64, as `device_sim`
+over a pipe. **It now runs on a 32-bit target with no operating system**:
+`device/board/mps2.c` is `device_sim` for Arm's MPS2 AN385 as qemu
+emulates it (`qemu-system-arm -machine mps2-an385`), the core's bearer
+SLIP on the board's UART0, what it was answered said on UART1.
+
+- **Built** by `make device-board`: clang for `thumbv7m-none-eabi`,
+  linked by lld (`ld.lld`, or Debian's `ld.lld-19`) with
+  `device/board/mps2.ld` -- 26 KB of code and 15.6 KB of RAM, most of it
+  the line buffer below. Its own target and tree (`device-board/`),
+  since it needs a cross toolchain nothing else does; a second build
+  compiles nothing.
+- **What a board without a C library needs**, found by the link: the
+  string functions the core calls (written so the compiler cannot turn
+  their loops back into calls to themselves), and the Arm EABI's
+  `__aeabi_uldivmod`, `__aeabi_ldivmod` and `__aeabi_memclr*` -- no
+  compiler-rt for Arm is installed -- in `device/board/aeabi.c`: 64-bit
+  division returns quotient and remainder in four registers, so a few
+  naked instructions around a shift-and-subtract that never divides a
+  64-bit number itself. The device core divides 64-bit numbers in its
+  clock (a grant's milliseconds), which is where a 32-bit target
+  differs from the hosts it had run on.
+- **The board's clock** is SysTick, a millisecond a tick at the
+  AN385's 25 MHz; **its random source** a ChaCha20 stream over a seed the
+  test gives it, the emulated board having no generator of its own -- on
+  real hardware the chip's TRNG takes that place, and this firmware is a
+  test bench's, not a product's.
+- **Told what to be on its line**: before the bearer starts, the board
+  reads `SEED UNIT NAME ARGS IMAGE` on UART0 -- the image is
+  `--device-image`'s text, made at test time, so nothing is compiled per
+  run.
+
+**`make livecheck-board`** (`tool/live_board.py`, needs
+`qemu-system-arm`): an estate's root R and a device store D paired by
+hand as `live_device` does; qemu boots the ELF with UART0 on a terminal
+`fuzznet-bridge` holds, as it would a real board's serial line; a: over
+51-byte units the board asks R's `events` and is answered (`status 0,
+22 byte(s)`); b: given another estate's image, it is answered nothing.
+Not in `livecheck`, for qemu.
+
+**Next**: the same ELF through hull (`(tuning (pc (machine
+mps2-an385)))`, its console the board's first UART, sec 1100), then the
+embedded profile's fuzznetd on a board with Ethernet (hull's LM3S6965 or
+ESP32-C3), which needs an IP stack fuzznet does not carry.
+
+Sabotage: a wrong 64-bit division on the board leaves it unanswered,
+caught by `livecheck-board`.
