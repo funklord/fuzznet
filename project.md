@@ -77236,7 +77236,8 @@ are framed strings, an escape refused as before.
 **One walk for every JSON reader**: `wire/json_walk.h` frames and
 validates a document and walks an object's members and an array's
 elements, each run once (the generated `_entries_at` counts from the
-first on every call); a string's characters and a number's bytes are
+first on every call; since situ d7e3ce5b the walk is its cursor,
+`_entries_next`, which this tree asked for); a string's characters and a number's bytes are
 handed back as written, for the caller to read. AcoustID's reader (sec
 1469) moved onto it from its own copy. **Its header names situ's message
 and view by tag alone** (`struct situ_msg`, `struct situ_view`): every

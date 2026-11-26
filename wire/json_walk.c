@@ -19,8 +19,8 @@ int fzn_json_walk_members(const struct situ_view *value_at,
                           int (*each)(const char *key, size_t key_len, const struct situ_view *held, void *ctx),
                           void *ctx)
 {
-	situ_view_t object, members;
-	uint32_t at = 0;
+	situ_view_t object, members, member, held;
+	situ_cursor_t cursor = { 0u, 0u };
 
 	if (!value_at || !each || fzn_json_value_body_as_object_view(*value_at, &object) != SITU_OK)
 		return 0;
@@ -28,28 +28,20 @@ int fzn_json_walk_members(const struct situ_view *value_at,
 		return 1;
 	if (fzn_json_object_body_as_members_view(object, &members) != SITU_OK)
 		return 0;
-	while (at < members.limit) {
-		situ_view_t rest, member, held;
-		uint32_t size;
-
-		if (situ_view_sub(members, at, members.limit - at, &rest) != SITU_OK
-		    || !(size = fzn_json_member_extent(rest)) || size > members.limit - at
-		    || situ_view_sub(members, at, size, &member) != SITU_OK
-		    || fzn_json_member_held_view(member, &held) != SITU_OK
+	/* THE RUN ONCE, by situ's cursor (situ d7e3ce5b): each member after
+	 * the last, not counted again from the first. */
+	while (fzn_json_members_entries_next(members, &cursor, &member) == SITU_OK)
+		if (fzn_json_member_held_view(member, &held) != SITU_OK
 		    || !each((const char *)fzn_json_member_key_ptr(member), fzn_json_member_key_len(member), &held, ctx))
 			return 0;
-		at += size;
-		if (fzn_json_member_sep_get(member) != ',')
-			break;
-	}
 	return 1;
 }
 
 int fzn_json_walk_elements(const struct situ_view *value_at, int (*each)(const struct situ_view *held, void *ctx),
                            void *ctx)
 {
-	situ_view_t array, elements;
-	uint32_t at = 0;
+	situ_view_t array, elements, element, held;
+	situ_cursor_t cursor = { 0u, 0u };
 
 	if (!value_at || !each || fzn_json_value_body_as_array_view(*value_at, &array) != SITU_OK)
 		return 0;
@@ -57,19 +49,9 @@ int fzn_json_walk_elements(const struct situ_view *value_at, int (*each)(const s
 		return 1;
 	if (fzn_json_array_body_as_elements_view(array, &elements) != SITU_OK)
 		return 0;
-	while (at < elements.limit) {
-		situ_view_t rest, element, held;
-		uint32_t size;
-
-		if (situ_view_sub(elements, at, elements.limit - at, &rest) != SITU_OK
-		    || !(size = fzn_json_element_extent(rest)) || size > elements.limit - at
-		    || situ_view_sub(elements, at, size, &element) != SITU_OK
-		    || fzn_json_element_held_view(element, &held) != SITU_OK || !each(&held, ctx))
+	while (fzn_json_elements_entries_next(elements, &cursor, &element) == SITU_OK)
+		if (fzn_json_element_held_view(element, &held) != SITU_OK || !each(&held, ctx))
 			return 0;
-		at += size;
-		if (fzn_json_element_sep_get(element) != ',')
-			break;
-	}
 	return 1;
 }
 

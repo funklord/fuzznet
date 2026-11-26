@@ -775,15 +775,15 @@ SABOTAGES = [
 	(
 		"acoustid-members-first-only",
 		"wire/json_walk.c",
-		"\t\tif (fzn_json_member_sep_get(member) != ',')\n",
-		"\t\tif (1)\n",
+		"\twhile (fzn_json_members_entries_next(members, &cursor, &member) == SITU_OK)\n",
+		"\tif (fzn_json_members_entries_next(members, &cursor, &member) == SITU_OK)\n",
 		"every member of an answer's object is read, the run walked to its end -- sec 1469",
 	),
 	(
 		"json-walk-first-element-only",
 		"wire/json_walk.c",
-		"\t\tif (fzn_json_element_sep_get(element) != ',')\n",
-		"\t\tif (1)\n",
+		"\twhile (fzn_json_elements_entries_next(elements, &cursor, &element) == SITU_OK)\n",
+		"\tif (fzn_json_elements_entries_next(elements, &cursor, &element) == SITU_OK)\n",
 		"every element of an array is walked to the run's end -- sec 1470",
 	),
 	(

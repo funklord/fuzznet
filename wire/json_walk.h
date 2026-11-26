@@ -2,9 +2,9 @@
  * JSON WALKED THROUGH SITU'S VIEWS, project.md sec 1469: a document framed
  * and validated by the generated `fzn_json` (media/json.situ), then each
  * member of an object or element of an array handed to a callback, in
- * order -- each run walked once, each entry measured where it begins, as
- * the generated `_entries_at` counts from the first on every call and so
- * walks a run quadratically. A string's escapes are the caller's to read:
+ * order -- each run walked once, by situ's cursor (`_entries_next`),
+ * where `_entries_at` counts from the first on every call and so walks a
+ * run quadratically. A string's escapes are the caller's to read:
  * situ frames a string and does not say what it spells.
  */
 #ifndef FZN_JSON_WALK_H
