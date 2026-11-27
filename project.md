@@ -78145,3 +78145,14 @@ the revocation vote, which the governance view casts and now withdraws.
 A sibling un-paired here alone is paired again by the estate, and a
 button beside the vote would read as a second, weaker way to remove a
 host.
+
+## 1503. Every view test holds its view to a 320 px screen
+
+Fourteen views' tests already checked that the view's minimum width fits
+a phone's 320 px cover screen; 32 did not, so a view grown past it would
+pass its suite. Each now checks `minimumSizeHint().width() <= 320` --
+after the content the test fills where the view lives to the end, at
+its construction where it is built in a block of its own. **All 32
+fit**: nothing needed changing, which is what the check now keeps true.
+The width it caught this run (the governance view's two vote buttons,
+sec 1502) was in a test that already had it.

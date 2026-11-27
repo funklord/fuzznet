@@ -161,6 +161,8 @@ int main(int argc, char **argv)
 	silent = 1;
 	CHECK(!view.search(QStringLiteral("heron")) && view.status() == QStringLiteral("The node did not answer."),
 	      "a node that did not answer was not said");
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(view.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	if (failures) {
 		fprintf(stderr, "search_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

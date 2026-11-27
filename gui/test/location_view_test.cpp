@@ -242,6 +242,8 @@ int main(int argc, char **argv)
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
 
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(v.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

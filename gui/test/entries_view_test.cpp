@@ -87,6 +87,8 @@ int main(int argc, char **argv)
 	}
 	{
 		fzn_entries_view w(fzn_entries_view_dir_ask, top);
+		/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+		CHECK(w.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 
 		w.set_program(QStringLiteral("netcfgd"));
 		w.set_short(false);

@@ -236,6 +236,8 @@ int main(int argc, char **argv)
 	CHECK(!v.apply() && v.status() == "not a duration: forever",
 	      "a refusal was not said in the node's words");
 
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(v.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

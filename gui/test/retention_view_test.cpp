@@ -252,6 +252,8 @@ int main(int argc, char **argv)
 
 	{
 		fzn_retention_view w(node_ask, nullptr);
+		/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+		CHECK(w.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 
 		CHECK(w.node_rules().isEmpty() && w.status() == QStringLiteral("No rules.")
 		              && w.estate_status() == QStringLiteral("No rules."),

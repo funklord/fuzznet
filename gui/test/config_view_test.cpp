@@ -60,6 +60,8 @@ int main(int argc, char **argv)
 
 	QApplication app(argc, argv);
 	fzn_config_view view;
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(view.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	fzn_cli_t cli;
 
 	/* THE CENTRAL CASE. Every value, through both doors, and they must

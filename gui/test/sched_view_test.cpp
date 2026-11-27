@@ -66,6 +66,8 @@ int main(int argc, char **argv)
 
 	QApplication app(argc, argv);
 	fzn_sched_view view;
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(view.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	fzn_sched_candidate_t links[3];
 	size_t chosen = 0u;
 

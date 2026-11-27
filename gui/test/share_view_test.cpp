@@ -107,6 +107,8 @@ int main(int argc, char **argv)
 	CHECK(!v.send() && v.status() == "bob is not reachable" && v.shared() == "see you at eight" && told.isEmpty(),
 	      "a refusal was not said, or the words were lost, or the host told it went");
 
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(v.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {
