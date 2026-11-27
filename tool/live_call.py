@@ -9,7 +9,9 @@ contact's. Each host's own client is a caller on its socket.
        and a client subscribed to B's events was told so (`event call ID`)
     a2 the same in binary (sec 1251): B's calls a row each, this one ringing
        here, audio, its caller said
-    b  B answers, in binary; A lists the call up, in words and in binary
+    b  B answers, in binary; A lists the call up, in words and in binary -- B
+       losing its answer's first saying (FZN_TUNE_LOSE_ANSWER, sec 1498), so
+       A goes up from the answer said again
     c  A sends a frame; B reads it back, the same bytes, stream, number and time
     d  B sends one back; A reads it
     e  A sends video frames 1, 2, 4 and 5: B measures four received and one lost,
@@ -173,8 +175,13 @@ def main(argv):
 				keys[who] = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"],
 				                    None)[PREKEY_HOST]
 			for who in port:
+				# B LOSES ITS ANSWER'S FIRST SAYING, sec 1498, in the fault
+				# build: phase b's call goes up from the repeat alone.
+				if who == "b":
+					os.environ["FZN_TUNE_LOSE_ANSWER"] = "1"
 				started[who] = daemon(run, who, dirs[who], socks[who],
 				                      extra=["--udp-port=" + port[who]])
+				os.environ.pop("FZN_TUNE_LOSE_ANSWER", None)
 				expect(socks[who], who, "set setting host net/address 127.0.0.1 " + port[who],
 				       "ok")
 			card = ask(socks["b"], "get card bea")

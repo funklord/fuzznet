@@ -8384,7 +8384,6 @@ endif
 	@timeout 310 python3 tool/live_objects.py $(FUZZNETD)
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 200 python3 tool/live_host_session.py $(EXT_DAEMON)
-	@timeout 560 python3 tool/live_call.py $(FUZZNETD)
 	@timeout 580 python3 tool/live_group_call.py $(FUZZNETD)
 	@timeout 480 python3 tool/live_sibling_call.py $(FUZZNETD) $(DEVICE_SIM)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
@@ -8496,6 +8495,9 @@ livecheck-faults: fuzznetd-faults
 	@timeout 330 python3 tool/live_stream.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 500 python3 tool/live_logs.py $(BUILD_DIR)/faults/fuzznetd
+	@# A CALL WHOSE ANSWER'S FIRST SAYING IS LOST, sec 1498: FZN_TUNE_LOSE_ANSWER,
+	@# which only this build reads.
+	@timeout 560 python3 tool/live_call.py $(BUILD_DIR)/faults/fuzznetd
 	@# A CHANGE'S ROUND THAT MISSED A LIVE SIBLING, sec 1149: R cut off by
 	@# FZN_FAULT_MUTE_FILE, which only this build has.
 	@timeout 330 python3 tool/live_object_missed.py $(BUILD_DIR)/faults/fuzznetd

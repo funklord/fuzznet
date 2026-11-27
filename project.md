@@ -78039,3 +78039,27 @@ file whole here counts this host though it never claimed it.
 Tests: `library_view_test` -- the song held here and by the laptop, the
 talk by an unknown host, and the movie's non-hex claimant read as none.
 Sabotage: both caught.
+
+## 1498. A call's answer said again, and a frame taken as one
+
+**fuzzypickles' window failed 2 of 4 runs answering dag's call** (inbox
+20261127T0326Z): the window's node said "answered", dag never did, and
+rang out at 49 s. The answer was said once, where an ending goes through
+`live_say_ending` and is said twice more a second apart; and a caller
+ringing out took no FRAME as an answer. So one lost datagram -- there at
+the moment the answerer sent a 67-piece notes reply to the same host --
+left the caller ringing while the answerer was up and sending media.
+
+**Now the answer is said as an ending is**, twice more a second apart
+(a second ANSWER to a call already up changes nothing at the caller,
+and a hub's participant already joined is not joined again), **and a
+FRAME from the host rung, to a call ringing out, is its answer**: the
+answerer sends media only once up.
+
+**Pinned**: `FZN_TUNE_LOSE_ANSWER=1`, read only by the fault build,
+loses an answer's first saying; `live_call` starts B with it, so its
+phase b goes up from the repeat alone, and moves to `livecheck-faults`
+to be run on that build. Sabotage `live-answer-said-once` -- the repeat
+removed -- fails phase b. **The frame taken as an answer is not pinned**:
+with the repeat, no script reaches it; it is the answer of last resort.
+

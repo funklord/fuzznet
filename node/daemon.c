@@ -22524,11 +22524,11 @@ static struct live_ending {
 	uint64_t next_ms;
 } live_endings[FZND_LIVE_ENDINGS];
 
-static void live_say_ending(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *word, size_t len)
+/* SAID TWICE MORE, a second apart, by `live_endings_pump`. */
+static void live_say_again(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *word, size_t len)
 {
 	size_t i, at = 0;
 
-	(void)fzn_daemon_say(host, word, len);
 	if (len > FZN_LIVE_HEAD_LEN)
 		return;
 	for (i = 0; i < FZND_LIVE_ENDINGS; i++) {
@@ -22544,6 +22544,22 @@ static void live_say_ending(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *w
 	live_endings[at].len = len;
 	live_endings[at].left = 2u;
 	live_endings[at].next_ms = wall_ms() + 1000u;
+}
+
+static void live_say_ending(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *word, size_t len)
+{
+	(void)fzn_daemon_say(host, word, len);
+	live_say_again(host, word, len);
+}
+
+/* AN ANSWER, said as an ending is (sec 1498). In the fault build
+ * FZN_TUNE_LOSE_ANSWER=1 loses its first saying, so a test sees the
+ * caller go up from the repeat alone. */
+static void live_say_answer(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *word, size_t len)
+{
+	if (!FZN_TUNE("LOSE_ANSWER", 0u, 1u))
+		(void)fzn_daemon_say(host, word, len);
+	live_say_again(host, word, len);
 }
 
 static void live_endings_pump(uint64_t now_ms)
@@ -23158,6 +23174,14 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		}
 		break;
 	case FZN_LIVE_FRAME:
+		/* A FRAME FROM THE HOST RUNG IS ITS ANSWER, sec 1498: it sends
+		 * media only once up, so a caller whose ANSWER was lost goes up
+		 * with the first frame rather than ringing until it gives up. */
+		if (c->state == FZN_LIVE_RINGING_OUT) {
+			c->state = FZN_LIVE_UP;
+			c->up_s = wall_clock();
+			live_told(w.call, "answered");
+		}
 		if (c->state != FZN_LIVE_UP || len > FZN_SESSION_FRAME_PAYLOAD_MAX
 		    || !(k = kept_of(w.call, 1)))
 			break;
@@ -23525,15 +23549,18 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			struct live_kept *k = kept_of(call, 0);
 			size_t m;
 
-			/* A PLACED CALL'S HANG-UP to every participant rung, joined or not. */
+			/* A PLACED CALL'S HANG-UP to every participant rung, joined or not.
+			 * THE ANSWER SAID AGAIN as an ending is, sec 1498: said once, a
+			 * datagram lost beside a 67-piece reply to the same host left
+			 * the caller ringing 49 s while this end was up. A second
+			 * answer to a call already up changes nothing there. */
 			if (k && k->n_participants) {
 				for (m = 0; m < k->n_participants; m++)
 					if (k->participants[m].joined || k->participants[m].ringing)
-						lw.kind == FZN_LIVE_ANSWER
-						        ? (void)fzn_daemon_say(k->participants[m].host, word, n)
-						        : live_say_ending(k->participants[m].host, word, n);
+						lw.kind == FZN_LIVE_ANSWER ? live_say_answer(k->participants[m].host, word, n)
+						                           : live_say_ending(k->participants[m].host, word, n);
 			} else if (lw.kind == FZN_LIVE_ANSWER) {
-				(void)fzn_daemon_say(c->host, word, n);
+				live_say_answer(c->host, word, n);
 			} else {
 				live_say_ending(c->host, word, n);
 			}

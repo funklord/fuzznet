@@ -1144,6 +1144,13 @@ SABOTAGES = [
 		"a claimant that is not hex is refused, not read as a host -- sec 1497",
 	),
 	(
+		"live-answer-said-once",
+		"node/daemon.c",
+		"\t\t(void)fzn_daemon_say(host, word, len);\n\tlive_say_again(host, word, len);\n}\n",
+		"\t\t(void)fzn_daemon_say(host, word, len);\n}\n",
+		"a call's answer is said again, so one lost datagram does not leave the caller ringing -- sec 1498",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
