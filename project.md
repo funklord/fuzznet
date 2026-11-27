@@ -129,8 +129,8 @@ listener port spans (`150e3106`).
   does not carry. lwIP vendored at the root, hal9001's own if it grows
   one, or Zephyr's networking under Zephyr -- a dependency, so the
   holder's to choose; best guess lwIP, the smallest and the one every
-  RTOS above can host. Running the board through hull waits on hull's
-  answer (its inbox 20261126T1924Z).
+  RTOS above can host. **The board runs through hull** (sec 1514,
+  `make livecheck-board-hull HULL=PATH`): what remains is the IP stack.
 - **Assumptions the holder may move**: discovery port 6290 and the
   spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
 
