@@ -149,7 +149,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list message unread"))
 		return (size_t)snprintf(reply, cap, "ok 3 0 3 " BOB ",2,0 " FAMILY ",0,0 " DAN ",0,0\n");
 	if (!strcmp(line, "list contact 0"))
-		return (size_t)snprintf(reply, cap, "ok 2 0 bob," BOB " dan," DAN "\n");
+		return (size_t)snprintf(reply, cap, "ok 3 0 bob," BOB " dan," DAN " eve,%064d\n", 0);
 	if (!strncmp(line, "grant ", 6) || !strncmp(line, "revoke ", 7)) {
 		strncat(asked, line, sizeof asked - strlen(asked) - 2);
 		strcat(asked, "\n");
@@ -327,6 +327,14 @@ int main(int argc, char **argv)
 	 * why. */
 	{
 		const QStringList offered = v.actions(1, 0);
+		/* A CONTACT ADDED FROM A PREKEY, sec 1502: no root key, so offered
+		 * disabled saying why, and refused if chosen. */
+		CHECK(offered.contains("Add a member: eve")
+		              && v.refused("Add a member: eve") == "added from a prekey; no verified identity"
+		              && v.refused("Add a member: bob").isEmpty() && !v.act(1, 0, "Add a member: eve")
+		              && !strstr(asked, "add member family eve"),
+		      "a contact added from a prekey was offered to a group as if verified");
+		v.actions(1, 0);
 
 		CHECK(offered.contains("Make an admin: bob") && offered.contains("Remove: dan")
 		              && offered.contains("Delete this device's copy") && !offered.contains("Remove: you"),

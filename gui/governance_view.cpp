@@ -111,10 +111,11 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	col = part(m_tabs, QStringLiteral("Votes"));
 	m_votes = new QListWidget(this);
 	m_vote = new QPushButton(QStringLiteral("Add this host's vote..."), this);
+	m_withdraw = new QPushButton(QStringLiteral("Withdraw this host's vote..."), this);
 	m_vote_bar = new QWidget(this);
 	{
 		auto *bar = new QHBoxLayout(m_vote_bar);
-		auto *yes = new QPushButton(QStringLiteral("Vote"), m_vote_bar);
+		auto *yes = m_vote_yes = new QPushButton(QStringLiteral("Vote"), m_vote_bar);
 		auto *no = new QPushButton(QStringLiteral("Cancel"), m_vote_bar);
 
 		m_vote_question = new QLabel(m_vote_bar);
@@ -122,7 +123,12 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 		bar->addWidget(m_vote_question, 1);
 		bar->addWidget(yes);
 		bar->addWidget(no);
-		connect(yes, &QPushButton::clicked, this, [this]() { vote(); });
+		connect(yes, &QPushButton::clicked, this, [this]() {
+			if (m_vote_bar->property("withdraw").toBool())
+				withdraw();
+			else
+				vote();
+		});
 		connect(no, &QPushButton::clicked, this, [this]() { cancel_vote(); });
 	}
 	m_vote_bar->hide();
@@ -130,7 +136,9 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	m_setting_votes = new QListWidget(this);
 	m_vote_setting = new QPushButton(QStringLiteral("Vote for this value too"), this);
 	col->addWidget(m_votes, 1);
+	/* ONE A ROW: side by side the two were wider than a 320 px screen. */
 	col->addWidget(m_vote);
+	col->addWidget(m_withdraw);
 	col->addWidget(m_vote_bar);
 	col->addWidget(m_setting_votes, 1);
 	col->addWidget(m_vote_setting);
@@ -188,6 +196,7 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	connect(m_remove_root, &QPushButton::clicked, this, [this]() { remove_root(); });
 	connect(m_set_k, &QPushButton::clicked, this, [this]() { set_k(m_k->value()); });
 	connect(m_vote, &QPushButton::clicked, this, [this]() { ask_vote(); });
+	connect(m_withdraw, &QPushButton::clicked, this, [this]() { ask_withdraw(); });
 	connect(m_vote_setting, &QPushButton::clicked, this, [this]() { vote_setting(); });
 	connect(m_confirm_succession, &QPushButton::clicked, this,
 	        [this]() { confirm_succession(); });
@@ -522,6 +531,8 @@ void fzn_governance_view::ask_vote()
 		return;
 	}
 	m_vote_bar->setProperty("key", key);
+	m_vote_bar->setProperty("withdraw", false);
+	m_vote_yes->setText(QStringLiteral("Vote"));
 	m_vote_question->setText(QStringLiteral("Vote to revoke %1? When k votes stand, its grant "
 	                                        "falls on every host.")
 	                                 .arg(short_key(key)));
@@ -538,6 +549,38 @@ bool fzn_governance_view::vote()
 	const QByteArray k = key.toUtf8();
 	return acted(fzn_rpc_vote_against(&m_rpc->c, k.constData(), (size_t)k.size()), m_votes_status,
 	           QStringLiteral("This host voted against %1.").arg(short_key(key)));
+}
+
+void fzn_governance_view::ask_withdraw()
+{
+	QString key = key_for(m_votes);
+
+	if (key.isEmpty()) {
+		m_votes_status->setText(QStringLiteral("Type or select the key to withdraw this host's vote from first."));
+		return;
+	}
+	m_vote_bar->setProperty("key", key);
+	m_vote_bar->setProperty("withdraw", true);
+	m_vote_yes->setText(QStringLiteral("Withdraw"));
+	m_vote_question->setText(QStringLiteral("Withdraw this host's vote against %1? Where the votes fall below "
+	                                        "k, its grant is honoured again.")
+	                                 .arg(short_key(key)));
+	m_vote_bar->show();
+}
+
+bool fzn_governance_view::withdraw()
+{
+	const QString key = m_vote_bar->property("key").toString();
+	const QByteArray raw = QByteArray::fromHex(key.toLatin1());
+
+	m_vote_bar->hide();
+	m_vote_bar->setProperty("withdraw", false);
+	if (raw.size() != 32) {
+		m_votes_status->setText(QStringLiteral("That is not a host's key."));
+		return false;
+	}
+	return acted(fzn_rpc_host_unrevoke(&m_rpc->c, (const uint8_t *)raw.constData()), m_votes_status,
+	             QStringLiteral("This host's vote against %1 is withdrawn.").arg(short_key(key)));
 }
 
 void fzn_governance_view::cancel_vote()

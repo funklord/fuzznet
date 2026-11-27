@@ -146,6 +146,11 @@ static size_t node_ask(void *ctx, const char *line_c, char *reply, size_t cap)
 		node.b_is_root = 0;
 		return say(reply, cap, QStringLiteral("ok"));
 	}
+	/* THIS HOST'S VOTE WITHDRAWN, sec 1502. */
+	if (line == QStringLiteral("remove revocation ") + QLatin1String(DEV_X)) {
+		node.x_votes--;
+		return say(reply, cap, QStringLiteral("ok"));
+	}
 	if (line == QStringLiteral("revoke peer ") + QLatin1String(DEV_X)) {
 		node.x_votes++;
 		return say(reply, cap, QStringLiteral("ok %1 keeping nothing").arg(QLatin1String(DEV_X)));
@@ -264,6 +269,15 @@ int main(int argc, char **argv)
 	CHECK(view.vote() && asked_count(QStringLiteral("revoke peer ") + QLatin1String(DEV_X)) == 1
 	              && view.rows(view.votes_list())[0].contains(QLatin1String("2 of 2")),
 	      "the vote was not sent against the row's full key, or not counted after");
+	/* ---- WITHDRAWN, ASKED FIRST (sec 1502): the grant honoured again. */
+	view.select(view.votes_list(), 0);
+	view.ask_withdraw();
+	CHECK(view.vote_asked() && asked_count(QStringLiteral("remove revocation ") + QLatin1String(DEV_X)) == 0,
+	      "asking to withdraw the vote sent it, or showed no question");
+	CHECK(view.withdraw() && asked_count(QStringLiteral("remove revocation ") + QLatin1String(DEV_X)) == 1
+	              && view.rows(view.votes_list())[0].contains(QLatin1String("1 of 2"))
+	              && view.votes_status().contains(QLatin1String("withdrawn")),
+	      "this host's vote was not withdrawn from the row's key, or not counted after");
 
 	/* ---- A RE-KEY AND A STAGED CHANGE CONFIRMED BY THEIR ROWS. */
 	view.select(view.successions_list(), 0);

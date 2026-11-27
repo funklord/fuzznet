@@ -1186,6 +1186,20 @@ SABOTAGES = [
 		"location is shared at the precision chosen -- sec 1501",
 	),
 	(
+		"governance-view-withdraw-unasked",
+		"gui/governance_view.cpp",
+		"\tm_vote_bar->setProperty(\"withdraw\", true);\n\tm_vote_yes->setText(QStringLiteral(\"Withdraw\"));\n",
+		"\tm_vote_bar->setProperty(\"withdraw\", true);\n\tm_vote_yes->setText(QStringLiteral(\"Withdraw\"));\n\t(void)fzn_rpc_host_unrevoke(&m_rpc->c, (const uint8_t *)QByteArray::fromHex(key.toLatin1()).constData());\n",
+		"withdrawing this host's vote is asked before it is sent -- sec 1502",
+	),
+	(
+		"conversations-view-prekey-member",
+		"gui/conversations_view.cpp",
+		"\t\t\t\tif (!memcmp(peers.entries[i].root_pubkey, no_root, 32))\n",
+		"\t\t\t\tif (0)\n",
+		"a contact added from a prekey is not offered to a group as if verified -- sec 1502",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -10045,8 +10059,8 @@ SABOTAGES = [
 	(
 		"governance-view-votes-unasked",
 		"gui/governance_view.cpp",
-		"\tm_vote_bar->show();\n",
-		"\tm_vote_bar->show();\n\tvote();\n",
+		"\t                                 .arg(short_key(key)));\n\tm_vote_bar->show();\n}\n\nbool fzn_governance_view::vote()",
+		"\t                                 .arg(short_key(key)));\n\tm_vote_bar->show();\n\tvote();\n}\n\nbool fzn_governance_view::vote()",
 		"a vote to revoke is sent at the first click, before the question is read -- sec 1023",
 	),
 	(

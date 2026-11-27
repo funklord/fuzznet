@@ -919,8 +919,16 @@ void fzn_conversations_view::members_menu(const QString &group, QStringList *out
 		if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK)
 			for (size_t i = 0; i < peers.count; i++) {
 				const QString who = QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len);
-				if (peers.entries[i].state == FZN_RPC_CONTACT_ACTIVE && !in.contains(who))
-					*out << tr("Add a member: %1").arg(who);
+				static const uint8_t no_root[32] = { 0 };
+				if (peers.entries[i].state != FZN_RPC_CONTACT_ACTIVE || in.contains(who))
+					continue;
+				*out << tr("Add a member: %1").arg(who);
+				/* ADDED FROM A PREKEY, sec 1502: no root key yet, and a group
+				 * names its members by root key -- offered disabled saying
+				 * so, as fuzzypickles' list does. */
+				if (!memcmp(peers.entries[i].root_pubkey, no_root, 32))
+					m_refused.insert(tr("Add a member: %1").arg(who),
+					                 tr("added from a prekey; no verified identity"));
 			}
 	}
 	*out << tr("Delete this device's copy");
@@ -1087,6 +1095,12 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	if (kind == ROW_GROUP && (action == tr("Add a member") || action == tr("Remove a member"))) {
 		if (!m_refused.value(action).isEmpty())
 			m_status->setText(m_refused.value(action));
+		return false;
+	}
+	/* A MEMBER OFFERED DISABLED, REFUSED SAYING WHY if chosen anyway (sec
+	 * 1502). */
+	if (kind == ROW_GROUP && action.startsWith(tr("Add a member: ")) && !m_refused.value(action).isEmpty()) {
+		m_status->setText(tr("%1: %2.").arg(action, m_refused.value(action)));
 		return false;
 	}
 	if (kind == ROW_GROUP

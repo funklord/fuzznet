@@ -78115,3 +78115,33 @@ so where fuzzypickles reads that state from is theirs to say.
 
 Tests: `conversations_view_test`, 70 checks. Sabotage: three new
 entries, two repointed, each caught.
+
+## 1502. A vote withdrawn from the governance view; a prekey contact kept out of a group
+
+**Withdrawing this host's vote** to revoke a key had a call
+(`fzn_rpc_host_unrevoke`, `remove revocation KEY`) and no view: the
+desktop-client sweep of this run found it among the client calls no
+widget reached. The governance view's Votes part now offers "Withdraw
+this host's vote..." beside adding one, **asked first on the same
+question row** -- withdrawing re-honours a device's grant where the
+votes fall below k, which for a stolen device is as weighty as the vote
+-- and its button says what it will do. The two buttons sit one a row:
+side by side they were wider than a 320 px screen.
+
+**A contact added from a prekey** has no root key yet (an all-zero
+`root_pubkey` in `fzn_rpc_peer_list`), and a group names its members
+by root key: fuzzypickles' answer to sec 1501's question. The
+conversations list's group menu offers such a contact disabled, "added
+from a prekey; no verified identity", and refuses it if chosen.
+
+Tests: `governance_view_test` (withdrawal asked, then sent against the
+row's key, counted after); `conversations_view_test` (eve, a prekey
+contact). Sabotage: two new entries and one made exact, each caught.
+
+**Removing a sibling (`fzn_rpc_sibling_remove`) was weighed and not
+offered**: against fuzznetd it is `remove peer KEY`, which un-pairs a
+device from this one node, not the estate removing a host -- that is
+the revocation vote, which the governance view casts and now withdraws.
+A sibling un-paired here alone is paired again by the estate, and a
+button beside the vote would read as a second, weaker way to remove a
+host.

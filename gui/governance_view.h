@@ -77,6 +77,10 @@ public:
 	void ask_vote();
 	bool vote();
 	void cancel_vote();
+	/* THIS HOST'S VOTE WITHDRAWN (sec 1502), asked first on the same row:
+	 * the key's grant is honoured again where the votes fall below k. */
+	void ask_withdraw();
+	bool withdraw();
 	bool vote_setting();
 	bool confirm_succession();
 	bool confirm_staged();
@@ -127,6 +131,8 @@ private:
 
 	QListWidget *m_votes;
 	QPushButton *m_vote;
+	QPushButton *m_withdraw;
+	QPushButton *m_vote_yes;
 	QWidget *m_vote_bar;
 	QLabel *m_vote_question;
 	QLabel *m_votes_status;
