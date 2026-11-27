@@ -1214,6 +1214,20 @@ SABOTAGES = [
 		"a capability that does not verify is not called usable -- sec 1505",
 	),
 	(
+		"clock-notice-cut-not-rounded",
+		"gui/clock_notice.cpp",
+		"estate.offset_ms : estate.offset_ms) + 500) / 1000;",
+		"estate.offset_ms : estate.offset_ms) + 0) / 1000;",
+		"an offset a few ms short of fifteen minutes is said as fifteen -- sec 1507",
+	),
+	(
+		"clock-notice-siblings-unnamed",
+		"gui/clock_notice.cpp",
+		"\t\t\t\tnames.insert(QByteArray((const char *)siblings->entries[i].host_pubkey, 32),\n",
+		"\t\t\t\tnames.insert(QByteArray(32, 0),\n",
+		"a sibling whose clock disagrees is named as this user's device -- sec 1507",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

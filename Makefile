@@ -1451,7 +1451,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
             gui/share_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
-            gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
+            gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp gui/clock_notice.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1491,7 +1491,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/clock_notice.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1503,7 +1503,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
             gui/test/share_view_test.cpp \
-            gui/test/call_bar_test.cpp \
+            gui/test/call_bar_test.cpp gui/test/clock_notice_test.cpp \
             gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
@@ -1626,6 +1626,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/call_audio_test \
               $(BUILD_DIR)/gui/test/call_video_test \
               $(BUILD_DIR)/gui/test/call_bar_test \
+              $(BUILD_DIR)/gui/test/clock_notice_test \
               $(BUILD_DIR)/gui/test/group_view_test \
               $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
@@ -4118,6 +4119,11 @@ $(BUILD_DIR)/gui/test/devices_view_test: $(BUILD_DIR)/gui/test/devices_view_test
                                       $(BUILD_DIR)/qr/qr.o $(QR_DECODE_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
+# WHAT A PERSON IS TOLD OF CLOCKS THAT DISAGREE, sec 1507.
+$(BUILD_DIR)/gui/test/clock_notice_test: $(BUILD_DIR)/gui/test/clock_notice_test.o \
+                                       $(BUILD_DIR)/gui/clock_notice.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/hosts_view_test: $(BUILD_DIR)/gui/test/hosts_view_test.o \
                                     $(BUILD_DIR)/gui/hosts_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -7978,7 +7984,8 @@ style: $(OBJS)
 	@# heading and draws nothing, and gui/compass_rose is drawn inside
 	@# location_view, which is (sec 1211); gui/call_audio and gui/call_video
 	@# carry a call's sound and picture and draw nothing (secs 1236, 1237),
-	@# and gui/call_opus is the sound's codec (sec 1254).
+	@# and gui/call_opus is the sound's codec (sec 1254); gui/clock_notice
+	@# is words for a host's notice line, and draws nothing (sec 1507).
 	@# Listed rather than inferred from
 	@# a name, so a widget named otherwise is still counted.
 	@# USED BY ITS CLASS'S WHOLE NAME, fzn_ and the source's: a widget not
@@ -7986,7 +7993,7 @@ style: $(OBJS)
 	@# required the suffix. A token is matched whole, so fzn_call_bar_x
 	@# would not count as fzn_call_bar.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
-	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_opus -e call_video | sort -u`; \
+	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_opus -e call_video -e clock_notice | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+' gui/test/qtty_render_test.cpp \

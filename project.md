@@ -78210,3 +78210,24 @@ layout's narrow. Once the host sets it, it is the host's.
 
 Tests: `library_view_test` -- every label plain, and narrow surviving a
 resize; the style gate.
+
+## 1507. The clock notice moved in from fuzzypickles
+
+What a person is told when a peer's clock and this device's disagree by
+more than a request lives (sec 717), and whose clock to set (sec 719's
+verdict), was fuzzypickles' `gui/src/clock_notice`: two pure functions,
+the words and a signature that keeps a dismissed notice dismissed until
+something changes. Every consumer showing a notice line would write the
+same, so by the holder's rule it is fuzznet's: **`gui/clock_notice`**,
+the functions as they were (`fzn_` names), and **`fzn_clock_notice_read`**
+beside them, which asks the node the verdict, the rows, and the names --
+contacts by host and root key, siblings by host key -- so a host shows
+the notice with one call. fuzzypickles agreed, and retires its own once
+it hosts this.
+
+The clock calls had had no fuzznet view: this is what closes it, a
+notice rather than a page, as the calls' own comments ask.
+
+Tests: `clock_notice_test` -- fuzzypickles' test of the words, moved
+with them, and the whole notice read from a node naming a sibling.
+Sabotage: the rounding and the sibling's name, both caught.
