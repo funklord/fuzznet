@@ -1578,6 +1578,20 @@ SABOTAGES = [
 		"a line a host sends to another conversation reaches that one -- sec 1529",
 	),
 	(
+		"conversation-view-menu-no-reactions",
+		"gui/conversation_view.cpp",
+		"\t\tfor (const QString &r : reactions())\n\t\t\tout << react_words(r);\n",
+		"",
+		"a line's menu offers each reaction -- sec 1530",
+	),
+	(
+		"conversation-view-menu-choice-dropped",
+		"gui/conversation_view.cpp",
+		"\t\t\t(void)line_act(row, chosen->data().toString());\n",
+		"\t\t\t(void)row;\n",
+		"a choice from a line's menu is done for the line under the press -- sec 1530",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

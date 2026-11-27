@@ -78835,3 +78835,35 @@ Five sabotage entries named lines this moved and were retargeted. Test:
 `conversation_view_test` -- a line to bob and a file to the family
 group while dan's stays open, the getters, a file saved by its
 reference. Sabotage: two new, five retargeted, each probed.
+
+## 1530. One menu for a line
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 10): its view
+opens one menu for a line, by a long press or a right-click, with
+reply, react, take back a reaction and unsend together. Ours offered
+the chosen line one action: a file Save or Get, a sticker Keep -- so
+neither could be replied to -- and this user's recent line Unsend in
+place of Reply. There was no way to take a reaction back.
+
+Now `line_actions(row)` lists everything a line allows, and
+`line_act(row, action)` does one:
+
+- its file saved or got;
+- a sticker that came in, its pack kept;
+- any line but a call or a line taken back: Reply, each reaction ("React
+  X"), and "Take back your reaction";
+- this user's own line under an hour old, with unsend on: Unsend.
+
+A right-click opens them as a menu through the host's hook (sec 1511),
+never a second window; a long press does the same where the platform
+makes it a context-menu request, as for the conversations list. The
+reactions are entries of their own rather than a submenu, which would
+be a nested popup. The single offer under the chosen line stays as it
+was, and the unsend check is now one function both use.
+
+Test: `conversation_view_test` -- gil's line offers a reply and the
+reactions and no Unsend; a reaction from the menu sent for that line;
+what a line does not offer refused; a right-click through the hook
+replying to the line under it; this user's recent line offering Unsend
+with the rest; a taken-back line offering nothing. Sabotage: two, each
+probed.

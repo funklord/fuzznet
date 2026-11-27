@@ -872,6 +872,36 @@ int main(int argc, char **argv)
 			CHECK(react && react->menu() == nullptr && strstr(last_add, "fzn:react/"),
 			      "React did not open through the host's hook, or its choice was not sent");
 		}
+		/* ONE MENU FOR A LINE (sec 1530): gil's line answered and reacted
+		 * to from it, and the menu opened by a right-click through the
+		 * host's hook; no Unsend on another's line. */
+		{
+			QListWidget *list = e.findChild<QListWidget *>();
+			const QStringList offers = e.line_actions(0);
+			CHECK(offers.contains("Reply") && offers.contains("React " + fzn_conversation_view::reactions().value(0))
+			              && !offers.contains("Unsend"),
+			      "gil's line's menu did not offer a reply and the reactions, or offered Unsend");
+			last_add[0] = '\0';
+			CHECK(e.line_act(0, "React " + fzn_conversation_view::reactions().value(0))
+			              && strstr(last_add, "fzn:react/" ID1),
+			      "a reaction chosen from a line's menu was not sent for that line");
+			CHECK(!e.line_act(0, "Unsend") && !e.line_act(9, "Reply"), "a line's menu did what it does not offer");
+			fzn_menu_set_exec([](QMenu *menu, QWidget *, const QPoint &) -> QAction * {
+				for (QAction *a : menu->actions())
+					if (a->text() == "Reply")
+						return a;
+				return nullptr;
+			});
+			QTimer::singleShot(200, []() {
+				if (QApplication::activePopupWidget())
+					QApplication::activePopupWidget()->close();
+			});
+			if (list && list->item(0))
+				list->customContextMenuRequested(list->visualItemRect(list->item(0)).center());
+			fzn_menu_set_exec(nullptr);
+			CHECK(e.replying() == QByteArray::fromHex(ID1), "a right-click's menu did not reply to the line under it");
+			e.reply_to(QByteArray());
+		}
 		/* TAKEN BACK, sec 1284: hal's line said so, with nothing after; this
 		 * user's own line, under an hour old and unsend on, offers Unsend. */
 		CHECK(e.open("hal") && e.lines().value(0) == "23:43 hal: This line was taken back."
@@ -879,6 +909,12 @@ int main(int argc, char **argv)
 		      "a line taken back was not said so, or this user's was not shown");
 		e.select_line(1);
 		CHECK(e.offered() == "Unsend", "this user's line under an hour old did not offer Unsend");
+		/* ONE MENU FOR A LINE (sec 1530): this user's recent line offers a
+		 * reply and reactions as well as Unsend; hal's taken-back line
+		 * offers nothing. */
+		CHECK(e.line_actions(1).contains("Unsend") && e.line_actions(1).contains("Reply")
+		              && e.line_actions(1).contains("Take back your reaction") && e.line_actions(0).isEmpty(),
+		      "a line's menu did not hold all it allows, or a taken-back line offered something");
 		e.select_line(0);
 		CHECK(e.offered() != "Unsend" && e.offered() != "Reply", "a line taken back offered something");
 		last_add[0] = '\0';

@@ -550,6 +550,22 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_lines, &QListWidget::itemActivated,
 	        [this](QListWidgetItem *item) { (void)open_line(m_lines->row(item)); });
 	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });
+	/* A LINE'S MENU, sec 1530: a right-click, or a long press where the
+	 * platform makes one a context-menu request, as the conversations
+	 * list does; through the host's hook, never a second window. */
+	m_lines->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(m_lines, &QListWidget::customContextMenuRequested, [this](const QPoint &at) {
+		const int row = m_lines->row(m_lines->itemAt(at));
+		const QStringList actions = line_actions(row);
+		if (actions.isEmpty())
+			return;
+		QMenu menu(m_lines);
+		for (const QString &a : actions)
+			menu.addAction(a)->setData(a);
+		QAction *chosen = fzn_menu_exec(&menu, m_lines, m_lines->viewport()->mapToGlobal(at));
+		if (chosen)
+			(void)line_act(row, chosen->data().toString());
+	});
 	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
@@ -1256,19 +1272,10 @@ void fzn_conversation_view::offer_for(QListWidgetItem *item)
 	const QByteArray id = item ? item->data(ROLE_ID).toByteArray() : QByteArray();
 	/* THIS USER'S OWN LINE, under an hour old, taken back instead, sec
 	 * 1284 -- offered only where this user has unsend on. */
-	if (id.size() == (int)FZN_MESSAGE_ID_LEN && !item->data(ROLE_IN).toBool()
-	    && !item->data(ROLE_UNSENT).toBool()) {
-		const qulonglong now = m_now ? m_now : (qulonglong)time(NULL), sent = item->data(ROLE_AT).toULongLong();
-		fzn_rpc_config_get_resp_t on;
-
-		memset(&on, 0, sizeof on);
-		if (sent && now >= sent && now - sent < FZN_MESSAGE_UNSEND_WINDOW_MS / 1000u
-		    && fzn_rpc_config_get(&m_rpc->c, "message.unsend", 14, &on) == FZN_RPC_OK && on.value_len == 2
-		    && !memcmp(on.value, "on", 2)) {
-			m_notice->offer(tr("Take this line back, here and from them, within an hour of sending it."),
-			                tr("Unsend"), [this, id]() { (void)unsend(id); });
-			return;
-		}
+	if (may_unsend(item)) {
+		m_notice->offer(tr("Take this line back, here and from them, within an hour of sending it."),
+		                tr("Unsend"), [this, id]() { (void)unsend(id); });
+		return;
 	}
 	if (id.size() == (int)FZN_MESSAGE_ID_LEN && !item->data(ROLE_UNSENT).toBool()) {
 		m_notice->offer(tr("Answer this line with the next one you send."), tr("Reply"),
@@ -1277,6 +1284,87 @@ void fzn_conversation_view::offer_for(QListWidgetItem *item)
 	}
 	if (m_notice->offering())
 		m_notice->clear();
+}
+
+bool fzn_conversation_view::may_unsend(const QListWidgetItem *item)
+{
+	const QByteArray id = item ? item->data(ROLE_ID).toByteArray() : QByteArray();
+	const qulonglong now = m_now ? m_now : (qulonglong)time(NULL);
+	fzn_rpc_config_get_resp_t on;
+
+	if (id.size() != (int)FZN_MESSAGE_ID_LEN || item->data(ROLE_IN).toBool() || item->data(ROLE_UNSENT).toBool())
+		return false;
+	const qulonglong sent = item->data(ROLE_AT).toULongLong();
+	memset(&on, 0, sizeof on);
+	return sent && now >= sent && now - sent < FZN_MESSAGE_UNSEND_WINDOW_MS / 1000u
+	       && fzn_rpc_config_get(&m_rpc->c, "message.unsend", 14, &on) == FZN_RPC_OK && on.value_len == 2
+	       && !memcmp(on.value, "on", 2);
+}
+
+/* THE WORDS OF A REACTION'S ENTRY in a line's menu. */
+static QString react_words(const QString &reaction) { return QObject::tr("React %1").arg(reaction); }
+
+QStringList fzn_conversation_view::line_actions(int row)
+{
+	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
+	QStringList out;
+
+	if (!item)
+		return out;
+	const QByteArray ref = item->data(ROLE_FILE).toByteArray();
+	const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+	const QByteArray id = item->data(ROLE_ID).toByteArray();
+	if (!ref.isEmpty()) {
+		fzn_rpc_blob_status_resp_t st;
+
+		memset(&st, 0, sizeof st);
+		out << (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known
+		                        && st.complete
+		                ? tr("Save the file")
+		                : tr("Get the file"));
+	}
+	if (sticker.size() > 145 && item->data(ROLE_IN).toBool())
+		out << tr("Keep this sticker pack");
+	/* A FILE, A STICKER, ANY LINE BUT A CALL can be answered and reacted
+	 * to -- the chosen line's single offer left a file or a sticker with
+	 * no reply, and an own line with Unsend in its place. */
+	if (id.size() == (int)FZN_MESSAGE_ID_LEN && !item->data(ROLE_UNSENT).toBool()) {
+		out << tr("Reply");
+		for (const QString &r : reactions())
+			out << react_words(r);
+		out << tr("Take back your reaction");
+	}
+	if (may_unsend(item))
+		out << tr("Unsend");
+	return out;
+}
+
+bool fzn_conversation_view::line_act(int row, const QString &action)
+{
+	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
+
+	if (!item || !line_actions(row).contains(action))
+		return false;
+	const QByteArray id = item->data(ROLE_ID).toByteArray();
+	select_line(row);
+	if (action == tr("Save the file"))
+		return save_to(QString());
+	if (action == tr("Get the file"))
+		return fetch();
+	if (action == tr("Keep this sticker pack"))
+		return keep_pack();
+	if (action == tr("Reply")) {
+		reply_to(id);
+		return true;
+	}
+	if (action == tr("Take back your reaction"))
+		return react(id, QString());
+	if (action == tr("Unsend"))
+		return unsend(id);
+	for (const QString &r : reactions())
+		if (action == react_words(r))
+			return react(id, r);
+	return false;
 }
 
 bool fzn_conversation_view::fetch()

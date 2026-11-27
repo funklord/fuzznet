@@ -126,6 +126,13 @@ public:
 	 * line of its own does: the node holds the hour and the setting. */
 	bool unsend(const QByteArray &id);
 	static QStringList reactions();
+	/* ONE MENU FOR A LINE, sec 1530, opened by a right-click or a long
+	 * press through the host's hook (sec 1511): everything that line
+	 * allows -- its file saved or got, its sticker's pack kept, a reply,
+	 * each reaction, a reaction taken back, and this user's own recent
+	 * line taken back. What row `row` offers, and one of them done. */
+	QStringList line_actions(int row);
+	bool line_act(int row, const QString &action);
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -227,6 +234,8 @@ private:
 	 * typed words, a sticker and a suggestion alike. */
 	bool send_as_reply(const QByteArray &text);
 	bool send_line_to(const QString &conversation, const QByteArray &text);
+	/* Whether `item`, this user's own, may still be taken back here. */
+	bool may_unsend(const QListWidgetItem *item);
 	struct pending_save {
 		QByteArray ref;
 		QString where;
