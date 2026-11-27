@@ -136,6 +136,18 @@ public:
 	 * each refresh, so a host marks read only what a person can see -- its
 	 * window in front, this view showing. Unset, every refresh marks. */
 	void mark_read_when(std::function<bool()> may);
+	/* NEW LINES SHOWN AS THEY ARRIVE, sec 1522: while the view is shown it
+	 * asks the node for the open conversation's newest line every `ms`
+	 * (2000 unless set; 0 stops it) and refreshes when that line, or its
+	 * state, changed -- so a host that never polls still shows them, and a
+	 * reader at the end sees them without scrolling (sec 1518). A host
+	 * subscribed to fuzznetd's events calls `message_event` with an event's
+	 * NAME, and the view looks at once. */
+	void set_watch_ms(int ms);
+	void message_event(const QString &name);
+	/* Look now: whether the newest line changed, and the view was
+	 * refreshed for it. */
+	bool watch_now();
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -184,6 +196,11 @@ private:
 	QTimer *m_pop = nullptr;
 	std::function<void(const QString &)> m_sound;
 	std::function<bool()> m_may_mark;
+	QTimer *m_watch = nullptr;
+	/* The open conversation's newest line, as last shown: its id and
+	 * state, and for a group who read it. Empty until a refresh. */
+	QByteArray m_newest_seen;
+	QByteArray newest_now();
 	/* Whose lines the list holds, so a newly opened one starts at its end. */
 	QString m_place_for;
 	/* FOLLOWING THE END until the reader scrolls away from it; the moves a

@@ -484,6 +484,14 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_suggest->setMaximumHeight(56 + 2 * m_suggest->fontMetrics().height());
 	m_suggest->setAccessibleName(tr("Stickers for what you are writing"));
 	m_suggest->hide();
+	/* THE WATCH, sec 1522: asks only while the view is shown. */
+	m_watch = new QTimer(this);
+	m_watch->setInterval(2000);
+	connect(m_watch, &QTimer::timeout, [this]() {
+		if (isVisible())
+			(void)watch_now();
+	});
+	m_watch->start();
 	m_suggest_soon = new QTimer(this);
 	m_suggest_soon->setSingleShot(true);
 	m_suggest_soon->setInterval(250);
@@ -736,6 +744,66 @@ void fzn_conversation_view::merge_calls(bool full, uint32_t now)
 
 void fzn_conversation_view::mark_read_when(std::function<bool()> may) { m_may_mark = std::move(may); }
 
+void fzn_conversation_view::set_watch_ms(int ms)
+{
+	if (ms <= 0) {
+		m_watch->stop();
+		return;
+	}
+	m_watch->start(ms);
+}
+
+void fzn_conversation_view::message_event(const QString &name)
+{
+	(void)name;
+	(void)watch_now();
+}
+
+/* THE NEWEST LINE'S MARK: one line asked, newest first -- its id and
+ * state, and who read it in a group. Empty when the node did not answer,
+ * so a silent node refreshes nothing. */
+QByteArray fzn_conversation_view::newest_now()
+{
+	QByteArray mark;
+
+	if (m_contact.isEmpty())
+		return mark;
+	if (m_contact.startsWith(QLatin1Char('@'))) {
+		fzn_rpc_group_line_t newest;
+		size_t count = 0;
+		const QByteArray name = m_contact.mid(1).toUtf8();
+
+		if (fzn_rpc_group_lines(&m_rpc->c, name.constData(), (size_t)name.size(), &newest, 1, &count)
+		    != FZN_RPC_OK)
+			return mark;
+		mark = "g";
+		if (count)
+			mark += QByteArray((const char *)newest.line.commitment, 16) + (char)newest.line.state
+			        + QByteArray::number(newest.read_by);
+		return mark;
+	}
+	fzn_rpc_inbox_entry_t newest;
+	size_t count = 0;
+	const QByteArray who = m_contact.toUtf8();
+
+	if (fzn_rpc_inbox_lines(&m_rpc->c, who.constData(), (size_t)who.size(), &newest, 1, &count) != FZN_RPC_OK)
+		return mark;
+	mark = "c";
+	if (count)
+		mark += QByteArray((const char *)newest.commitment, 16) + (char)newest.state;
+	return mark;
+}
+
+bool fzn_conversation_view::watch_now()
+{
+	const QByteArray now = newest_now();
+
+	if (now.isEmpty() || now == m_newest_seen)
+		return false;
+	(void)refresh();
+	return true;
+}
+
 /* THE READER'S PLACE KEPT across a refill, sec 1518: at the end, the end
  * again, as new lines arrive; scrolled up into the history, the line at
  * the top stays at the top. Every poll pulled a reader down to the newest
@@ -760,6 +828,7 @@ bool fzn_conversation_view::refresh_lines()
 	m_filling = true;
 	const bool r = fill_lines();
 	m_place_for = m_contact;
+	m_newest_seen = r ? newest_now() : QByteArray();
 	if (at_end) {
 		m_lines->scrollToBottom();
 	} else {

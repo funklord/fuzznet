@@ -1473,6 +1473,27 @@ SABOTAGES = [
 		"a lost fork's secret is kept for this host's own lines before it is forgotten -- sec 1520",
 	),
 	(
+		"conversation-view-watch-never-started",
+		"gui/conversation_view.cpp",
+		"\tm_watch->start();\n",
+		"",
+		"a shown conversation watches for new lines by itself -- sec 1522",
+	),
+	(
+		"conversation-view-watch-blind",
+		"gui/conversation_view.cpp",
+		"\tif (now.isEmpty() || now == m_newest_seen)\n",
+		"\tif (1)\n",
+		"the watch refreshes when the newest line changed -- sec 1522",
+	),
+	(
+		"conversation-view-watch-forgets",
+		"gui/conversation_view.cpp",
+		"\tm_newest_seen = r ? newest_now() : QByteArray();\n",
+		"\tm_newest_seen = QByteArray();\n",
+		"a refresh notes the newest line it showed, so the watch acts only on what is newer -- sec 1522",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

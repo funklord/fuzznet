@@ -78634,3 +78634,37 @@ re-listed after a fork as listed from its first act. So the wait line
 now carries what the log says this host was given: whether the group
 backfills, whether this host is listed, and its joined, keyed and
 backfilled-to epochs. The next failing run settles it.
+
+## 1522. A viewed conversation shows new lines by itself
+
+The holder, 2026-11-27: a viewed conversation shows new messages, and
+does not need scrolling when it is already at the end -- only when the
+reader is browsing the history. Sec 1518 kept the reader's place across
+a refresh. But the view refreshed only when its host called `refresh`,
+so a host that did not poll showed nothing new, and one that did paid a
+full rebuild at every tick.
+
+The view now watches for itself. While it is shown, every two seconds
+it asks the node for the open conversation's newest line alone (one
+line, newest first, on either kind of conversation). It refreshes only
+when that line's id or state -- or, in a group, how many have read it
+-- differs from the newest the last refresh showed. A new line,
+"sending" turning "delivered", and a read mark each show without the
+host doing anything. Because the view follows the end (sec 1518), a
+reader at the end sees the line arrive with no scrolling; a reader up
+in the history is left where they are. Hidden, it asks nothing. A silent
+node refreshes nothing, since an empty answer is not a change.
+
+A host subscribed to fuzznetd's events (sec 609) can call
+`message_event(NAME)` for each `event message NAME`: the view looks at
+once rather than at its next tick, and its own look decides whether the
+event was its conversation's. `set_watch_ms` sets the interval; 0 stops
+the watch. Rejected: the view subscribing to events itself. Views reach
+the node only through the host's `ask`, and a socket of their own would
+be a second path to the node, which a host that tunnels its `ask`
+(sec 667) could not follow.
+
+Test: `conversation_view_test` -- nothing new, nothing done; a line from
+bob shown, with the reader at the end kept there; the same line not
+refreshed twice; and a fresh view, shown and left alone, showing a new
+line within its own two seconds. Sabotage: three, each probed.

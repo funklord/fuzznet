@@ -14,6 +14,7 @@
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QScrollBar>
 #include <QListWidget>
 #include <QTimer>
@@ -43,11 +44,14 @@ static int checks, failures;
 #define ID2 "22222222222222222222222222222222"
 #define ID3 "33333333333333333333333333333333"
 #define ID4 "44444444444444444444444444444444"
+#define ID5 "55555555555555555555555555555555"
 #define GROUP_ID "f0f0000000000000000000000000000000000000000000000000000000000009"
 /* 2023-11-14 23:46:40 UTC. */
 #define NOW 1700005600u
 
 static int silent, refuse_send;
+/* Bob has written again (sec 1522). */
+static int bob_more;
 static char last_set[200], last_add[200], last_file[600];
 static int file_partial;
 /* The file dan sent: its root is 64 hex digits of the number 3. */
@@ -227,6 +231,15 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* NEWEST FIRST, as the node lists them: this user's "ok" at 23:52,
 	 * bob's escape at 23:51, this user's line at 23:50, and bob's hello the
 	 * day before. */
+	/* AND A NEW LINE FROM BOB, when it has come (sec 1522). */
+	if (!strcmp(line, "list message bob 0") && bob_more)
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 5 0 " BOB ",bob," ID5 ",in,-,1700005970000,1700005970000,1,are%%20you%%20there "
+		                        BOB ",bob," ID4 ",out,-,1700005960000,"
+		                        "1700005960000,1,ok " BOB ",bob," ID3 ",in,read,1700005900000,1700005900000,1,"
+		                        "see%%20you%%1b[2J " BOB ",bob," ID2 ",out,delivered,1700005800000,"
+		                        "1700005800000,1,on%%20my%%20way " BOB ",bob," ID1 ",in,read,"
+		                        "1699900000000,1699900000000,1,hello\n");
 	if (!strcmp(line, "list message bob 0"))
 		return (size_t)snprintf(reply, cap,
 		                        "ok 0 4 0 " BOB ",bob," ID4 ",out,-,1700005960000,"
@@ -366,6 +379,39 @@ int main(int argc, char **argv)
 		v.refresh();
 		CHECK(!strcmp(last_set, "set message bob read " ID3), "lines were not marked read when the host allowed it");
 		v.mark_read_when(nullptr);
+		/* NEW LINES SHOWN AS THEY ARRIVE (sec 1522): nothing new, nothing
+		 * done; bob writes, and the view shows it, the reader at the end
+		 * kept at the end -- no scrolling. */
+		v.set_watch_ms(0);
+		if (bar)
+			bar->setValue(bar->maximum());
+		CHECK(!v.watch_now(), "the watch refreshed with nothing new");
+		bob_more = 1;
+		CHECK(v.watch_now() && v.lines().filter("bob: are you there").size() == 1,
+		      "a line that arrived was not shown by the watch");
+		app.processEvents();
+		CHECK(bar && bar->value() == bar->maximum(), "a reader at the end had to scroll to see the new line");
+		CHECK(!v.watch_now(), "the watch refreshed again for a line already shown");
+		bob_more = 0;
+		(void)v.refresh();
+		/* AND BY ITSELF, a fresh view shown, nothing set: nobody calls
+		 * anything, and its own two seconds find the line. */
+		{
+			fzn_conversation_view fresh(node, nullptr);
+			QElapsedTimer waited;
+
+			fresh.show();
+			(void)fresh.open("bob");
+			bob_more = 1;
+			waited.start();
+			while (fresh.lines().filter("bob: are you there").isEmpty() && waited.elapsed() < 4000)
+				app.processEvents(QEventLoop::AllEvents, 50);
+			CHECK(!fresh.lines().filter("bob: are you there").isEmpty(),
+			      "a shown view did not show a new line by itself");
+		}
+		bob_more = 0;
+		(void)v.refresh();
+		v.set_watch_ms(2000);
 		v.resize(320, 600);
 		app.processEvents();
 	}
