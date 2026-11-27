@@ -662,24 +662,60 @@ QString fzn_library_view::offered() const { return m_confirm->isHidden() ? QStri
 
 bool fzn_library_view::confirm() { return m_confirm->act(); }
 
-/* HOW MUCH PLAYS HERE, and whether it is whole: a one-byte read is the
- * probe, asked when a file here or arriving is chosen. Which hosts hold it
- * is the Where column's count until the client carries their names. */
+/* THE CHOSEN FILE'S DETAIL, asked when one is chosen: who holds it, by
+ * this user's names for its hosts (sec 1497) -- fuzznetd names a holder by
+ * the first eight bytes of its key, matched to the siblings' -- and, for a
+ * file here or arriving, how much plays here: a one-byte read is the
+ * probe. */
 void fzn_library_view::read_detail()
 {
 	const QByteArray root = chosen_root();
 	const int row = m_table->currentRow();
+	QStringList said;
 
 	m_detail->clear();
-	if (root.size() != 32 || row < 0
-	    || !(chosen_here(m_table) || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))
+	if (root.size() != 32 || row < 0)
 		return;
-	fzn_rpc_library_play_resp_t *probe = new fzn_rpc_library_play_resp_t;
-	if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), 0, 1, probe) == FZN_RPC_OK)
-		m_detail->setText(probe->complete ? tr("Whole here, %1.").arg(fzn_size_words(probe->size))
-		                                  : tr("%1 of %2 plays here so far.")
-		                                            .arg(fzn_size_words(probe->playable), fzn_size_words(probe->size)));
-	delete probe;
+	{
+		uint8_t prefix[16][8];
+		size_t n = 0, total = 0;
+		int claimed_here = 0;
+
+		if (fzn_rpc_library_holders(&m_rpc->c, (const uint8_t *)root.constData(), prefix, 16, &n, &total,
+		                            &claimed_here)
+		    == FZN_RPC_OK) {
+			fzn_rpc_sibling_list_resp_t *siblings = new fzn_rpc_sibling_list_resp_t;
+			QStringList names;
+
+			memset(siblings, 0, sizeof(*siblings));
+			const bool known = fzn_rpc_sibling_list(&m_rpc->c, siblings) == FZN_RPC_OK;
+			if (claimed_here || chosen_here(m_table))
+				names << tr("this host");
+			for (size_t i = 0; i < n; i++) {
+				QString name;
+				for (size_t k = 0; known && k < siblings->count && name.isEmpty(); k++)
+					if (!memcmp(siblings->entries[k].host_pubkey, prefix[i], 8))
+						name = QString::fromUtf8(siblings->entries[k].name, (int)siblings->entries[k].name_len);
+				names << (name.isEmpty() ? tr("a host %1").arg(QString::fromLatin1(QByteArray((const char *)prefix[i], 4).toHex()))
+				                         : name);
+			}
+			const size_t listed = n + (claimed_here ? 1u : 0u);
+			if (total > listed)
+				names << tr("%n more", nullptr, (int)(total - listed));
+			if (!names.isEmpty())
+				said << tr("Held by %1.").arg(names.join(QStringLiteral(", ")));
+			delete siblings;
+		}
+	}
+	if (chosen_here(m_table) || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()) {
+		fzn_rpc_library_play_resp_t *probe = new fzn_rpc_library_play_resp_t;
+		if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), 0, 1, probe) == FZN_RPC_OK)
+			said << (probe->complete ? tr("Whole here, %1.").arg(fzn_size_words(probe->size))
+			                         : tr("%1 of %2 plays here so far.")
+			                                   .arg(fzn_size_words(probe->playable), fzn_size_words(probe->size)));
+		delete probe;
+	}
+	m_detail->setText(said.join(QLatin1Char(' ')));
 }
 
 QString fzn_library_view::detail() const { return m_detail->text(); }

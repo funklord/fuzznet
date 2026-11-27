@@ -5326,6 +5326,45 @@ int fzn_rpc_library_show(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]
 	return text ? node_library_show(c, root, out) : rc;
 }
 
+int fzn_rpc_library_holders(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], uint8_t (*prefix)[8],
+                             size_t cap, size_t *count, size_t *total, int *claimed_here) {
+	*count = 0;
+	*total = 0;
+	*claimed_here = 0;
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	int rc = fzn_rpc_node(c, "get", "identity", 8, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (rest_len != 129) return unreadable(c);
+	char me[16], hex[65], arg[96];
+	memcpy(me, rest, 16);
+	fzn_hex_encode(root, 32, hex);
+	const int arg_len = snprintf(arg, sizeof arg, "catalog %s", hex);
+	rc = fzn_rpc_node(c, "get", arg, (size_t)arg_len, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	size_t at = 0, holders = 0;
+	if (!node_number(rest, rest_len, &at, &holders)) return unreadable(c);
+	*total = holders;
+	/* EACH CLAIMANT, sixteen hex: this host's said apart, the rest kept. */
+	while (at < rest_len) {
+		size_t end = at;
+		while (end < rest_len && rest[end] != ' ') end++;
+		if (end - at != 16) return unreadable(c);
+		if (memcmp(rest + at, me, 16) == 0)
+			*claimed_here = 1;
+		else if (*count < cap) {
+			for (size_t k = 0; k < 8; k++) {
+				const int hi = hex_nibble(rest[at + 2 * k]), lo = hex_nibble(rest[at + 2 * k + 1]);
+				if (hi < 0 || lo < 0) return unreadable(c);
+				prefix[*count][k] = (uint8_t)(hi << 4 | lo);
+			}
+			(*count)++;
+		}
+		at = end < rest_len ? end + 1 : end;
+	}
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_library_detail(fzn_rpc_t *c, fzn_rpc_library_list_all_t *list, size_t from, size_t count) {
 	if (from >= list->count) return FZN_RPC_OK;
 	if (count > list->count - from) count = list->count - from;

@@ -260,6 +260,13 @@ int fzn_rpc_library_play(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]
                           uint16_t want, fzn_rpc_library_play_resp_t *out);
 int fzn_rpc_library_show(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
                           fzn_rpc_library_show_resp_t *out);
+/* WHO HOLDS A FILE, sec 1497: the hosts claiming it in the catalogue, each
+ * named as fuzznetd names one, by the first eight bytes of its key -- this
+ * host left out and said in `*claimed_here`. At most `cap` prefixes in
+ * `prefix`, `*count` written; `*total` how many claim it, this host
+ * included. A view matches the prefixes to its siblings' keys. */
+int fzn_rpc_library_holders(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], uint8_t (*prefix)[8],
+                             size_t cap, size_t *count, size_t *total, int *claimed_here);
 /*
  * The whole listing, page by page (sec 167), into `out`. Bounded by the most
  * a library holds, in case a daemon keeps saying "more" without moving. On a

@@ -80,7 +80,8 @@ public:
 	 * as the system names it, which has the node read its tags and hear a
 	 * tune. How many were added; the Add button asks which. */
 	int add_files(const QStringList &paths);
-	/* THE CHOSEN FILE'S DETAIL (sec 1493): how much of it plays here, and
+	/* THE CHOSEN FILE'S DETAIL (secs 1493, 1497): which hosts hold it, by
+	 * this user's names for them, and how much of it plays here and
 	 * whether it is whole. */
 	QString detail() const;
 	/* NARROW, for a phone (sec 1493): Kind, Size and Length dropped. Set

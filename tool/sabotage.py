@@ -1130,6 +1130,20 @@ SABOTAGES = [
 		"a double click opens a conversation once -- sec 1496",
 	),
 	(
+		"library-view-holders-unnamed",
+		"gui/library_view.cpp",
+		"\t\t\t\t\tif (!memcmp(siblings->entries[k].host_pubkey, prefix[i], 8))\n",
+		"\t\t\t\t\tif (0)\n",
+		"a file's holders are named as this user's hosts are -- sec 1497",
+	),
+	(
+		"rpc-library-holders-bad-hex",
+		"local/rpc.c",
+		"\t\t\t\tif (hi < 0 || lo < 0) return unreadable(c);\n\t\t\t\tprefix[*count][k] = (uint8_t)(hi << 4 | lo);\n",
+		"\t\t\t\tprefix[*count][k] = (uint8_t)(hi << 4 | lo);\n",
+		"a claimant that is not hex is refused, not read as a host -- sec 1497",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

@@ -74,6 +74,17 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 			return (size_t)snprintf(reply, cap, movie ? "ok partial\n" : "ok whole\n");
 		}
 	}
+	/* WHO CLAIMS EACH, sec 1497: the song this host and the laptop, a
+	 * sibling; the talk a host this one does not know. */
+	if (!strcmp(line, "get catalog " SONG))
+		return (size_t)snprintf(reply, cap, "ok 2 cccc000000000000 aaaa000000000000\n");
+	if (!strcmp(line, "get catalog " TALK))
+		return (size_t)snprintf(reply, cap, "ok 1 bbbb000000000000\n");
+	/* A CLAIMANT THAT IS NOT HEX: no answer to read. */
+	if (!strcmp(line, "get catalog " MOVIE))
+		return (size_t)snprintf(reply, cap, "ok 1 zzzz000000000000\n");
+	if (!strcmp(line, "list sibling 0"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 aaaa%060d,-,1,0,laptop\n", 0);
 	if (!strcmp(line, "get file " MOVIE))
 		return (size_t)snprintf(reply, cap, "ok 400 1000 734003200 partial private 0\n");
 	if (!strcmp(line, "remove file " SONG))
@@ -224,6 +235,7 @@ int main(int argc, char **argv)
 	 * for and handed on at once (sec 1493). */
 	v.select(2);
 	CHECK(!v.share("") && !v.remove(), "a file held only elsewhere was shared or removed");
+	CHECK(v.detail() == "Held by a host bbbb0000.", "a host this one does not know was not named by its key");
 	CHECK(v.play() && played.size() == 32 && (uint8_t)played[0] == 0x70 && v.status().startsWith("Asked for talk.webm"),
 	      "a file held only elsewhere was not asked for and handed to the host's player");
 	played.clear();
@@ -246,7 +258,8 @@ int main(int argc, char **argv)
 	CHECK(v.verify() && v.status().contains("2 broken, dropped to be fetched again"),
 	      "broken pieces were not said as dropped to be fetched again");
 	/* THE CHOSEN FILE'S DETAIL: who holds it, and how much plays here. */
-	CHECK(v.detail() == "Whole here, 4.0 MB.", "how much of the chosen file plays here was not said");
+	CHECK(v.detail() == "Held by this host, laptop. Whole here, 4.0 MB.",
+	      "the chosen file's holders by name, and how much plays here, were not said");
 	/* REMOVE ASKED INLINE FIRST, sec 1493: nothing done until confirmed. */
 	QStringList notices;
 	v.on_notice([&notices](const QString &line) { notices << line; });
@@ -269,6 +282,7 @@ int main(int argc, char **argv)
 			if (v.rows()[r].startsWith("movie.mkv"))
 				movie = r;
 		v.select(movie);
+		CHECK(!v.detail().contains("Held by"), "a claimant that is not hex was read as a host");
 		CHECK(movie >= 0 && v.save_to(to) && QFileInfo(to).size() == (qint64)MOVIE_REACHED
 		              && QFileInfo(to).permissions() == (QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser | QFileDevice::WriteUser)
 		              && v.status().contains("that has arrived"),

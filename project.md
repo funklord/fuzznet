@@ -78018,3 +78018,24 @@ differently, asked back.
 
 Tests: `conversations_view_test`, 64 checks. Sabotage: six new entries;
 five older ones repointed to the code that moved.
+
+## 1497. A file's holders, named
+
+The last of fuzzypickles' Library list (sec 1493, their item 5): the
+chosen file's detail says which hosts hold it, by this user's names for
+them. fuzznetd's `get catalog ROOT` names each claimant by the first
+eight bytes of its key, and the client counted them and dropped the
+rest (`fzn_rpc_library_show`'s `holder_keys` is filled by no path
+against fuzznetd).
+
+**`fzn_rpc_library_holders`** returns those eight-byte prefixes, this
+host left out and said apart (by `get identity`), and how many claim
+the file; a claimant that is not sixteen hex refuses the answer rather
+than naming a host. **The library view** matches each prefix to its
+siblings' keys (`fzn_rpc_sibling_list`) -- "Held by this host, laptop."
+-- and names a host it does not know by its key's first four bytes; a
+file whole here counts this host though it never claimed it.
+
+Tests: `library_view_test` -- the song held here and by the laptop, the
+talk by an unknown host, and the movie's non-hex claimant read as none.
+Sabotage: both caught.
