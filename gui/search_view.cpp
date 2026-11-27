@@ -1,5 +1,6 @@
 /* The one search, as a widget: gui/search_view.h, sec 1293. */
 #include "search_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
 
@@ -86,7 +87,7 @@ fzn_search_view::fzn_search_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWi
 	m_table->setAccessibleName(tr("What the search found"));
 	m_more = new QPushButton(tr("More"), this);
 	m_open_button = new QPushButton(tr("Open"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	/* WHAT IS SEARCHED, said before anything is (sec 1126's rule: no blank
 	 * list). */

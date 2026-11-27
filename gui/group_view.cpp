@@ -1,5 +1,6 @@
 /* One group's members, as a widget: gui/group_view.h, sec 1143. */
 #include "group_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
 #include "keep_place.h"
@@ -33,7 +34,7 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_title = new QLabel(this);
+	m_title = fzn_plain_label(this);
 	m_members = new QListWidget(this);
 	m_members->setAccessibleName(tr("Members"));
 	m_contacts = new fzn_combo_box(this);
@@ -44,7 +45,7 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_unmake_admin = new QPushButton(tr("No longer admin"), this);
 	m_earlier = new QCheckBox(tr("Members added later get the earlier lines"), this);
 	m_leave = new QPushButton(tr("Leave group"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *add_row = new QHBoxLayout;

@@ -1,10 +1,11 @@
 #include "sync_view.h"
+#include "plain_label.h"
 
 #include <QFormLayout>
 #include <QLabel>
 
 fzn_sync_view::fzn_sync_view(QWidget *parent)
-        : QWidget(parent), state_(NOTHING), state_label_(new QLabel(this))
+        : QWidget(parent), state_(NOTHING), state_label_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

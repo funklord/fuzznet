@@ -1,5 +1,6 @@
 /* This host's legs, as a widget: leg_view.h, sec 1210. */
 #include "leg_view.h"
+#include "plain_label.h"
 #include "size_words.h"
 #include "rpc_ask.h"
 
@@ -29,7 +30,7 @@ fzn_leg_view::fzn_leg_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *
     : QWidget(parent), m_rpc(new fzn_gui_rpc)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
-	m_summary = new QLabel(this);
+	m_summary = fzn_plain_label(this);
 	m_summary->setWordWrap(true);
 	m_table = new QTableWidget(0, COLS, this);
 	m_table->setHorizontalHeaderLabels(
@@ -94,7 +95,7 @@ bool fzn_leg_view::refresh()
 		if (l->budget_limit && l->budget_spent >= l->budget_limit)
 			why << tr("its budget is spent: no file is fetched over it until the window ends");
 		for (int k = 0; k < COLS; k++)
-			m_table->item((int)i, k)->setToolTip(why.join(QLatin1Char('\n')));
+			m_table->item((int)i, k)->setToolTip(fzn_plain_tip(why.join(QLatin1Char('\n'))));
 	}
 	m_summary->setText(legs->count ? tr("%1 leg(s), %2 answering").arg(legs->count).arg(answering)
 	                               : tr("No legs yet: nothing has been asked of a peer."));

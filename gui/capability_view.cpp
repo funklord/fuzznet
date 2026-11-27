@@ -1,4 +1,5 @@
 #include "capability_view.h"
+#include "plain_label.h"
 
 extern "C" {
 #include "../trust/trust.h"
@@ -25,8 +26,8 @@ static QString spelled(const uint8_t *key)
 }
 
 fzn_capability_view::fzn_capability_view(QWidget *parent)
-        : QWidget(parent), state_(HOLDS_NOTHING), grantee_(new QLabel(this)),
-          state_label_(new QLabel(this))
+        : QWidget(parent), state_(HOLDS_NOTHING), grantee_(fzn_plain_label(this)),
+          state_label_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

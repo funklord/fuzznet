@@ -23,6 +23,7 @@
 #ifndef FZN_GUI_NOTICE_LINE_H
 #define FZN_GUI_NOTICE_LINE_H
 
+#include "plain_label.h"
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -41,7 +42,7 @@ public:
 	explicit fzn_notice_line(QWidget *parent = nullptr) : QFrame(parent)
 	{
 		setFrameShape(QFrame::StyledPanel);
-		m_text = new QLabel(this);
+		m_text = fzn_plain_label(this);
 		m_text->setWordWrap(true);
 		m_text->setTextInteractionFlags(Qt::TextSelectableByMouse);
 		m_action = new QPushButton(this);

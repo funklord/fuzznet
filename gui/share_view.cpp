@@ -1,6 +1,7 @@
 /* What another program shares, sent to a conversation: share_view.h,
  * fuzznet sec 1257. */
 #include "share_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "notice_line.h"
 #include "rpc_ask.h"
@@ -24,7 +25,7 @@ fzn_share_view::fzn_share_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
     : QWidget(parent), m_rpc(new fzn_gui_rpc)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
-	m_what = new QLabel(this);
+	m_what = fzn_plain_label(this);
 	m_what->setWordWrap(true);
 	m_text = new QLineEdit(this);
 	m_text->setAccessibleName(tr("The words to send"));

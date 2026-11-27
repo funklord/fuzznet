@@ -1,6 +1,7 @@
 /* See governance_view.h. */
 
 #include "governance_view.h"
+#include "plain_label.h"
 #include "keep_place.h"
 #include "combo.h"
 #include "rpc_ask.h"
@@ -50,7 +51,7 @@ static void titled(QTabWidget *tabs, int tab, const char *title, int count)
 /* SAID BEFORE THE CLICK, wrapped so it is read whole at any width. */
 static QLabel *note_label(QWidget *owner, const QString &text)
 {
-	auto *l = new QLabel(text, owner);
+	auto *l = fzn_plain_label(text, owner);
 
 	l->setWordWrap(true);
 	return l;
@@ -58,7 +59,7 @@ static QLabel *note_label(QWidget *owner, const QString &text)
 
 static QLabel *status_label(QWidget *owner)
 {
-	auto *l = new QLabel(owner);
+	auto *l = fzn_plain_label(owner);
 
 	l->setWordWrap(true);
 	return l;
@@ -118,7 +119,7 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 		auto *yes = m_vote_yes = new QPushButton(QStringLiteral("Vote"), m_vote_bar);
 		auto *no = new QPushButton(QStringLiteral("Cancel"), m_vote_bar);
 
-		m_vote_question = new QLabel(m_vote_bar);
+		m_vote_question = fzn_plain_label(m_vote_bar);
 		m_vote_question->setWordWrap(true);
 		bar->addWidget(m_vote_question, 1);
 		bar->addWidget(yes);

@@ -1,5 +1,6 @@
 /* Positions shared with this user, as a widget: gui/location_view.h, sec 1109. */
 #include "location_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
 #include "phone_layout.h"
@@ -37,7 +38,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_own = new QLabel(this);
+	m_own = fzn_plain_label(this);
 	m_own->setWordWrap(true);
 	m_table = new QTableWidget(0, 5, this);
 	/* AND A SIXTH, FOR A PHONE, sec 1233: who, with how far and how long ago
@@ -64,7 +65,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_map = new QPushButton(tr("Show on a map"), this);
 	m_map->setAccessibleName(tr("Show the chosen contact's position on a map"));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	/* THREE SHORT ROWS, sec 1120: the four buttons on one made the view 474
@@ -80,7 +81,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	top->addWidget(m_own, 1);
 	top->addWidget(m_refresh, 0, Qt::AlignTop);
 	auto *grant = new QHBoxLayout;
-	grant->addWidget(new QLabel(tr("Share yours:"), this));
+	grant->addWidget(fzn_plain_label(tr("Share yours:"), this));
 	grant->addWidget(m_precision, 1);
 	auto *give = new QHBoxLayout;
 	give->addWidget(m_share);

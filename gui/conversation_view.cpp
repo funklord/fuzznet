@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "phone_layout.h"
 #include "notice_line.h"
@@ -392,7 +393,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_title = new QLabel(this);
+	m_title = fzn_plain_label(this);
 	m_title->setWordWrap(true);
 	m_lines = new QListWidget(this);
 	m_lines->setWordWrap(true);
@@ -402,7 +403,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_play, &QTimer::timeout, [this]() { play_frame(); });
 	/* A POP-UP STICKER, over the log and not in it (sec 1302): clicks go
 	 * through to the lines beneath. */
-	m_popup = new QLabel(m_lines->viewport());
+	m_popup = fzn_plain_label(m_lines->viewport());
 	m_popup->setAlignment(Qt::AlignCenter);
 	m_popup->setAttribute(Qt::WA_TransparentForMouseEvents);
 	m_popup->hide();
@@ -889,7 +890,7 @@ void fzn_conversation_view::suggest_now()
 			item->setIcon(QIcon(pic));
 		else
 			item->setText(words.isEmpty() ? tr("a sticker") : words);
-		item->setToolTip(words);
+		item->setToolTip(fzn_plain_tip(words));
 		item->setData(Qt::AccessibleTextRole, words.isEmpty() ? tr("a sticker") : words);
 		item->setData(ROLE_SUGGEST_PACK, pack);
 		item->setData(ROLE_SUGGEST_ID, (qulonglong)e->id);

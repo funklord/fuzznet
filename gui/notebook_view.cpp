@@ -1,6 +1,7 @@
 /* See notebook_view.h. */
 
 #include "notebook_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
 
@@ -221,8 +222,8 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 
 	m_trees = new fzn_combo_box(this);
 	m_up = new QPushButton(QStringLiteral("Up"), this);
-	m_location = new QLabel(this);
-	m_status = new QLabel(this);
+	m_location = fzn_plain_label(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	m_list = new QListWidget(this);
 	m_show_trash = new QCheckBox(QStringLiteral("Show trash"), this);
@@ -250,7 +251,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_empty_bar->setObjectName(QStringLiteral("empty_trash_bar"));
 	{
 		auto *bar = new QHBoxLayout(m_empty_bar);
-		auto *note = new QLabel(QStringLiteral("Empty the trash? Its notes are erased on "
+		auto *note = fzn_plain_label(QStringLiteral("Empty the trash? Its notes are erased on "
 		                                       "every node that holds them, and this cannot "
 		                                       "be undone."),
 		                        m_empty_bar);
@@ -336,9 +337,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_backfill->setVisible(false);
 	m_share = new QPushButton(QStringLiteral("Share"), this);
 	m_unshare = new QPushButton(QStringLiteral("Unshare"), this);
-	m_shared_with = new QLabel(this);
+	m_shared_with = fzn_plain_label(this);
 	m_shared_with->setWordWrap(true);
-	m_warning = new QLabel(QStringLiteral("Sharing sends this note and everything below it to "
+	m_warning = fzn_plain_label(QStringLiteral("Sharing sends this note and everything below it to "
 	                                      "the contact, and keeps sending changes. Unsharing "
 	                                      "stops what comes next; what they already fetched "
 	                                      "stays with them."),
@@ -371,7 +372,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_restore_version->setObjectName(QStringLiteral("restore_version"));
 	auto *history_row = new flow_row();
 
-	history_row->addWidget(new QLabel(QStringLiteral("History"), this));
+	history_row->addWidget(fzn_plain_label(QStringLiteral("History"), this));
 	history_row->addWidget(m_history_day);
 	history_row->addWidget(m_history);
 	history_row->addWidget(m_restore_version);
@@ -867,7 +868,7 @@ void fzn_notebook_view::refresh_list()
 		item->setData(ROLE_TYPE, type);
 		item->setData(ROLE_TITLE, title);
 		if (!labels.isEmpty())
-			item->setToolTip(labels);
+			item->setToolTip(fzn_plain_tip(labels));
 		/* PINNED FIRST, in the order they came; the rest after. */
 		if (pinned)
 			m_list->insertItem(pinned_at++, item);

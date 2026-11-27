@@ -1,5 +1,6 @@
 /* The named objects as a widget: gui/objects_view.h, sec 1102. */
 #include "objects_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
 #include "keep_place.h"
@@ -32,7 +33,7 @@ fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_value = new fzn_combo_box(this);
 	m_set = new QPushButton(tr("Set"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	m_new_name = new QLineEdit(this);
 	m_new_name->setPlaceholderText(tr("New object's name"));

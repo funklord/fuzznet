@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "plain_label.h"
 #include "clock_words.h"
 #include "choose_accessible.h"
 #include "combo.h"
@@ -94,9 +95,9 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_verify = new QPushButton(tr("Verify"), this);
 	m_remove = new QPushButton(tr("Remove"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
-	m_detail = new QLabel(this);
+	m_detail = fzn_plain_label(this);
 	m_detail->setWordWrap(true);
 	m_detail->setAccessibleName(tr("Where the chosen file is"));
 	m_confirm = new fzn_notice_line(this);
@@ -738,6 +739,12 @@ QString fzn_library_view::detail() const { return m_detail->text(); }
 
 void fzn_library_view::set_narrow(bool narrow)
 {
+	m_narrow_pinned = true;
+	lay_narrow(narrow);
+}
+
+void fzn_library_view::lay_narrow(bool narrow)
+{
 	m_narrow = narrow;
 	for (int c : { 1, 2, 3 })
 		m_table->setColumnHidden(c, narrow);
@@ -746,8 +753,8 @@ void fzn_library_view::set_narrow(bool narrow)
 void fzn_library_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	if (fzn_phone_layout(event->size().width()) != m_narrow)
-		set_narrow(!m_narrow);
+	if (!m_narrow_pinned && fzn_phone_layout(event->size().width()) != m_narrow)
+		lay_narrow(!m_narrow);
 }
 
 bool fzn_library_view::verify()

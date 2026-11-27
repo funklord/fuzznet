@@ -1,4 +1,5 @@
 #include "peer_view.h"
+#include "plain_label.h"
 
 #include <QFormLayout>
 #include <QLabel>
@@ -30,8 +31,8 @@ static QString word_for(fzn_peer_verdict_t verdict)
 
 fzn_peer_view::fzn_peer_view(QWidget *parent)
         : QWidget(parent), verdict_(FZN_PEER_UNKNOWN), named_(false),
-          summary_(new QLabel(this)), verdict_label_(new QLabel(this)),
-          groups_(new QLabel(this))
+          summary_(fzn_plain_label(this)), verdict_label_(fzn_plain_label(this)),
+          groups_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

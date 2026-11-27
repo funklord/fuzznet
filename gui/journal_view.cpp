@@ -1,4 +1,5 @@
 #include "journal_view.h"
+#include "plain_label.h"
 
 #include <QFormLayout>
 #include <QLabel>
@@ -7,7 +8,7 @@
 #include <string.h>
 
 fzn_journal_view::fzn_journal_view(QWidget *parent)
-        : QWidget(parent), state_(NOTHING), full_(false), state_label_(new QLabel(this))
+        : QWidget(parent), state_(NOTHING), full_(false), state_label_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

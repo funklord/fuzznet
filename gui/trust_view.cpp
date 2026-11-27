@@ -1,4 +1,5 @@
 #include "trust_view.h"
+#include "plain_label.h"
 
 #include <QFont>
 #include <QLabel>
@@ -6,7 +7,7 @@
 #include <QVBoxLayout>
 
 fzn_trust_view::fzn_trust_view(QWidget *parent)
-        : QWidget(parent), fingerprint_(new QLabel(this)), source_(new QLabel(this))
+        : QWidget(parent), fingerprint_(fzn_plain_label(this)), source_(fzn_plain_label(this))
 {
 	QVBoxLayout *layout = new QVBoxLayout(this);
 

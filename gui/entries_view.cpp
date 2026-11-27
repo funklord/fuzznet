@@ -1,6 +1,7 @@
 /* See entries_view.h. */
 
 #include "entries_view.h"
+#include "plain_label.h"
 #include "combo.h"
 
 extern "C" {
@@ -63,7 +64,7 @@ fzn_entries_view::fzn_entries_view(fzn_gather_ask_t ask, void *ask_ctx, QWidget 
 	/* PLAIN TEXT BY CONSTRUCTION: a log line never renders as rich text,
 	 * and the lines are escaped already. */
 	m_text->setFont(QFont(QStringLiteral("monospace")));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	/* TWO ROWS, sec 1120: on one the view was 369 px, past a folding

@@ -1,5 +1,6 @@
 /* Adding a device to this user's hosts, as a widget: gui/devices_view.h, sec 1122. */
 #include "devices_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
 
@@ -77,7 +78,7 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_invite = new QPushButton(tr("Make a code"), this);
 	m_invite->setAccessibleName(tr("Make a code for a new device"));
 	m_confirm = new QCheckBox(tr("Ask me before a device joins"), this);
-	m_confirm_note = new QLabel(this);
+	m_confirm_note = fzn_plain_label(this);
 	m_confirm_note->setWordWrap(true);
 	m_waiting = new QListWidget(this);
 	m_waiting->setAccessibleName(tr("Devices waiting to join"));
@@ -119,7 +120,7 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_look_timer->setInterval(FOUND_WAIT_MS);
 	m_join_timer = new QTimer(this);
 	m_join_timer->setInterval(JOIN_LOOK_MS);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *make = new QHBoxLayout;
@@ -131,11 +132,11 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	answer_row->addWidget(m_refresh);
 	answer_row->addStretch(1);
 	/* WRAPPED, so a sentence never sets the view's width (sec 1120). */
-	auto *intro = new QLabel(tr("Add a device: give it a code made here."), this);
+	auto *intro = fzn_plain_label(tr("Add a device: give it a code made here."), this);
 	intro->setWordWrap(true);
 	/* THE EXPIRY A LINE OF ITS OWN: at the end of the sentence above, a
 	 * terminal's 80 columns cut it off. */
-	auto *expiry = new QLabel(tr("A code is good for ten minutes."), this);
+	auto *expiry = fzn_plain_label(tr("A code is good for ten minutes."), this);
 	expiry->setWordWrap(true);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(intro);
@@ -148,10 +149,10 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	col->addWidget(m_qr);
 	col->addWidget(m_confirm);
 	col->addWidget(m_confirm_note);
-	col->addWidget(new QLabel(tr("Waiting to join"), this));
+	col->addWidget(fzn_plain_label(tr("Waiting to join"), this));
 	col->addWidget(m_waiting, 1);
 	col->addLayout(answer_row);
-	auto *joining = new QLabel(tr("Or join this device to your other hosts with their code:"), this);
+	auto *joining = fzn_plain_label(tr("Or join this device to your other hosts with their code:"), this);
 	joining->setWordWrap(true);
 	col->addWidget(joining);
 	auto *join_row = new QHBoxLayout;

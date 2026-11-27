@@ -1,5 +1,6 @@
 /* What this node has moved, by family and by host: traffic_view.h, sec 1182. */
 #include "traffic_view.h"
+#include "plain_label.h"
 
 #include "rpc_ask.h"
 
@@ -56,7 +57,7 @@ fzn_traffic_view::fzn_traffic_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	QSplitter *split = new QSplitter(Qt::Vertical, this);
 
 	fzn_gui_rpc_init(rpc_, ask, ask_ctx);
-	summary_ = new QLabel(tr("nothing moving"), this);
+	summary_ = fzn_plain_label(tr("nothing moving"), this);
 	summary_->setObjectName(QStringLiteral("traffic_summary"));
 	summary_->setWordWrap(true);
 	layout->addWidget(summary_);

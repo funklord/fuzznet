@@ -1,5 +1,6 @@
 /* The node's settings as a widget: gui/settings_view.h, sec 1103. */
 #include "settings_view.h"
+#include "plain_label.h"
 #include "keep_place.h"
 #include "choose_accessible.h"
 #include "combo.h"
@@ -36,16 +37,16 @@ fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	/* NAMED FOR A SCREEN READER, sec 1120. */
 	m_list->setAccessibleName(tr("Settings"));
 	m_value->setAccessibleName(tr("The chosen setting's value"));
-	m_where = new QLabel(this);
-	m_notes = new QLabel(this);
+	m_where = fzn_plain_label(this);
+	m_notes = fzn_plain_label(this);
 	m_notes->setWordWrap(true);
 	m_apply = new QPushButton(tr("Apply"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	m_advanced = new QCheckBox(tr("Show advanced"), this);
 	m_reach = new QPushButton(tr("Has it reached my other devices?"), this);
-	m_reached = new QLabel(this);
+	m_reached = fzn_plain_label(this);
 	m_reached->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

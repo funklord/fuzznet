@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
@@ -311,7 +312,17 @@ int main(int argc, char **argv)
 	CHECK(v.narrow() && v.findChild<QTableWidget *>()->isColumnHidden(1) && v.findChild<QTableWidget *>()->isColumnHidden(3)
 	              && !v.findChild<QTableWidget *>()->isColumnHidden(4),
 	      "narrow did not drop Kind, Size and Length");
+	/* PINNED BY THE HOST, sec 1506: a resize does not undo it. */
+	v.resize(1000, 600);
+	CHECK(v.narrow(), "a resize undid the narrow the host set");
 	v.set_narrow(false);
+	/* A NAME THAT LOOKS LIKE MARKUP, sec 1506: every label plain. */
+	{
+		bool rich = false;
+		for (QLabel *l : v.findChildren<QLabel *>())
+			rich |= l->textFormat() != Qt::PlainText;
+		CHECK(!rich && !v.findChildren<QLabel *>().isEmpty(), "a label in the view could render markup");
+	}
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

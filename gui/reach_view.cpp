@@ -1,5 +1,6 @@
 /* How this host is reached, as a widget: gui/reach_view.h, sec 1134. */
 #include "reach_view.h"
+#include "plain_label.h"
 #include "keep_place.h"
 #include "size_words.h"
 
@@ -80,7 +81,7 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_outside = new QLabel(this);
+	m_outside = fzn_plain_label(this);
 	m_outside->setWordWrap(true);
 	m_seen_by = table(this, { tr("Address"), tr("Reported by"), tr("When") },
 	                  tr("Where other hosts see this one"));
@@ -94,16 +95,16 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_found = table(this, { tr("Address"), tr("Host"), tr("Seen") }, tr("Hosts that answered on this network"));
 	m_found->setObjectName(QStringLiteral("reach_found"));
 	m_look_here = new QPushButton(tr("Look on this network"), this);
-	m_relay = new QLabel(this);
+	m_relay = fzn_plain_label(this);
 	m_relay->setWordWrap(true);
 	m_relayed = table(this, { tr("Peer"), tr("Used"), tr("Refused") }, tr("What each peer used of the relay"));
 	m_relayed->setObjectName(QStringLiteral("reach_relayed"));
 	m_activity = table(this, { tr("#"), tr("What the node did") }, tr("What this node did lately"));
 	m_activity->setObjectName(QStringLiteral("reach_activity"));
-	m_load = new QLabel(this);
+	m_load = fzn_plain_label(this);
 	m_load->setWordWrap(true);
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *outside_row = new QHBoxLayout;
@@ -118,14 +119,14 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	col->addWidget(m_outside);
 	col->addWidget(m_seen_by, 1);
 	col->addLayout(outside_row);
-	auto *found_label = new QLabel(tr("On this network"), this);
+	auto *found_label = fzn_plain_label(tr("On this network"), this);
 	col->addWidget(found_label);
 	col->addWidget(m_found, 1);
 	col->addLayout(here_row);
 	col->addWidget(m_relay);
 	col->addWidget(m_relayed, 1);
 	col->addWidget(m_load);
-	col->addWidget(new QLabel(tr("Lately"), this));
+	col->addWidget(fzn_plain_label(tr("Lately"), this));
 	col->addWidget(m_activity, 1);
 	col->addWidget(m_status);
 

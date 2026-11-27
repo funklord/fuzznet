@@ -1,4 +1,5 @@
 #include "sweep_view.h"
+#include "plain_label.h"
 
 #include <QFormLayout>
 #include <QLabel>
@@ -6,7 +7,7 @@
 
 fzn_sweep_view::fzn_sweep_view(QWidget *parent)
         : QWidget(parent), state_(NOTHING), truncated_(false),
-          state_label_(new QLabel(this)), progress_(new QProgressBar(this))
+          state_label_(fzn_plain_label(this)), progress_(new QProgressBar(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

@@ -1,5 +1,6 @@
 /* Every conversation, as a list: gui/conversations_view.h, sec 1138. */
 #include "conversations_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "phone_layout.h"
 #include "keep_place.h"
@@ -184,7 +185,7 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_new_group = new QPushButton(tr("New group"), this);
 	m_new_group->setToolTip(tr("Make a group; add its members from its menu"));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	/* THE NEW GROUP'S NAME, ASKED INLINE (sec 1496): a line under the list,
 	 * where a dialog blocked the window. */

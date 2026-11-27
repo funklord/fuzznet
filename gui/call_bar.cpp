@@ -1,5 +1,6 @@
 /* One line for the call that matters: call_bar.h, fuzznet sec 1238. */
 #include "call_bar.h"
+#include "plain_label.h"
 #include "call_audio.h"
 #include "clock_words.h"
 #include "call_video.h"
@@ -45,7 +46,7 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 	/* NAMED, so a host or a test finds each widget (sec 1491). */
 	setObjectName(QStringLiteral("call_bar"));
-	m_said = new QLabel(this);
+	m_said = fzn_plain_label(this);
 	m_said->setObjectName(QStringLiteral("call_bar_text"));
 	m_said->setWordWrap(true);
 	m_said->setAccessibleName(tr("The call"));
@@ -63,7 +64,7 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	m_hang_up->setObjectName(QStringLiteral("call_bar_hangup"));
 	/* THE OTHER END'S PICTURE above the line, while a video call is up and
 	 * one has come (sec 1262). */
-	m_picture = new QLabel(this);
+	m_picture = fzn_plain_label(this);
 	m_picture->setAlignment(Qt::AlignCenter);
 	m_picture->setObjectName(QStringLiteral("call_bar_picture"));
 	m_picture->setAccessibleName(tr("The other end's picture"));

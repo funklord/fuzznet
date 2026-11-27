@@ -1,6 +1,7 @@
 /* The photographs this user's hosts hold, as a widget: gui/photo_view.h,
  * secs 1450, 1460. */
 #include "photo_view.h"
+#include "plain_label.h"
 #include "clock_words.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
@@ -102,7 +103,7 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_tree->header()->setStretchLastSection(true);
 	m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_tree->setAccessibleName(tr("The photographs, by month taken"));
-	m_picture = new QLabel(this);
+	m_picture = fzn_plain_label(this);
 	m_picture->setAlignment(Qt::AlignCenter);
 	m_picture->setMinimumHeight(120);
 	m_picture->setAccessibleName(tr("The photograph chosen"));
@@ -110,7 +111,7 @@ fzn_photo_view::fzn_photo_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_play_button = new QPushButton(tr("Play"), this);
 	m_play_button->setToolTip(tr("Play the video chosen"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

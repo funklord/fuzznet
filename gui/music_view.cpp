@@ -1,5 +1,6 @@
 /* The music this user's hosts hold, as a widget: gui/music_view.h, secs 1449, 1458. */
 #include "music_view.h"
+#include "plain_label.h"
 #include "clock_words.h"
 #include "choose_accessible.h"
 #include "combo.h"
@@ -188,7 +189,7 @@ fzn_music_view::fzn_music_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_hear = new QPushButton(tr("Hear the music"), this);
 	m_hear->setToolTip(tr("Have each host hear the tunes it holds for their tempo and key"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

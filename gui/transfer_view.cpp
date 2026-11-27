@@ -1,4 +1,5 @@
 #include "transfer_view.h"
+#include "plain_label.h"
 
 #include <QFormLayout>
 #include <QLabel>
@@ -6,8 +7,8 @@
 
 fzn_transfer_view::fzn_transfer_view(QWidget *parent)
         : QWidget(parent), state_(NOTHING), held_(0), total_(0),
-          state_label_(new QLabel(this)), progress_(new QProgressBar(this)),
-          window_(new QLabel(this))
+          state_label_(fzn_plain_label(this)), progress_(new QProgressBar(this)),
+          window_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

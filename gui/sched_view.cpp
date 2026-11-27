@@ -1,4 +1,5 @@
 #include "sched_view.h"
+#include "plain_label.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -42,7 +43,7 @@ static QString reason_for(const fzn_sched_candidate_t &link, const fzn_class_t &
 
 fzn_sched_view::fzn_sched_view(QWidget *parent)
         : QWidget(parent), state_(NOTHING), unusable_(0u), rows_truncated_(false),
-          summary_(new QLabel(this)), rows_(new QLabel(this))
+          summary_(fzn_plain_label(this)), rows_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

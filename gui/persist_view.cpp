@@ -1,4 +1,5 @@
 #include "persist_view.h"
+#include "plain_label.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -166,8 +167,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 }
 
 fzn_persist_view::fzn_persist_view(QWidget *parent)
-        : QWidget(parent), state_(NOTHING), missing_(0u), summary_(new QLabel(this)),
-          rows_(new QLabel(this))
+        : QWidget(parent), state_(NOTHING), missing_(0u), summary_(fzn_plain_label(this)),
+          rows_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

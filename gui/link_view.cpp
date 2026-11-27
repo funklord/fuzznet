@@ -1,4 +1,5 @@
 #include "link_view.h"
+#include "plain_label.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -57,7 +58,7 @@ QString fzn_link_view::rows_text() const
 
 fzn_link_view::fzn_link_view(QWidget *parent)
         : QWidget(parent), state_(NONE), unmeasured_(0u), rows_truncated_(false),
-          summary_(new QLabel(this)), rows_(new QLabel(this))
+          summary_(fzn_plain_label(this)), rows_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

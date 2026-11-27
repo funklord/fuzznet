@@ -1,4 +1,5 @@
 #include "provision_view.h"
+#include "plain_label.h"
 #include "qr_view.h"
 
 extern "C" {
@@ -21,8 +22,8 @@ fzn_qr_level_t fzn_provision_view::code_level()
 }
 
 fzn_provision_view::fzn_provision_view(QWidget *parent)
-        : QWidget(parent), state_(NOTHING), state_label_(new QLabel(this)),
-          root_(new QLabel(this)), code_(new fzn_qr_view(this))
+        : QWidget(parent), state_(NOTHING), state_label_(fzn_plain_label(this)),
+          root_(fzn_plain_label(this)), code_(new fzn_qr_view(this))
 {
 	QVBoxLayout *outer = new QVBoxLayout(this);
 	QFormLayout *form = new QFormLayout;

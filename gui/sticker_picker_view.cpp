@@ -1,5 +1,6 @@
 /* Choosing a sticker, and keeping packs: gui/sticker_picker_view.h, sec 1141. */
 #include "sticker_picker_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 
 #include "rpc_ask.h"
@@ -102,7 +103,7 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	 * this user; kept again from any line that carries one of its stickers. */
 	m_forget = new QPushButton(tr("Let go"), this);
 	m_forget->setAccessibleName(tr("Let the sticker pack on show go"));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

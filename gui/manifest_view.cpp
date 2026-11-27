@@ -1,4 +1,5 @@
 #include "manifest_view.h"
+#include "plain_label.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -20,7 +21,7 @@ static QString label_column(const QString &text)
 
 fzn_manifest_view::fzn_manifest_view(QWidget *parent)
         : QWidget(parent), state_(NOTHING), understated_(0u), rows_truncated_(false),
-          summary_(new QLabel(this)), rows_(new QLabel(this))
+          summary_(fzn_plain_label(this)), rows_(fzn_plain_label(this))
 {
 	QFormLayout *form = new QFormLayout(this);
 

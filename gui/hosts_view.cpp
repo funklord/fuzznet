@@ -1,5 +1,6 @@
 /* This user's other hosts, as a widget: gui/hosts_view.h, sec 1124. */
 #include "hosts_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
 
@@ -45,7 +46,7 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_back_up = new QPushButton(tr("Back up this host"), this);
 	/* RESET, sec 1215: the button stays off until this host's name is
 	 * typed in full, so no slip of a finger reaches it. */
-	m_reset_note = new QLabel(this);
+	m_reset_note = fzn_plain_label(this);
 	m_reset_note->setWordWrap(true);
 	m_reset_typed = new QLineEdit(this);
 	m_reset_typed->setAccessibleName(tr("This host's name, typed to reset it"));
@@ -60,15 +61,15 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_chain->setAccessibleName(tr("A chain given to this host"));
 	m_chain->setPlaceholderText(tr("h1 ... a chain given to this host"));
 	m_apply = new QPushButton(tr("Apply"), this);
-	m_held = new QLabel(this);
+	m_held = fzn_plain_label(this);
 	m_held->setWordWrap(true);
 	m_held->setAccessibleName(tr("What this host holds"));
-	m_granted = new QLabel(this);
+	m_granted = fzn_plain_label(this);
 	m_granted->setWordWrap(true);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 	/* WHERE A LOST DEVICE IS DEALT WITH, said before anyone looks for it here. */
-	auto *lost = new QLabel(tr("Lost a device? Vote to revoke it under Governance; "
+	auto *lost = fzn_plain_label(tr("Lost a device? Vote to revoke it under Governance; "
 	                           "nothing here ends its access."),
 	                        this);
 	lost->setWordWrap(true);
@@ -86,7 +87,7 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	col->addWidget(lost);
 	/* THE WARNING BEFORE THE BUTTON: a backup is this host, to whoever
 	 * holds it. */
-	auto *backup_note = new QLabel(tr("A backup holds this host's keys: whoever has it can act "
+	auto *backup_note = fzn_plain_label(tr("A backup holds this host's keys: whoever has it can act "
 	                                  "as this host. Keep it as safe as the device."),
 	                               this);
 	backup_note->setWordWrap(true);

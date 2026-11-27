@@ -1,5 +1,6 @@
 /* Contacts and pairing requests as a widget: gui/contacts_view.h, sec 1107. */
 #include "contacts_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
 
@@ -78,10 +79,10 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_my_card->setToolTip(tr("Copy this host's card, to send to whom you want as a contact"));
 	m_add = new QPushButton(tr("Add from a card"), this);
 	m_add->setToolTip(tr("Ask to be a contact of whoever sent you their card"));
-	m_shared = new QLabel(this);
+	m_shared = fzn_plain_label(this);
 	m_shared->setWordWrap(true);
 	m_shared->setAccessibleName(tr("What the chosen contact may fetch"));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	/* NAMED FOR A SCREEN READER, and in three rows rather than one, sec
@@ -104,10 +105,10 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	cards->addWidget(m_add);
 	cards->addStretch(1);
 	auto *col = new QVBoxLayout(this);
-	col->addWidget(new QLabel(tr("Waiting to become contacts"), this));
+	col->addWidget(fzn_plain_label(tr("Waiting to become contacts"), this));
 	col->addWidget(m_requests, 1);
 	col->addLayout(answer);
-	col->addWidget(new QLabel(tr("Contacts"), this));
+	col->addWidget(fzn_plain_label(tr("Contacts"), this));
 	col->addWidget(m_contacts, 2);
 	col->addWidget(m_name);
 	col->addLayout(change);

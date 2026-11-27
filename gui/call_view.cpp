@@ -1,5 +1,6 @@
 /* Calls, as a widget: gui/call_view.h, sec 1142. */
 #include "call_view.h"
+#include "plain_label.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
 
@@ -46,7 +47,7 @@ fzn_call_view::fzn_call_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget
 	m_answer = new QPushButton(tr("Answer"), this);
 	m_decline = new QPushButton(tr("Decline"), this);
 	m_hang_up = new QPushButton(tr("Hang up"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

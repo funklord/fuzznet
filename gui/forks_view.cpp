@@ -1,5 +1,6 @@
 /* What this user's hosts decided apart, as a widget: gui/forks_view.h, sec 1127. */
 #include "forks_view.h"
+#include "plain_label.h"
 #include "keep_place.h"
 #include "choose_accessible.h"
 
@@ -39,7 +40,7 @@ fzn_forks_view::fzn_forks_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	auto *intro = new QLabel(tr("Your hosts decided these apart. Keep one side of each, "
+	auto *intro = fzn_plain_label(tr("Your hosts decided these apart. Keep one side of each, "
 	                            "and every host takes it."),
 	                         this);
 	intro->setWordWrap(true);
@@ -50,7 +51,7 @@ fzn_forks_view::fzn_forks_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_keep = new QPushButton(tr("Keep this"), this);
 	m_keep->setAccessibleName(tr("Keep the chosen side"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;

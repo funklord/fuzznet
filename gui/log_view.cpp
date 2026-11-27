@@ -1,4 +1,5 @@
 #include "log_view.h"
+#include "plain_label.h"
 
 extern "C" {
 #include "../cli/log_print.h"
@@ -33,7 +34,7 @@ extern "C" {
 #define FZN_LOG_VIEW_BUDGET 65536u
 
 fzn_log_view::fzn_log_view(QWidget *parent)
-        : QWidget(parent), summary_(new QLabel(this)), entries_(new QPlainTextEdit(this))
+        : QWidget(parent), summary_(fzn_plain_label(this)), entries_(new QPlainTextEdit(this))
 {
 	QVBoxLayout *layout = new QVBoxLayout(this);
 	QFont mono = entries_->font();

@@ -78183,3 +78183,30 @@ from one revoked, where the node tells them apart -- fuzznetd's text
 listing does not, so it says "does not verify" for both.
 
 Tests: `hosts_view_test`, the line in full. Sabotage: caught.
+
+## 1506. Every label plain: others' words are words, not markup
+
+**fuzzypickles found the library view rendering a file's name as rich
+text** (inbox 20261127T0527Z): with a file named "<b>RICHMARK</b> a
+file", the inline question "Remove this device's copy of ...?" came out
+bold. A `QLabel` left on `Qt::AutoText` turns to rich text whenever its
+text merely looks like markup, so whoever named a file, a contact, a
+group or a line restyled -- or spoofed -- the line quoting it. **No
+label in `gui/` set plain text**, so it was every view's fault, not the
+library's.
+
+**Now every label is made by `gui/plain_label.h`**: `fzn_plain_label`,
+in QLabel's own two forms, sets `Qt::PlainText`; all 89 labels in 44
+files moved to it, the notice line's included. **`make style` refuses
+a `new QLabel(` anywhere else in `gui/`**, shown failing on one planted.
+No label was meant to carry markup. **Tooltips** take the same guess:
+the three that carry others' words -- a note's labels, a leg's reasons,
+a conversation's line -- go through `fzn_plain_tip`, which escapes text
+that looks like markup so it shows literally, line breaks kept.
+
+Smaller, same report: `library_view::set_narrow` said a host could pin
+the layout, but every resize re-decided it by width, undoing a phone
+layout's narrow. Once the host sets it, it is the host's.
+
+Tests: `library_view_test` -- every label plain, and narrow surviving a
+resize; the style gate.

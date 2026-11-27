@@ -1,6 +1,7 @@
 /* See retention_view.h. */
 
 #include "retention_view.h"
+#include "plain_label.h"
 #include "keep_place.h"
 #include "rpc_ask.h"
 
@@ -46,23 +47,23 @@ fzn_retention_view::fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ct
 	m_remove_node->setAccessibleName(QStringLiteral("Remove from this node's rules"));
 	m_add_estate->setAccessibleName(QStringLiteral("Add to the estate's rules"));
 	m_remove_estate->setAccessibleName(QStringLiteral("Remove from the estate's rules"));
-	m_status = new QLabel(this);
+	m_status = fzn_plain_label(this);
 	m_status->setWordWrap(true);
-	m_estate_status = new QLabel(this);
+	m_estate_status = fzn_plain_label(this);
 	m_estate_status->setWordWrap(true);
 	/* SAID BEFORE THE CLICK: an estate rule is not this host's alone. */
-	m_estate_note = new QLabel(QStringLiteral("An estate rule applies on every host it reaches; "
+	m_estate_note = fzn_plain_label(QStringLiteral("An estate rule applies on every host it reaches; "
 	                                          "setting one needs a root or an admin."),
 	                           this);
 	m_estate_note->setWordWrap(true);
 
-	node_col->addWidget(new QLabel(QStringLiteral("This node's rules"), this));
+	node_col->addWidget(fzn_plain_label(QStringLiteral("This node's rules"), this));
 	node_col->addWidget(m_node, 1);
 	node_buttons->addWidget(m_add_node);
 	node_buttons->addWidget(m_remove_node);
 	node_col->addLayout(node_buttons);
 	node_col->addWidget(m_status);
-	estate_col->addWidget(new QLabel(QStringLiteral("The estate's rules"), this));
+	estate_col->addWidget(fzn_plain_label(QStringLiteral("The estate's rules"), this));
 	estate_col->addWidget(m_estate, 1);
 	estate_buttons->addWidget(m_add_estate);
 	estate_buttons->addWidget(m_remove_estate);

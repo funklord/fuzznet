@@ -1491,7 +1491,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -7606,6 +7606,24 @@ style: $(OBJS)
 	@# complains. sec 158 found a defect of exactly that shape by rendering
 	@# rather than by reading, and this is the half that needs no qtty
 	@# installed to run.
+	@# AND EVERY LABEL PLAIN, sec 1506: a QLabel on Qt::AutoText turns to
+	@# rich text when its text looks like markup, so whoever named a file
+	@# restyled the line quoting it. gui/plain_label.h makes them plain;
+	@# a `new QLabel(` anywhere else in gui/ is refused.
+	@n=0; bare=; \
+	for f in $(wildcard gui/*.cpp gui/*.h); do \
+		n=$$((n + 1)); \
+		[ "$$f" = gui/plain_label.h ] && continue; \
+		if grep -q 'new QLabel(' "$$f"; then bare="$$bare $$f"; fi; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no gui sources to check for plain labels"; exit 1; \
+	elif [ -n "$$bare" ]; then \
+		echo "style: a QLabel made outside gui/plain_label.h, which may render others' words as rich text, in:$$bare"; \
+		exit 1; \
+	else \
+		echo "style: $$n gui source(s) make every label plain"; \
+	fi
 	@banned=; n=0; \
 	for f in $(wildcard gui/*.cpp gui/*.h); do \
 		n=$$((n + 1)); \

@@ -91,8 +91,9 @@ public:
 	 * this user's names for them, and how much of it plays here and
 	 * whether it is whole. */
 	QString detail() const;
-	/* NARROW, for a phone (sec 1493): Kind, Size and Length dropped. Set
-	 * by the view's width unless the host pins its layout. */
+	/* NARROW, for a phone (sec 1493): Kind, Size and Length dropped. By the
+	 * view's width until the host says, and then the host's from then on
+	 * (sec 1506: a resize undid a phone layout's narrow). */
 	void set_narrow(bool narrow);
 	bool narrow() const { return m_narrow; }
 
@@ -146,7 +147,8 @@ private:
 	QLabel *m_detail;
 	class fzn_notice_line *m_confirm;
 	std::function<void(const QString &)> m_notice_told;
-	bool m_narrow = false;
+	bool m_narrow = false, m_narrow_pinned = false;
+	void lay_narrow(bool narrow);
 };
 
 #endif /* FZN_GUI_LIBRARY_VIEW_H */
