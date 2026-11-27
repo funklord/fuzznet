@@ -10,6 +10,7 @@
 #include "../group_view.h"
 
 #include <QApplication>
+#include <QPushButton>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,9 +55,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	}
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok " SELF " " SELF "\n");
+	/* COUNTS (node/groups.c): this host wrote 5 lines; bob holds 5, dan 3. */
 	if (watered && !strcmp(line, "get group family water 0"))
-		return (size_t)snprintf(reply, cap,
-		                        "ok 2 0 1700005800000 " BOB ",x,1700005800000,y " CAROL ",x,-,y\n");
+		return (size_t)snprintf(reply, cap, watered == 1 ? "ok 2 0 5 " BOB ",x,5,y " CAROL ",x,-,y\n"
+		                                                 : "ok 2 0 5 " BOB ",x,5,y " DAN ",x,3,y\n");
 	if (!strcmp(line, "get group family member 0"))
 		return (size_t)snprintf(reply, cap, "ok %s\n", members);
 	if (!strcmp(line, "list group 0"))
@@ -120,6 +122,18 @@ int main(int argc, char **argv)
 	      "a proposed admin was not said with how many have asked");
 	CHECK(v.set_earlier(false) && !v.earlier() && earlier == 0, "the earlier-lines setting was not set");
 
+	/* LEAVE ASKED BY PRESSING AGAIN (sec 1515): the first press leaves
+	 * nothing. */
+	{
+		QPushButton *leave_button = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Leave group")
+				leave_button = b;
+		if (leave_button)
+			leave_button->click();
+		CHECK(leave_button && !v.members().isEmpty() && v.status().startsWith("Press Leave group again"),
+		      "Leave acted on the first press, or did not say to press again");
+	}
 	CHECK(v.leave() && v.members().isEmpty() && v.status() == "You left family; it is forgotten here.",
 	      "leaving was not said");
 	CHECK(strstr(asked, "remove group family\n") != nullptr, "leaving did not ask the node");
@@ -130,6 +144,9 @@ int main(int argc, char **argv)
 	CHECK(v.refresh() && v.members().filter("bob").value(0).endsWith(" -- has all your lines")
 	              && v.members().filter("dan").value(0).endsWith(" -- has said nothing yet"),
 	      "the roster did not say what each member holds of this host's lines");
+	watered = 2;
+	CHECK(v.refresh() && v.members().filter("dan").value(0).endsWith(" -- has 3 of your 5 lines"),
+	      "a member holding some of this host's lines was not said as a count of them");
 	watered = 0;
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

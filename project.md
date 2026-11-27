@@ -78389,3 +78389,51 @@ run's asking (its 6b14de3), qemu having been given one serial port.
 **`make livecheck-board-hull HULL=PATH`**, not in `livecheck`: hull is
 another project's tool, there where the host has built it; without one
 the script says so and exits 77, taken as a skip.
+
+## 1515. No second window of Qt's in any view, and the faults the comparisons found
+
+fuzzypickles compared three more of its screens with ours (inbox
+20261127T0950Z conversation, 0950Z hosts-traffic-group, 0955Z
+contacts-stickers). Their faults first, since they hit any host:
+
+- **Second windows under TalkBack.** A QPushButton's own menu
+  (`setMenu`) pops itself, past `fzn_menu_exec` (sec 1511), and a
+  `QInputDialog` or `QMessageBox` is a second top-level window -- the
+  same abort under TalkBack. Four were left: the conversation view's
+  React menu, the contacts view's Add from a card (sec 1484's, written
+  this run), and the sticker picker's Let go question and its words for
+  a message sticker where no host hook is set. Now React opens through
+  the hook; the card is asked on a line under the list; Let go is
+  confirmed by pressing it again within ten seconds; and a sticker's
+  words are asked on a row of the picker, waited for in a loop of its
+  own as a host's sheet is, the synchronous `on_words` contract kept.
+  **`make style` refuses `setMenu(` beside a menu's `exec(`/`popup(`,
+  and any `QInputDialog` or `QMessageBox`, in `gui/`.** File dialogs
+  stay: on Android they are the platform's picker.
+- **A poll wiping what is being typed**: the hosts view's address box
+  and the contacts view's name box were refilled at every restore. Each
+  is now filled when the choice changes, not when a refresh restores it.
+- **One-way acts on one click**: the contacts view's Reject and Remove,
+  and the group view's Leave, are asked by pressing again
+  (`gui/press_again.h`, the shape the conversations list's deletions
+  already had).
+- **The traffic view lost the reader's place** at every refill; it keeps
+  it as the other views do (sec 1225).
+- **Sec 1510 misread a count as a time.** `acked_seq` and `own_high_seq`
+  are counts -- how many of this host's lines a member holds, and how
+  many it has written (`node/groups.c`'s `have`) -- so "has your lines
+  to DATE" printed a count as a date. The roster now says "has 3 of
+  your 5 lines".
+
+The gaps those comparisons list -- a reader's place and read marks left
+to the host, content:// files and lines landing in the conversation
+view, show_line by id, sends to any conversation, one line menu, the
+hosts' audit, the contacts' QR and card address, the picker's lazy
+loading -- are taken next, one comparison at a time.
+
+Tests: `conversation_view_test` (React through the hook),
+`contacts_view_test` (the card inline, a name kept, Remove asked),
+`sticker_picker_view_test` (words on its row, Let go asked),
+`hosts_view_test` (an address kept), `group_view_test` (Leave asked, a
+count said), `traffic_view_test` (a row kept); the style gates, shown
+refusing a planted dialog. Sabotage: ten, each probed.

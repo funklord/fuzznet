@@ -95,6 +95,7 @@ private:
 	bool m_user_known = false;
 	void read_self();
 	QLabel *m_held;
+	QString m_address_for; /* the host the address box was filled for */
 	QPushButton *m_back_up;
 	QPushButton *m_make_admin;
 	QLineEdit *m_given;   /* the chain a grant answered, read-only */

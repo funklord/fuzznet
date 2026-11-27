@@ -12,13 +12,14 @@ extern "C" {
 #include "../sticker/pack.h"
 }
 
+#include <QBoxLayout>
 #include <QByteArray>
+#include <QDateTime>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QIcon>
-#include <QInputDialog>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QImage>
 #include <QLabel>
 #include <QListWidget>
@@ -134,12 +135,20 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 
 		if (at < 0)
 			return;
-		if (QMessageBox::question(this, tr("Let the pack go"),
-		                          tr("Let %1 go from your stickers? You can keep it again from any message "
-		                             "that carries one of its stickers.")
-		                                  .arg(m_tabs->tabText(m_tabs->indexOf(pack_list(at)))))
-		    == QMessageBox::Yes)
-			forget(at);
+		/* ASKED BY PRESSING AGAIN (sec 1515), within ten seconds, as the
+		 * conversations list's deletions are: a message box was a second
+		 * window, the abort under TalkBack. */
+		const qint64 now = QDateTime::currentSecsSinceEpoch();
+		if (m_forget_armed != at || now > m_forget_armed_at + 10) {
+			m_forget_armed = at;
+			m_forget_armed_at = now;
+			m_status->setText(tr("Press Let go again to let %1 go from your stickers. You can keep it again "
+			                     "from any message that carries one of its stickers.")
+			                          .arg(m_tabs->tabText(m_tabs->indexOf(pack_list(at)))));
+			return;
+		}
+		m_forget_armed = -1;
+		forget(at);
 	});
 	m_status->setText(tr("No sticker packs kept yet."));
 	m_play = new QTimer(this);
@@ -482,6 +491,55 @@ QStringList fzn_sticker_picker_view::found() const
 	return out;
 }
 
+bool fzn_sticker_picker_view::ask_words(int limit, QString *words)
+{
+	if (!m_words_row) {
+		m_words_row = new QWidget(this);
+		m_words_said = fzn_plain_label(m_words_row);
+		m_words_said->setWordWrap(true);
+		m_words_edit = new QLineEdit(m_words_row);
+		m_words_edit->setAccessibleName(tr("What the sticker says"));
+		m_words_send = new QPushButton(tr("Send"), m_words_row);
+		m_words_cancel = new QPushButton(tr("Cancel"), m_words_row);
+		auto *col = new QVBoxLayout(m_words_row);
+		auto *row = new QHBoxLayout;
+		row->addWidget(m_words_edit, 1);
+		row->addWidget(m_words_send);
+		row->addWidget(m_words_cancel);
+		col->addWidget(m_words_said);
+		col->addLayout(row);
+		if (auto *box = qobject_cast<QBoxLayout *>(layout()))
+			box->addWidget(m_words_row);
+	}
+	m_words_said->setText(tr("What it says, up to %n character(s)", nullptr, limit));
+	m_words_edit->setMaxLength(limit);
+	m_words_edit->clear();
+	m_words_row->show();
+	m_words_edit->setFocus();
+	QEventLoop wait;
+	int answer = 0;
+	const QMetaObject::Connection sent = connect(m_words_send, &QPushButton::clicked, [&]() {
+		answer = 1;
+		wait.quit();
+	});
+	const QMetaObject::Connection entered = connect(m_words_edit, &QLineEdit::returnPressed, [&]() {
+		answer = 1;
+		wait.quit();
+	});
+	const QMetaObject::Connection cancelled = connect(m_words_cancel, &QPushButton::clicked, [&]() {
+		answer = 0;
+		wait.quit();
+	});
+	wait.exec();
+	disconnect(sent);
+	disconnect(entered);
+	disconnect(cancelled);
+	m_words_row->hide();
+	if (answer)
+		*words = m_words_edit->text();
+	return answer != 0;
+}
+
 bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
 {
 	char ref[FZN_STICKER_REF_SENT_MAX + 1];
@@ -503,9 +561,7 @@ bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
 		if (m_words)
 			ok = m_words(item->data(ROLE_DESCRIPTION).toString(), limit, &words);
 		else
-			words = QInputDialog::getText(this, tr("Words for the sticker"),
-			                              tr("What it says, up to %n character(s)", nullptr, limit),
-			                              QLineEdit::Normal, QString(), &ok);
+			ok = ask_words(limit, &words);
 		if (!ok)
 			return false;
 		words = words.trimmed().left(limit);

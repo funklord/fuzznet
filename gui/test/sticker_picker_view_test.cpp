@@ -15,6 +15,10 @@
 #include "../sticker_render.h"
 
 #include <QApplication>
+#include <QTabWidget>
+#include <QPushButton>
+#include <QTimer>
+#include <QLineEdit>
 #include <QDir>
 #include <QFile>
 #include <QBuffer>
@@ -24,6 +28,9 @@
 #include <string.h>
 
 static int checks, failures;
+
+/* Enter in a line edit, as a person presses it. */
+static void emit_return(QLineEdit *e) { e->returnPressed(); }
 
 #define CHECK(cond, what)                                                                              \
 	do {                                                                                           \
@@ -529,12 +536,41 @@ int main(int argc, char **argv)
 		});
 		picked.clear();
 		CHECK(v.pick_found(0) && picked == REF8 ":hi%20there", "a sticker found was not chosen as its tab's would be");
+		/* NO HOST HOOK: THE WORDS ASKED ON THE PICKER'S OWN ROW (sec 1515),
+		 * no dialog -- typed and sent while it waits. */
+		v.on_words(nullptr);
+		QTimer::singleShot(100, [&v]() {
+			for (QLineEdit *e : v.findChildren<QLineEdit *>())
+				if (e->accessibleName() == "What the sticker says") {
+					e->setText(QStringLiteral("hi there"));
+					emit_return(e);
+				}
+		});
+		picked.clear();
+		CHECK(v.pick_found(0) && picked == REF8 ":hi%20there",
+		      "a sticker's words were not asked on the picker's own row");
 		v.set_find(QStringLiteral("zebra"));
 		CHECK(v.found().isEmpty() && v.status() == "No sticker kept here fits that.", "finding none was not said");
 		v.set_find(QString());
 		CHECK(v.found().isEmpty(), "clearing the search left stickers found");
 	}
 	CHECK(!v.forget(4) && !let_go, "a pack that is not there was let go");
+	/* LET GO ASKED BY PRESSING AGAIN (sec 1515): the first press lets
+	 * nothing go, and says how. */
+	{
+		QPushButton *let = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Let go")
+				let = b;
+		/* A PACK SHOWN, as a person presses Let go on one: the tab after
+		 * Recent, which is no pack. */
+		if (QTabWidget *tabs = v.findChild<QTabWidget *>())
+			tabs->setCurrentIndex(tabs->tabText(0) == "Recent" ? 1 : 0);
+		if (let)
+			let->click();
+		CHECK(let && !let_go && v.status().startsWith("Press Let go again to let waves go"),
+		      "Let go acted on the first press, or did not say to press again");
+	}
 	CHECK(v.forget(0) && let_go == 1 && v.status() == "Let waves go.", "the pack on show was not let go, and said");
 
 	silent = 1;

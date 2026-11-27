@@ -9,10 +9,12 @@
  */
 
 #include "../conversation_view.h"
+#include "../menu_exec.h"
 #include "../../local/rpc_types.h"
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QTimer>
 #include <QFile>
 #include <QImage>
 #include <QPushButton>
@@ -633,6 +635,28 @@ int main(int argc, char **argv)
 		              && !strstr(last_add, "fzn:react/" ID1 "%20"),
 		      "a reaction taken back was not sent as the bare reference");
 		CHECK(!e.react(QByteArray("short"), QStringLiteral("x")), "a reaction to no line was sent");
+		/* REACT'S MENU THROUGH THE HOST'S HOOK (sec 1515), no menu of the
+		 * button's own: the hook's choice sent for the chosen line. */
+		{
+			QPushButton *react = nullptr;
+			for (QPushButton *b : e.findChildren<QPushButton *>())
+				if (b->text() == "React")
+					react = b;
+			fzn_menu_set_exec([](QMenu *menu, QWidget *, const QPoint &) -> QAction * {
+				return menu->actions().value(0);
+			});
+			QTimer::singleShot(200, []() {
+				if (QApplication::activePopupWidget())
+					QApplication::activePopupWidget()->close();
+			});
+			e.select_line(0);
+			last_add[0] = '\0';
+			if (react)
+				react->click();
+			fzn_menu_set_exec(nullptr);
+			CHECK(react && react->menu() == nullptr && strstr(last_add, "fzn:react/"),
+			      "React did not open through the host's hook, or its choice was not sent");
+		}
 		/* TAKEN BACK, sec 1284: hal's line said so, with nothing after; this
 		 * user's own line, under an hour old and unsend on, offers Unsend. */
 		CHECK(e.open("hal") && e.lines().value(0) == "23:43 hal: This line was taken back."

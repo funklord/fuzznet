@@ -265,10 +265,16 @@ void fzn_hosts_view::select(int row)
 	 * refresh no longer clears it (sec 1225). */
 	if (!chosen && m_table->currentRow() >= 0)
 		m_table->setCurrentCell(-1, -1);
+	/* FILLED WHEN THE CHOICE CHANGES, not when a refresh restores it
+	 * (sec 1515): a host polls, and refilling wiped what was being typed. */
 	if (chosen) {
+		const QString host = m_table->item(row, 0)->text() + QLatin1Char('\x1f') + m_table->item(row, 1)->text();
 		QString at = m_table->item(row, 2)->text();
-		m_address->setText(at == tr("not known") ? QString() : at);
-	}
+		if (host != m_address_for)
+			m_address->setText(at == tr("not known") ? QString() : at);
+		m_address_for = host;
+	} else
+		m_address_for.clear();
 	m_set->setEnabled(chosen);
 	m_make_admin->setEnabled(chosen);
 }

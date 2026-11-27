@@ -26,6 +26,7 @@
 #define FZN_GUI_CONTACTS_VIEW_H
 
 #include "notebook_view.h"
+#include "press_again.h"
 
 #include <QString>
 #include <QStringList>
@@ -88,6 +89,10 @@ private:
 	QPushButton *m_refresh;
 	QPushButton *m_my_card;
 	QPushButton *m_add;
+	QWidget *m_card_row;
+	QString m_name_for; /* the row the name box was filled for */
+	fzn_press_again m_again; /* Reject and Remove asked again, sec 1515 */
+	QLineEdit *m_card;
 	QLabel *m_status;
 	QLabel *m_shared;
 	void read_shared(const QString &name);

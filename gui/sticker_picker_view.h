@@ -118,6 +118,16 @@ private:
 	QPushButton *m_keep;
 	QPushButton *m_refresh;
 	QPushButton *m_forget;
+	int m_forget_armed = -1;
+	qint64 m_forget_armed_at = 0;
+	/* THE WORDS ASKED ON A ROW OF THE PICKER (sec 1515), where a dialog
+	 * was a second window: shown, waited for in a loop of its own, as a
+	 * host's sheet does, and gone. */
+	bool ask_words(int limit, QString *words);
+	class QWidget *m_words_row = nullptr;
+	class QLineEdit *m_words_edit = nullptr;
+	class QLabel *m_words_said = nullptr;
+	class QPushButton *m_words_send = nullptr, *m_words_cancel = nullptr;
 	QLineEdit *m_find;
 	QListWidget *m_found;
 	QLabel *m_status;

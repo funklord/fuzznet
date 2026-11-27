@@ -12,7 +12,6 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QDateTime>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSet>
@@ -71,7 +70,14 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_make_admin, &QPushButton::clicked, [this]() { set_admin(m_members->currentRow(), true); });
 	connect(m_unmake_admin, &QPushButton::clicked, [this]() { set_admin(m_members->currentRow(), false); });
 	connect(m_earlier, &QCheckBox::clicked, [this](bool on) { set_earlier(on); });
-	connect(m_leave, &QPushButton::clicked, [this]() { leave(); });
+	/* LEAVING ASKED BY PRESSING AGAIN (sec 1515): one-way, and on one
+	 * click before. */
+	connect(m_leave, &QPushButton::clicked, [this]() {
+		if (m_again.confirmed(m_group))
+			leave();
+		else
+			m_status->setText(tr("Press Leave group again to leave %1; the others are told.").arg(m_group));
+	});
 	connect(m_members, &QListWidget::currentRowChanged, [this](int) { enable(); });
 	/* A SCREEN READER CHOOSES TOO, sec 1423: its double tap only selects. */
 	fzn_choose_on_accessible_select(m_members, nullptr);
@@ -131,11 +137,15 @@ bool fzn_group_view::refresh()
 		if (m->admin)
 			said += tr(" (admin)");
 		if (watered && !you && show.own_high_seq)
+			/* COUNTS, both: how many of this host's lines the member holds,
+			 * against how many it has written (node/groups.c's `have`) --
+			 * not times, as sec 1510 first read them (fuzzypickles, inbox
+			 * 20261127T0950Z). */
 			said += !m->heard                            ? tr(" -- has said nothing yet")
 			        : m->acked_seq >= show.own_high_seq ? tr(" -- has all your lines")
-			                                            : tr(" -- has your lines to %1")
-			                                                      .arg(QDateTime::fromMSecsSinceEpoch((qint64)m->acked_seq)
-			                                                                   .toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+			                                            : tr(" -- has %1 of your %2 lines")
+			                                                      .arg(m->acked_seq)
+			                                                      .arg(show.own_high_seq);
 		auto *item = new QListWidgetItem(said, m_members);
 		item->setData(ROLE_NAME, you ? QString() : name);
 		item->setData(ROLE_ADMIN, (bool)m->admin);

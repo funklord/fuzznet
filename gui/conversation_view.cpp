@@ -1,6 +1,7 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
 #include "plain_label.h"
+#include "menu_exec.h"
 #include "choose_accessible.h"
 #include "phone_layout.h"
 #include "notice_line.h"
@@ -427,16 +428,18 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	 * offer, from a menu -- the notice holds one action, a reply. */
 	m_react = new QPushButton(tr("React"), this);
 	m_react->setAccessibleName(tr("React to the chosen line"));
-	{
-		auto *menu = new QMenu(m_react);
-		for (const QString &r : reactions()) {
-			menu->addAction(r, [this, r]() {
-				QListWidgetItem *item = m_lines->currentItem();
-				(void)react(item ? item->data(ROLE_ID).toByteArray() : QByteArray(), r);
-			});
-		}
-		m_react->setMenu(menu);
-	}
+	/* OPENED THROUGH THE HOST'S HOOK (sec 1515): a button's own menu pops
+	 * itself, past fzn_menu_exec, the abort under TalkBack that
+	 * menu_exec.h exists for (fuzzypickles, inbox 20261127T0950Z). */
+	connect(m_react, &QPushButton::clicked, [this]() {
+		QMenu menu(m_react);
+		for (const QString &r : reactions())
+			menu.addAction(r)->setData(r);
+		QAction *chosen = fzn_menu_exec(&menu, m_react, m_react->mapToGlobal(QPoint(0, m_react->height())));
+		QListWidgetItem *item = m_lines->currentItem();
+		if (chosen)
+			(void)react(item ? item->data(ROLE_ID).toByteArray() : QByteArray(), chosen->data().toString());
+	});
 	m_react->setEnabled(false);
 	/* ONE NOTICE, ITS ONE ACTION (sec 1253): what an act came to, or the
 	 * one thing the chosen line offers -- where three buttons stood, most

@@ -18,6 +18,7 @@
 #define FZN_GUI_GROUP_VIEW_H
 
 #include "notebook_view.h"
+#include "press_again.h"
 
 #include <QString>
 #include <QStringList>
@@ -75,6 +76,7 @@ private:
 	QPushButton *m_unmake_admin;
 	QCheckBox *m_earlier;
 	QPushButton *m_leave;
+	fzn_press_again m_again; /* Leave asked again, sec 1515 */
 	QLabel *m_status;
 };
 

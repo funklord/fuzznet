@@ -104,6 +104,9 @@ int main(int argc, char **argv)
 	      "the address was not set on the chosen host by its key");
 	v.select(0);
 	CHECK(v.address_text() == "192.0.2.4:4000", "the chosen host's address was not offered");
+	/* WHAT IS BEING TYPED SURVIVES A POLL (sec 1515). */
+	v.set_address_text("10.0.0.");
+	CHECK(v.refresh() && v.address_text() == "10.0.0.", "a refresh wiped the address being typed");
 	v.set_address_text("nowhere");
 	last[0] = '\0';
 	CHECK(!v.set_address() && !last[0] && v.status().contains("HOST:PORT"),

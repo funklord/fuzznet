@@ -10,6 +10,8 @@
 #include "../contacts_view.h"
 
 #include <QApplication>
+#include <QPushButton>
+#include <QLineEdit>
 
 #include <stdio.h>
 #include <string.h>
@@ -96,6 +98,24 @@ int main(int argc, char **argv)
 	/* A REQUEST: its proposed name offered, approved under the person's. */
 	v.select_request(0);
 	CHECK(v.name() == "eve", "the proposed name was not offered as the local name");
+	/* WHAT IS BEING TYPED SURVIVES A POLL (sec 1515). */
+	v.set_name("eve_fr");
+	CHECK(v.refresh() && v.name() == "eve_fr", "a refresh wiped the name being typed");
+	/* REMOVE ASKED BY PRESSING AGAIN (sec 1515): the first press removes
+	 * nobody. */
+	{
+		QPushButton *remove_button = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Remove")
+				remove_button = b;
+		v.select_contact(1);
+		last[0] = '\0';
+		if (remove_button)
+			remove_button->click();
+		CHECK(remove_button && !last[0] && v.status().startsWith("Press Remove again"),
+		      "Remove acted on the first press, or did not say to press again");
+		v.select_request(0);
+	}
 	v.set_name("eve_from_work");
 	CHECK(v.approve() && !strcmp(last, "grant request " EVE " eve_from_work"),
 	      "a request was not approved under the name chosen");
@@ -159,6 +179,31 @@ int main(int argc, char **argv)
 	CHECK(!v.add_contact(QStringLiteral("hello there"), QStringLiteral("x")) && !last[0]
 	              && v.status() == "That is not a fuzznet card: it begins FZC1:.",
 	      "text that is no card was asked for");
+	/* THE CARD ASKED INLINE (sec 1515), no dialog: Add from a card shows a
+	 * line under the list, and Ask asks. */
+	{
+		QPushButton *add = nullptr, *ask = nullptr;
+		QLineEdit *card = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>()) {
+			if (b->text() == "Add from a card")
+				add = b;
+			if (b->text() == "Ask")
+				ask = b;
+		}
+		for (QLineEdit *e : v.findChildren<QLineEdit *>())
+			if (e->accessibleName() == "Their card")
+				card = e;
+		if (add)
+			add->click();
+		CHECK(card && ask && card->isVisibleTo(&v), "Add from a card did not ask the card inline");
+		if (card && ask) {
+			v.set_name(QString());
+			card->setText(QStringLiteral("hello there"));
+			ask->click();
+		}
+		CHECK(card && card->isVisibleTo(&v) && v.status() == "That is not a fuzznet card: it begins FZC1:.",
+		      "a card asked inline was not read as add_contact reads one");
+	}
 	CHECK(v.minimumSizeHint().width() <= 320, "the view was wider than a 320 px screen");
 
 	silent = 1;

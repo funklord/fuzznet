@@ -1,6 +1,7 @@
 /* What this node has moved, by family and by host: traffic_view.h, sec 1182. */
 #include "traffic_view.h"
 #include "plain_label.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -134,6 +135,9 @@ static void fill(QTreeWidget *tree, bool by_host, const fzn_rpc_transfer_list_re
 		               : QString::fromUtf8(e->family)]
 		        .shown.append(e);
 	}
+	/* THE READER'S PLACE KEPT across the refill (sec 1515, as sec 1225's
+	 * views): a poll threw them to the top. */
+	fzn_keep_place kept(tree);
 	tree->clear();
 	for (auto it = groups.constBegin(); it != groups.constEnd(); ++it) {
 		const bucket &b = it.value();

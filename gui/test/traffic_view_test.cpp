@@ -94,6 +94,13 @@ int main(int argc, char **argv)
 	CHECK(files && files->childCount() == 2 && files->child(0)->text(0) == QStringLiteral("holiday")
 	              && files->child(1)->text(0) == QStringLiteral("10.0.0.3:7000"),
 	      "a file was not named from the library, or a chat row not by its peer");
+	/* THE ROW CHOSEN KEPT ACROSS A POLL (sec 1515), as the place is. */
+	view.by_family()->setCurrentItem(files->child(1));
+	CHECK(view.refresh() && view.by_family()->currentItem()
+	              && view.by_family()->currentItem()->text(0) == QStringLiteral("10.0.0.3:7000"),
+	      "a refresh threw away the row chosen");
+	files = top(view.by_family(), "files");
+	reconcile = top(view.by_family(), "reconcile");
 	near_host = top(view.by_host(), "10.0.0.2:7000");
 	CHECK(view.by_host()->topLevelItemCount() == 2 && near_host && near_host->childCount() == 2
 	              && near_host->child(0)->text(0) == QStringLiteral("files: holiday"),

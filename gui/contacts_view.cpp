@@ -11,7 +11,6 @@
 #include <QHeaderView>
 #include <QClipboard>
 #include <QGuiApplication>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -104,6 +103,32 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	cards->addWidget(m_my_card);
 	cards->addWidget(m_add);
 	cards->addStretch(1);
+	/* THEIR CARD ASKED INLINE (sec 1515): a line under the list, where a
+	 * dialog was a second window, the abort under TalkBack. */
+	m_card_row = new QWidget(this);
+	m_card = new QLineEdit(m_card_row);
+	m_card->setPlaceholderText(tr("Their card, as they sent it (FZC1:...)"));
+	m_card->setAccessibleName(tr("Their card"));
+	auto *ask_card = new QPushButton(tr("Ask"), m_card_row);
+	auto *cancel_card = new QPushButton(tr("Cancel"), m_card_row);
+	{
+		auto *row = new QHBoxLayout(m_card_row);
+		row->addWidget(m_card, 1);
+		row->addWidget(ask_card);
+		row->addWidget(cancel_card);
+	}
+	m_card_row->hide();
+	connect(ask_card, &QPushButton::clicked, [this]() {
+		if (add_contact(m_card->text(), m_name->text())) {
+			m_card->clear();
+			m_card_row->hide();
+		}
+	});
+	connect(m_card, &QLineEdit::returnPressed, [ask_card]() { ask_card->click(); });
+	connect(cancel_card, &QPushButton::clicked, [this]() {
+		m_card->clear();
+		m_card_row->hide();
+	});
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(fzn_plain_label(tr("Waiting to become contacts"), this));
 	col->addWidget(m_requests, 1);
@@ -113,6 +138,7 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	col->addWidget(m_name);
 	col->addLayout(change);
 	col->addLayout(cards);
+	col->addWidget(m_card_row);
 	col->addWidget(m_shared);
 	col->addWidget(m_status);
 
@@ -124,9 +150,22 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	fzn_choose_on_accessible_select(m_contacts, nullptr);
 	fzn_choose_on_accessible_select(m_requests, nullptr);
 	connect(m_approve, &QPushButton::clicked, [this]() { approve(); });
-	connect(m_reject, &QPushButton::clicked, [this]() { reject(); });
+	/* ONE-WAY ACTS ASKED BY PRESSING AGAIN (sec 1515). */
+	connect(m_reject, &QPushButton::clicked, [this]() {
+		const QString who = m_name->text();
+		if (m_again.confirmed(QStringLiteral("reject ") + who))
+			reject();
+		else
+			m_status->setText(tr("Press Reject again to turn away %1's request.").arg(who));
+	});
 	connect(m_rename, &QPushButton::clicked, [this]() { rename(); });
-	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
+	connect(m_remove, &QPushButton::clicked, [this]() {
+		const QString who = m_name->text();
+		if (m_again.confirmed(QStringLiteral("remove ") + who))
+			remove();
+		else
+			m_status->setText(tr("Press Remove again to remove %1 as a contact; they are not told.").arg(who));
+	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_my_card, &QPushButton::clicked, [this]() {
 		const QString card = my_card();
@@ -136,12 +175,8 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		}
 	});
 	connect(m_add, &QPushButton::clicked, [this]() {
-		bool ok = false;
-		const QString card = QInputDialog::getMultiLineText(this, tr("Add from a card"),
-		                                                    tr("Their card, as they sent it (FZC1:...):"),
-		                                                    QString(), &ok);
-		if (ok)
-			add_contact(card, m_name->text());
+		m_card_row->show();
+		m_card->setFocus();
 	});
 	select_contact(-1);
 }
@@ -268,7 +303,10 @@ void fzn_contacts_view::select_contact(int row)
 		m_requests->setCurrentCell(-1, -1);
 		if (m_contacts->currentRow() != row)
 			m_contacts->setCurrentCell(row, 0);
-		m_name->setText(m_contacts->item(row, 0)->text());
+		const QString key = QStringLiteral("c") + m_keys->contact.at(row).toHex();
+		if (key != m_name_for)
+			m_name->setText(m_contacts->item(row, 0)->text());
+		m_name_for = key;
 	}
 	/* A RENAME ADDS BACK a contact in a state (sec 576): the button says so,
 	 * and a contact removed for good is not offered either. */
@@ -299,7 +337,12 @@ void fzn_contacts_view::select_request(int row)
 			m_requests->setCurrentCell(row, 0);
 		/* THE PROPOSED NAME OFFERED, the person's to keep or change. */
 		QString proposed = m_requests->item(row, 0)->text();
-		m_name->setText(proposed == tr("(no name given)") ? QString() : proposed);
+		/* FILLED WHEN THE CHOICE CHANGES (sec 1515), not at every poll's
+		 * restore, which wiped a half-typed name. */
+		const QString key = QStringLiteral("r") + m_keys->request.at(row).toHex();
+		if (key != m_name_for)
+			m_name->setText(proposed == tr("(no name given)") ? QString() : proposed);
+		m_name_for = key;
 	}
 	m_approve->setEnabled(chosen);
 	m_reject->setEnabled(chosen);
