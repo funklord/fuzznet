@@ -108,9 +108,7 @@ bool fzn_group_view::refresh()
 	if (group.isEmpty())
 		return false;
 	if (fzn_rpc_group_show(&m_rpc->c, group.constData(), (size_t)group.size(), &show) != FZN_RPC_OK
-	    || fzn_rpc_peer_list(&m_rpc->c, &peers) != FZN_RPC_OK
-	    || fzn_rpc_group_earlier_get(&m_rpc->c, group.constData(), (size_t)group.size(), &earlier)
-	               != FZN_RPC_OK) {
+	    || fzn_rpc_peer_list(&m_rpc->c, &peers) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
 		fzn_keep_answer::said(m_status);
 		free(show.members);
@@ -161,7 +159,17 @@ bool fzn_group_view::refresh()
 			m_contacts->addItem(name);
 	}
 	m_admin = show.is_admin;
-	m_earlier->setChecked(earlier);
+	/* THE EARLIER-LINES SETTING ASKED APART (sec 1540): one that cannot be
+	 * read leaves the roster shown and the setting unoffered, said --
+	 * where it failed the whole refresh (fuzzypickles' 0950Z). */
+	m_earlier_known = fzn_rpc_group_earlier_get(&m_rpc->c, group.constData(), (size_t)group.size(), &earlier)
+	                  == FZN_RPC_OK;
+	if (m_earlier_known)
+		m_earlier->setChecked(earlier);
+	const QString unread = m_earlier_known
+	                               ? QString()
+	                               : tr("Whether members added later get the earlier lines could not be read: %1")
+	                                         .arg(failed_words(m_rpc));
 	m_status->setText(m_admin ? QString() : tr("Only the group's admins change who is in it."));
 	free(show.members);
 	free(peers.entries);
@@ -170,6 +178,9 @@ bool fzn_group_view::refresh()
 		m_contacts->setCurrentIndex(m_contacts->findText(contact_chosen));
 	enable();
 	answer.restore();
+	/* SAID OVER A KEPT ANSWER: it is this refresh's own news. */
+	if (!unread.isEmpty())
+		m_status->setText(unread);
 	return true;
 }
 
@@ -190,7 +201,7 @@ void fzn_group_view::enable()
 	m_remove->setEnabled(m_admin && named);
 	m_make_admin->setEnabled(m_admin && named && !admin);
 	m_unmake_admin->setEnabled(m_admin && named && admin);
-	m_earlier->setEnabled(m_admin);
+	m_earlier->setEnabled(m_admin && m_earlier_known);
 	m_leave->setEnabled(!m_group.isEmpty());
 }
 

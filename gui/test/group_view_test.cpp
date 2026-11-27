@@ -10,6 +10,7 @@
 #include "../group_view.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QPushButton>
 
 #include <stdio.h>
@@ -43,6 +44,8 @@ static char asked[1024];
 static int silent;
 /* WHAT BOB AND CAROL HOLD OF THIS HOST'S LINES, sec 1510. */
 static int watered;
+/* THE EARLIER-LINES SETTING UNREADABLE (sec 1540). */
+static int earlier_away;
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -66,6 +69,8 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list contact 0"))
 		return (size_t)snprintf(reply, cap, "ok 4 0 bob," BOB " carol," CAROL " dan," DAN " eve," EVE
 		                                    ",suspended\n");
+	if (earlier_away && !strcmp(line, "get group family backfill"))
+		return (size_t)snprintf(reply, cap, "error the store refused\n");
 	if (!strcmp(line, "get group family backfill"))
 		return (size_t)snprintf(reply, cap, "ok %d\n", earlier);
 	if (!strcmp(line, "add member family dan")) {
@@ -148,6 +153,16 @@ int main(int argc, char **argv)
 	CHECK(v.refresh() && v.members().filter("dan").value(0).endsWith(" -- has 3 of your 5 lines"),
 	      "a member holding some of this host's lines was not said as a count of them");
 	watered = 0;
+	/* AN UNREADABLE EARLIER-LINES SETTING (sec 1540): the roster shown,
+	 * the setting unoffered and said. */
+	earlier_away = 1;
+	{
+		QCheckBox *box = v.findChild<QCheckBox *>();
+		CHECK(v.refresh() && !v.members().isEmpty() && box && !box->isEnabled()
+		              && v.status().startsWith("Whether members added later get the earlier lines could not be read"),
+		      "an unreadable earlier-lines setting failed the roster, or was not said");
+	}
+	earlier_away = 0;
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
 

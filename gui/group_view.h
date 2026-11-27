@@ -66,6 +66,8 @@ private:
 	struct fzn_gui_rpc *m_rpc;
 	QString m_group;
 	bool m_admin;
+	/* Whether the earlier-lines setting was read (sec 1540). */
+	bool m_earlier_known = false;
 
 	QLabel *m_title;
 	QListWidget *m_members;

@@ -79071,3 +79071,14 @@ copies it. No address reported, the refusal stands as it was.
 Test: `contacts_view_test` -- the card refused, the two reported
 addresses offered, the second written as `198.51.100.7 4100` and the
 card shown after. Sabotage: one, probed.
+
+## 1540. A group's roster shown when its earlier-lines setting is not
+
+fuzzypickles' group comparison (inbox 20261127T0950Z): one unreadable
+earlier-lines setting failed the whole group view's refresh, so the
+roster went blank for want of one setting. It is now asked apart: the
+roster is shown, the setting's box is left unoffered while it is
+unknown, and the refresh says so -- after the person's kept answer is
+put back, since it is this refresh's own news.
+
+Test: `group_view_test`. Sabotage: one, probed.

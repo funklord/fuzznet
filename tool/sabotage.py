@@ -1683,6 +1683,13 @@ SABOTAGES = [
 		"a card refused for want of an address offers where peers see this host -- sec 1539",
 	),
 	(
+		"group-view-earlier-unread-unsaid",
+		"gui/group_view.cpp",
+		"\tif (!unread.isEmpty())\n\t\tm_status->setText(unread);\n",
+		"",
+		"an unreadable earlier-lines setting is said, the roster shown -- sec 1540",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
