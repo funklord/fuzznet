@@ -42,11 +42,25 @@ static int silent;
 static char last[160];
 static const char *write_reply = "ok";
 
+#define PHOTO "5150000000000000000000000000000000000000000000000000000000000001"
+#define UNNAMED "7777aaaa00000000000000000000000000000000000000000000000000000002"
+
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
 	if (silent)
 		return 0;
+	/* WHAT BOB MAY FETCH, sec 1504: two files, one the catalogue names. */
+	if (!strcmp(line, "get file shared bob 0"))
+		return (size_t)snprintf(reply, cap, "ok 2 0 %s %s\n", PHOTO, UNNAMED);
+	if (!strcmp(line, "list catalog " PHOTO " 0"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 " PHOTO ",name,photo.jpg,aaaa000000000000\n");
+	if (!strcmp(line, "get identity"))
+		return (size_t)snprintf(reply, cap, "ok %064d %064d\n", 0, 0);
+	if (!strcmp(line, "get catalog " PHOTO))
+		return (size_t)snprintf(reply, cap, "ok 1 aaaa000000000000\n");
+	if (!strcmp(line, "get file " PHOTO))
+		return (size_t)snprintf(reply, cap, "ok 1 1 2048 whole private 0\n");
 	if (!strcmp(line, "list contact 0"))
 		return (size_t)snprintf(reply, cap,
 		                        "ok 5 0 bob,%s alice,%s carol,%s,suspended zed,%s,later dee,%s,retired\n",
@@ -59,6 +73,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	}
 	if (!strcmp(line, "list request 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 %s,eve,1700000000,10.0.0.9:48080\n", EVE);
+	/* A READ THIS FAKE DOES NOT ANSWER is refused, and not taken for the
+	 * last act the checks look for (sec 1504's reads on choosing). */
+	if (!strncmp(line, "get ", 4) || !strncmp(line, "list ", 5))
+		return (size_t)snprintf(reply, cap, "error no such thing\n");
 	snprintf(last, sizeof last, "%s", line);
 	return (size_t)snprintf(reply, cap, "%s\n", write_reply);
 }
@@ -102,6 +120,8 @@ int main(int argc, char **argv)
 	/* A CONTACT: renamed by key, removed by name. */
 	v.select_contact(0);
 	CHECK(v.name() == "bob", "a contact chosen did not offer its name");
+	CHECK(v.shared() == "bob may fetch 2 file(s) from this host: photo.jpg, 7777aaaa.",
+	      "what a contact may fetch was not said, by name");
 	v.set_name("robert");
 	CHECK(v.rename() && !strcmp(last, "add contact robert " BOB), "a rename was not asked by key");
 	v.select_contact(1);

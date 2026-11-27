@@ -1200,6 +1200,13 @@ SABOTAGES = [
 		"a contact added from a prekey is not offered to a group as if verified -- sec 1502",
 	),
 	(
+		"contacts-view-shared-unnamed",
+		"gui/contacts_view.cpp",
+		"\t\tfiles << (fzn_rpc_library_show(&m_rpc->c, roots[i], shown) == FZN_RPC_OK && shown->name_len\n",
+		"\t\tfiles << (0 && shown->name_len\n",
+		"what a contact may fetch is said by the files' names -- sec 1504",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

@@ -69,6 +69,9 @@ public:
 	QStringList requests() const;
 	QString name() const;
 	QString status() const;
+	/* WHAT THE CHOSEN CONTACT MAY FETCH from this host, sec 1504: its
+	 * files by name, read as it is chosen (`get file shared NAME`). */
+	QString shared() const;
 
 private:
 	struct fzn_gui_rpc *m_rpc;
@@ -86,6 +89,8 @@ private:
 	QPushButton *m_my_card;
 	QPushButton *m_add;
 	QLabel *m_status;
+	QLabel *m_shared;
+	void read_shared(const QString &name);
 };
 
 #endif /* FZN_GUI_CONTACTS_VIEW_H */

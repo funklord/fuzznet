@@ -78156,3 +78156,18 @@ its construction where it is built in a block of its own. **All 32
 fit**: nothing needed changing, which is what the check now keeps true.
 The width it caught this run (the governance view's two vote buttons,
 sec 1502) was in a test that already had it.
+
+## 1504. What a contact may fetch, on the contacts view
+
+`fzn_rpc_file_shared_with` (`get file shared NAME`, sec 1028) answered
+what one contact may fetch from this host -- by name, through a group,
+or as everyone -- and no view asked it: the desktop sweep of this run
+found it among the calls no widget reached. Choosing an active contact
+now says it under the list -- "bob may fetch 2 file(s) from this host:
+photo.jpg, 7777aaaa." -- the first five named from the library, a file
+the library cannot name by its root's first bytes, the rest counted.
+A contact not active is shared nothing (sec 1499) and is not asked.
+
+Tests: `contacts_view_test`; its fake no longer takes a read it does
+not answer for the last act its checks look for. Sabotage: caught.
+

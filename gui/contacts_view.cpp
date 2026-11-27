@@ -78,6 +78,9 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_my_card->setToolTip(tr("Copy this host's card, to send to whom you want as a contact"));
 	m_add = new QPushButton(tr("Add from a card"), this);
 	m_add->setToolTip(tr("Ask to be a contact of whoever sent you their card"));
+	m_shared = new QLabel(this);
+	m_shared->setWordWrap(true);
+	m_shared->setAccessibleName(tr("What the chosen contact may fetch"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -109,6 +112,7 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	col->addWidget(m_name);
 	col->addLayout(change);
 	col->addLayout(cards);
+	col->addWidget(m_shared);
 	col->addWidget(m_status);
 
 	connect(m_contacts, &QTableWidget::currentCellChanged,
@@ -272,6 +276,9 @@ void fzn_contacts_view::select_contact(int row)
 	                          ? tr("Add back")
 	                          : tr("Rename"));
 	m_rename->setEnabled(chosen && state != FZN_RPC_CONTACT_RETIRED);
+	m_shared->clear();
+	if (chosen && state == FZN_RPC_CONTACT_ACTIVE)
+		read_shared(m_contacts->item(row, 0)->text());
 	m_remove->setEnabled(chosen);
 	m_approve->setEnabled(false);
 	m_reject->setEnabled(false);
@@ -406,3 +413,33 @@ QStringList fzn_contacts_view::requests() const
 
 QString fzn_contacts_view::name() const { return m_name->text(); }
 QString fzn_contacts_view::status() const { return m_status->text(); }
+
+QString fzn_contacts_view::shared() const { return m_shared->text(); }
+
+/* WHAT `name` MAY FETCH, by file name -- the first five, named from the
+ * library; the rest counted. A node that cannot say leaves the line
+ * empty. */
+void fzn_contacts_view::read_shared(const QString &name)
+{
+	const QByteArray who = name.toUtf8();
+	fzn_rpc_root_t *roots = nullptr;
+	size_t room = 0, n = 0;
+	QStringList files;
+
+	if (fzn_rpc_file_shared_with(&m_rpc->c, who.constData(), &roots, &room, &n) != FZN_RPC_OK) {
+		free(roots);
+		return;
+	}
+	auto *shown = new fzn_rpc_library_show_resp_t;
+	for (size_t i = 0; i < n && i < 5u; i++)
+		files << (fzn_rpc_library_show(&m_rpc->c, roots[i], shown) == FZN_RPC_OK && shown->name_len
+		                  ? QString::fromUtf8(shown->name, (int)shown->name_len)
+		                  : QString::fromLatin1(QByteArray((const char *)roots[i], 4).toHex()));
+	delete shown;
+	free(roots);
+	if (n > 5u)
+		files << tr("%n more", nullptr, (int)(n - 5u));
+	m_shared->setText(n ? tr("%1 may fetch %n file(s) from this host: %2.", nullptr, (int)n)
+	                              .arg(name, files.join(QStringLiteral(", ")))
+	                    : tr("%1 may fetch none of this host's files.").arg(name));
+}
