@@ -18,6 +18,7 @@ extern "C" {
 #include <QByteArray>
 #include <QColor>
 #include <QDateTime>
+#include <QEvent>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QHash>
@@ -32,6 +33,7 @@ extern "C" {
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QSet>
+#include <QStyle>
 #include <QStyledItemDelegate>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -226,8 +228,12 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	m_tree->setColumnCount(5);
 	m_tree->header()->setStretchLastSection(false);
 	m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+	/* SET BY fit_columns, not by their contents (sec 1517): a waiting
+	 * text sized to its words left the name column 40 px (fuzzypickles'
+	 * 20261127T1121Z). */
 	for (int c = 1; c < 5; c++)
-		m_tree->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+		m_tree->header()->setSectionResizeMode(c, QHeaderView::Fixed);
+	m_tree->viewport()->installEventFilter(this);
 	m_tree->setWordWrap(true);
 	/* NO SIDEWAYS SCROLL in a narrow pane, sec 1517: the name column takes
 	 * what is left and its line is cut, never the list widened. */
@@ -646,6 +652,7 @@ void fzn_conversations_view::lay_out()
 	}
 	for (int c = 1; c < 5; c++)
 		m_tree->setColumnHidden(c, !used[c]);
+	fit_columns();
 	if (contacts) {
 		contacts->setExpanded(true);
 		group_head->setExpanded(true);
@@ -660,6 +667,53 @@ void fzn_conversations_view::lay_out()
 		m_restored = m_chosen;
 	if (keep)
 		(void)select(m_chosen.startsWith(QLatin1Char('@')) ? m_chosen.mid(1) : m_chosen, m_chosen.startsWith(QLatin1Char('@')));
+}
+
+bool fzn_conversations_view::eventFilter(QObject *watched, QEvent *event)
+{
+	if (watched == m_tree->viewport() && event->type() == QEvent::Resize)
+		fit_columns();
+	return QWidget::eventFilter(watched, event);
+}
+
+/* THE NAME WHOLE BEFORE ANYTHING ELSE IS CUT, sec 1517: column 0 is given
+ * what its widest name needs -- with the indent, the icon and the style's
+ * margins -- and the rest share what is left, in the order a person
+ * needs them: the unread count, when, the host's badge, and last how long
+ * a line has waited, each cut if it must be. The text cut stays whole on
+ * the item, for a screen reader. */
+void fzn_conversations_view::fit_columns()
+{
+	const QFontMetrics fm(m_tree->font());
+	const int avail = m_tree->viewport()->width();
+	const int margin = 2 * (m_tree->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, m_tree) + 1) + 4;
+	int need = 0;
+
+	for (QTreeWidgetItemIterator it(m_tree); *it; ++it) {
+		const QTreeWidgetItem *item = *it;
+		const int len = item->data(0, ROLE_NAME_LEN).toInt();
+		const QString name = len > 0 ? item->text(0).left(len) : item->text(0);
+		int depth = m_tree->rootIsDecorated() ? 1 : 0;
+		for (const QTreeWidgetItem *p = item->parent(); p; p = p->parent())
+			depth++;
+		const int w = depth * m_tree->indentation() + (item->icon(0).isNull() ? 0 : m_tree->iconSize().width() + 4)
+		              + fm.horizontalAdvance(name) + margin;
+		need = std::max(need, w);
+	}
+	/* A NAME NO PANE COULD HOLD still leaves the count room. */
+	need = std::min(need, avail - fm.horizontalAdvance(QStringLiteral("999")) - margin);
+	int rest = avail - need;
+	for (int c : { 3, 2, 1, 4 }) {
+		if (m_tree->isColumnHidden(c))
+			continue;
+		int want = 0;
+		for (QTreeWidgetItemIterator it(m_tree); *it; ++it)
+			if (!(*it)->text(c).isEmpty())
+				want = std::max(want, QFontMetrics((*it)->font(c)).horizontalAdvance((*it)->text(c)) + margin);
+		const int w = std::max(0, std::min(want, rest));
+		m_tree->header()->resizeSection(c, w);
+		rest -= w;
+	}
 }
 
 void fzn_conversations_view::resizeEvent(QResizeEvent *event)

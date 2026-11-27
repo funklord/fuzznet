@@ -13,6 +13,7 @@
 
 #include <QAccessible>
 #include <QApplication>
+#include <QHeaderView>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QLabel>
@@ -520,6 +521,24 @@ int main(int argc, char **argv)
 		 * the oldest has waited -- the delivered one older still not it. */
 		CHECK(w.shown().value(1).endsWith("{not delivered, 20 min}") && !w.shown().value(2).contains("{"),
 		      "a contact's lines not delivered were not marked with the oldest one's wait");
+		/* AND IN A 230 px PANE UNDER HEADINGS (sec 1517, fuzzypickles'
+		 * 20261127T1121Z): the name column holds the widest name; the
+		 * waiting text and when are what is cut. */
+		{
+			fzn_conversations_view pane(node, nullptr);
+			auto *pane_tree = pane.findChild<QTreeWidget *>();
+			const QFontMetrics fm(pane_tree->font());
+			pane.set_layout(0);
+			pane.resize(230, 400);
+			pane.show();
+			(void)pane.refresh();
+			QApplication::processEvents();
+			CHECK(!pane_tree->isColumnHidden(4)
+			              && pane_tree->header()->sectionSize(0)
+			                         >= 2 * pane_tree->indentation() + fm.horizontalAdvance("family") + 4
+			              && pane_tree->header()->length() <= pane_tree->viewport()->width(),
+			      "in a narrow pane the waiting text or when took the width the names needed");
+		}
 		/* A CONTACT NO LONGER ACTIVE, sec 1499: listed, but sending and
 		 * calling offered disabled saying why, and refused if chosen. */
 		CHECK(w.select("family", false) && w.chosen_actions().contains("Call")

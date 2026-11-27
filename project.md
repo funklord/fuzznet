@@ -78485,3 +78485,14 @@ never scrolls sideways; the name column takes what is left.
 Test: `conversations_view_test`. Sabotage: four, each probed. The name
 check needed a width just past the name: at a roomier one, cutting the
 whole text also kept "Ana -- ".
+
+**That was not enough** (fuzzypickles, inbox 20261127T1121Z). Their
+pane had a waiting text, "not delivered, 1 h", and the columns sized to
+their contents took all but about 40 px, so every name drew as "...".
+My 230 px grab had no waiting text in it. So the widths are no longer
+the contents'. `fit_columns` gives column 0 what its widest name needs
+-- indent, icon and margins included, headings too -- and the others
+share what is left, in the order a person needs them: the unread count,
+when, the host's badge, and last the waiting text, each cut if it must
+be. It runs again whenever the list's width changes. The test grabs a
+230 px pane holding a waiting text, and sabotage probes the rule.

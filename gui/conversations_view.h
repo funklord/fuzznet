@@ -166,6 +166,9 @@ protected:
 
 private:
 	void lay_out();
+	/* THE COLUMNS' WIDTHS BY WHAT MATTERS, sec 1517: the names first. */
+	void fit_columns();
+	bool eventFilter(QObject *watched, QEvent *event) override;
 	void members_menu(const QString &group, QStringList *out);
 	bool member_act(const QString &group, const QString &action);
 	/* A deletion asked for once, by group, and when: chosen again in time,

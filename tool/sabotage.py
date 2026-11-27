@@ -1431,6 +1431,13 @@ SABOTAGES = [
 		"a narrow pane never scrolls the list sideways -- sec 1517",
 	),
 	(
+		"conversations-view-names-not-first",
+		"gui/conversations_view.cpp",
+		"\t\tneed = std::max(need, w);\n",
+		"\t\tneed = 0 * w;\n",
+		"the name column is given the widest name's room before the other columns -- sec 1517",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
