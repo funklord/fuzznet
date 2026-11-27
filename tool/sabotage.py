@@ -1641,6 +1641,13 @@ SABOTAGES = [
 		"a sticker whose pack lands later is drawn then -- sec 1534",
 	),
 	(
+		"conversation-view-touch-pin-ignored",
+		"gui/conversation_view.cpp",
+		"\tm_bubbles->narrow = m_touch_pin < 0 ? fzn_phone_layout(width()) : m_touch_pin == 1;\n",
+		"\tm_bubbles->narrow = fzn_phone_layout(width());\n",
+		"touch follows the host's word where it gives one -- sec 1535",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -18614,7 +18621,7 @@ SABOTAGES = [
 	(
 		"conversation-never-bubbles",
 		"gui/conversation_view.cpp",
-		"\tm_bubbles->narrow = fzn_phone_layout(event->size().width());\n",
+		"\tm_bubbles->narrow = m_touch_pin < 0 ? fzn_phone_layout(width()) : m_touch_pin == 1;\n",
 		"\tm_bubbles->narrow = false;\n",
 		"a phone shows a conversation as a log, never as bubbles -- sec 1241",
 	),

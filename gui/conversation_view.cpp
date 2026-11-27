@@ -2009,7 +2009,18 @@ bool fzn_conversation_view::drawn(int row) const
 void fzn_conversation_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	m_bubbles->narrow = fzn_phone_layout(event->size().width());
+	apply_touch();
+}
+
+void fzn_conversation_view::set_touch(int on)
+{
+	m_touch_pin = on < 0 ? -1 : on ? 1 : 0;
+	apply_touch();
+}
+
+void fzn_conversation_view::apply_touch()
+{
+	m_bubbles->narrow = m_touch_pin < 0 ? fzn_phone_layout(width()) : m_touch_pin == 1;
 	m_bubbles->width = m_lines->viewport()->width();
 	/* A FINGER'S TARGETS ON A PHONE, sec 1253: every button and the line
 	 * being written at least FZN_NOTICE_LINE_TOUCH_PX tall. */

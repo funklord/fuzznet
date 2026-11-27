@@ -457,6 +457,25 @@ int main(int argc, char **argv)
 		v.resize(320, 600);
 		app.processEvents();
 	}
+	/* TOUCH BY THE HOST'S WORD (sec 1535): pinned on at a desktop's width,
+	 * bubbles and finger-sized targets; pinned off at a phone's, neither;
+	 * -1, the width again. */
+	{
+		QPushButton *send = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Send")
+				send = b;
+		v.resize(800, 600);
+		app.processEvents();
+		v.set_touch(1);
+		CHECK(v.bubbles() && send && send->minimumHeight() > 0, "touch pinned on at a desktop's width was not taken");
+		v.resize(320, 600);
+		app.processEvents();
+		v.set_touch(0);
+		CHECK(!v.bubbles() && send && send->minimumHeight() == 0, "touch pinned off at a phone's width was not taken");
+		v.set_touch(-1);
+		CHECK(v.bubbles(), "touch left to the width did not follow it");
+	}
 	{
 		const QRect his = v.bubble_rect(0), mine = v.bubble_rect(1);
 

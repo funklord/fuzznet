@@ -78958,3 +78958,23 @@ Test: `conversation_view_test` -- a fresh view on dan with the art away
 draws nothing, then draws it once it is here; a look with nothing
 waiting asks for no art; a kept pack said kept with no request. Sabotage:
 two, each probed.
+
+## 1535. Touch set by the host
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 14): its view takes
+touch from the host -- finger-sized buttons and bubbles -- where ours
+decided by its own width alone. A tablet the host knows is touched is
+wide, and a narrow desktop window is still clicked, so the width is a
+guess the host can correct.
+
+`set_touch(on)`: 1 pins finger-sized targets and bubbles on, 0 pins them
+off, and -1, the default, leaves them to the view's width as before --
+the shape of the conversations list's `set_layout` (sec 1512). The
+resize handler's body is now `apply_touch`, which both call. Icons on
+the buttons, which fuzzypickles' has, are left for now: words are what
+the buttons and their tests carry today.
+
+`conversation-never-bubbles` named the line this moved and was
+retargeted. Test: `conversation_view_test` -- pinned on at 800 px,
+bubbles and a finger-sized Send; pinned off at 320 px, neither; -1, the
+width again. Sabotage: one new, one retargeted, each probed.

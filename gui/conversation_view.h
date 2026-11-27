@@ -187,6 +187,11 @@ public:
 	 * FZN_ART_TRIES times a sticker, then left as its words. How many
 	 * were drawn by this look. */
 	int redraw_waiting();
+	/* TOUCH, BY THE HOST'S WORD, sec 1535: 1 finger-sized targets and
+	 * bubbles, 0 neither, -1 (the default) by the view's width -- as the
+	 * conversations list's set_layout. A tablet a host knows is touched
+	 * is wide, and a desktop window narrow is clicked. */
+	void set_touch(int on);
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -256,6 +261,8 @@ private:
 	QByteArray m_newest_seen;
 	/* Looks for each undrawn sticker's art, by sticker and words. */
 	QHash<QByteArray, int> m_art_tries;
+	int m_touch_pin = -1;
+	void apply_touch();
 	QByteArray newest_now();
 	/* Whose lines the list holds, so a newly opened one starts at its end. */
 	QString m_place_for;
