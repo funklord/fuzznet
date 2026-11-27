@@ -143,6 +143,21 @@ fzn_group_lines_err_t fzn_group_lines_filed(const fzn_group_lines_t *l,
                                             const uint8_t group[FZN_GROUP_ID_LEN],
                                             const uint8_t host[FZN_PUBKEY_LEN], uint32_t filed);
 
+/* `host`'s LINES OF `epoch` SEALED UNDER `lost`, ISSUED AGAIN under
+ * `committed`, sec 1520: a lost fork's secret opens them for nobody but
+ * their writer. Each held from the base up that opens under `lost` and
+ * not under `committed`, and is not issued again already -- its id in a
+ * later line that opens under `committed` -- is sealed under `committed`
+ * and put after `host`'s newest, filed. `*issued` counts them. OK when
+ * every such line is issued again; an error when one could not be, the
+ * rest left for another call. */
+fzn_group_lines_err_t fzn_group_lines_reissue(const fzn_group_lines_t *l, const uint8_t group[FZN_GROUP_ID_LEN],
+                                              const uint8_t host[FZN_PUBKEY_LEN], uint32_t epoch,
+                                              const uint8_t lost[FZN_GROUP_SECRET_LEN],
+                                              const uint8_t committed[FZN_GROUP_SECRET_LEN],
+                                              const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng,
+                                              size_t *issued);
+
 /* THE ID a line is filed under in the group's conversation. */
 int fzn_group_lines_filed_id(const fzn_hash_ops_t *hash, const uint8_t host[FZN_PUBKEY_LEN],
                              const uint8_t id[FZN_GROUP_LINE_ID_LEN],

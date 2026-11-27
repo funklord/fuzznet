@@ -459,6 +459,125 @@ fzn_group_log_err_t fzn_node_groups_secret(const fzn_node_groups_t *g,
 	return FZN_GROUP_LOG_OK;
 }
 
+/* A GROUP'S LOST-FORK SECRETS, sec 1520: one record, so a pass reads one
+ * subject a group -- a version, then (epoch, secret) entries, at most one
+ * an epoch kept. Its subject hashes 37 bytes where an epoch's hashes 36,
+ * so the two never meet. */
+#define FORKED_ENTRY_LEN (4u + FZN_GROUP_SECRET_LEN)
+#define FORKED_MAX (1u + FZN_GROUP_EPOCHS_KEPT * FORKED_ENTRY_LEN)
+
+static int forked_subject(const fzn_node_groups_t *g, const uint8_t *id, uint8_t out[FZN_PUBKEY_LEN])
+{
+	uint8_t in[FZN_GROUP_ID_LEN + 5u];
+
+	memcpy(in, id, FZN_GROUP_ID_LEN);
+	memcpy(in + FZN_GROUP_ID_LEN, "forks", 5u);
+	return g->log.hash->hash(g->log.hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+static size_t forked_load(const fzn_node_groups_t *g, const uint8_t *id, uint8_t *bytes)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t n = 0;
+
+	if (!forked_subject(g, id, subject)
+	    || !g->log.store->load(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject, bytes, FORKED_MAX, &n)
+	    || n < 1u || bytes[0] != SECRET_VERSION || (n - 1u) % FORKED_ENTRY_LEN != 0u)
+		return 0;
+	return (n - 1u) / FORKED_ENTRY_LEN;
+}
+
+static int forked_save(const fzn_node_groups_t *g, const uint8_t *id, const uint8_t *bytes, size_t entries)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+
+	if (!forked_subject(g, id, subject))
+		return 0;
+	if (entries == 0u)
+		return !g->log.store->remove || g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject);
+	return g->log.store->save(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject, bytes,
+	                          1u + entries * FORKED_ENTRY_LEN);
+}
+
+static uint32_t forked_epoch(const uint8_t *e)
+{
+	return (uint32_t)e[0] << 24 | (uint32_t)e[1] << 16 | (uint32_t)e[2] << 8 | e[3];
+}
+
+/* KEPT BEFORE IT IS FORGOTTEN: epoch's lost secret, replacing one held
+ * for that epoch; the oldest epoch's let go when the record is full. */
+static void forked_keep(const fzn_node_groups_t *g, const uint8_t *id, uint32_t epoch, const uint8_t *secret)
+{
+	static uint8_t bytes[FORKED_MAX];
+	size_t n = forked_load(g, id, bytes), i;
+	uint8_t *e;
+
+	for (i = 0; i < n && forked_epoch(bytes + 1u + i * FORKED_ENTRY_LEN) != epoch; i++)
+		;
+	if (i == n && n == FZN_GROUP_EPOCHS_KEPT) {
+		size_t oldest = 0;
+
+		for (i = 1; i < n; i++)
+			if (forked_epoch(bytes + 1u + i * FORKED_ENTRY_LEN)
+			    < forked_epoch(bytes + 1u + oldest * FORKED_ENTRY_LEN))
+				oldest = i;
+		i = oldest;
+	} else if (i == n) {
+		n++;
+	}
+	bytes[0] = SECRET_VERSION;
+	e = bytes + 1u + i * FORKED_ENTRY_LEN;
+	e[0] = (uint8_t)(epoch >> 24);
+	e[1] = (uint8_t)(epoch >> 16);
+	e[2] = (uint8_t)(epoch >> 8);
+	e[3] = (uint8_t)epoch;
+	memcpy(e + 4, secret, FZN_GROUP_SECRET_LEN);
+	(void)forked_save(g, id, bytes, n);
+	fzn_wipe(bytes, sizeof(bytes));
+}
+
+fzn_group_log_err_t fzn_node_groups_forked_secrets(const fzn_node_groups_t *g,
+                                                   const uint8_t id[FZN_GROUP_ID_LEN], uint32_t *epochs,
+                                                   uint8_t (*secrets)[FZN_GROUP_SECRET_LEN], size_t cap,
+                                                   size_t *n)
+{
+	static uint8_t bytes[FORKED_MAX];
+	size_t held, i;
+
+	if (!g || !g->log.store || !g->log.store->load || !g->log.hash || !id || !epochs || !secrets || !n)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	*n = 0;
+	held = forked_load(g, id, bytes);
+	for (i = 0; i < held && i < cap; i++) {
+		epochs[i] = forked_epoch(bytes + 1u + i * FORKED_ENTRY_LEN);
+		memcpy(secrets[i], bytes + 1u + i * FORKED_ENTRY_LEN + 4u, FZN_GROUP_SECRET_LEN);
+	}
+	*n = i;
+	fzn_wipe(bytes, sizeof(bytes));
+	return i ? FZN_GROUP_LOG_OK : FZN_GROUP_LOG_ERR_ABSENT;
+}
+
+fzn_group_log_err_t fzn_node_groups_forked_forget(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID_LEN],
+                                                  uint32_t epoch)
+{
+	static uint8_t bytes[FORKED_MAX];
+	size_t n, i;
+	int ok = 1;
+
+	if (!g || !g->log.store || !g->log.store->load || !g->log.hash || !id)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	n = forked_load(g, id, bytes);
+	for (i = 0; i < n; i++)
+		if (forked_epoch(bytes + 1u + i * FORKED_ENTRY_LEN) == epoch) {
+			memmove(bytes + 1u + i * FORKED_ENTRY_LEN, bytes + 1u + (i + 1u) * FORKED_ENTRY_LEN,
+			        (n - i - 1u) * FORKED_ENTRY_LEN);
+			ok = forked_save(g, id, bytes, --n);
+			break;
+		}
+	fzn_wipe(bytes, sizeof(bytes));
+	return ok ? FZN_GROUP_LOG_OK : FZN_GROUP_LOG_ERR_BACKEND;
+}
+
 static int secret_keep(const fzn_node_groups_t *g, const uint8_t *id, uint32_t epoch,
                        const uint8_t *secret)
 {
@@ -489,6 +608,9 @@ static int secret_of(const fzn_node_groups_t *g, const fzn_group_t *held, uint32
 	if (fzn_group_epoch_commit(g->log.hash, held->id, epoch, secret, commit)
 	    && memcmp(commit, want, 32u) == 0)
 		return 1;
+	/* KEPT APART FIRST, sec 1520: lines this host sealed under it are this
+	 * host's to seal again. */
+	forked_keep(g, held->id, epoch, secret);
 	memset(secret, 0, FZN_GROUP_SECRET_LEN);
 	if (g->log.store->remove && epoch_subject(g, held->id, epoch, subject))
 		(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject);

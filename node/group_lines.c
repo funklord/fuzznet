@@ -394,3 +394,66 @@ fzn_group_lines_err_t fzn_group_lines_sender(const fzn_group_lines_t *l,
 		return FZN_GROUP_LINES_ERR_ABSENT;
 	return FZN_GROUP_LINES_OK;
 }
+
+/* LINE `id` ISSUED AGAIN after slot `from`: a later line of `host`'s by
+ * that id that opens under `committed`. */
+static int issued_again(const fzn_group_lines_t *l, const uint8_t *group, const uint8_t *host, uint32_t from,
+                        uint32_t have, const uint8_t *id, const uint8_t *committed, const fzn_aead_ops_t *aead)
+{
+	static uint8_t bytes[FZN_GROUP_LINE_MAX];
+	static fzn_group_line_t later;
+	size_t len = 0;
+	uint32_t s;
+
+	for (s = from + 1u; s <= have; s++)
+		if (fzn_group_lines_get(l, group, host, s, bytes, sizeof(bytes), &len) == FZN_GROUP_LINES_OK
+		    && fzn_group_line_peek(bytes, len, &later) == FZN_GROUP_LINE_OK
+		    && memcmp(later.id, id, FZN_GROUP_LINE_ID_LEN) == 0
+		    && fzn_group_line_open(bytes, len, committed, l->hash, aead, &later) == FZN_GROUP_LINE_OK)
+			return 1;
+	return 0;
+}
+
+fzn_group_lines_err_t fzn_group_lines_reissue(const fzn_group_lines_t *l, const uint8_t group[FZN_GROUP_ID_LEN],
+                                              const uint8_t host[FZN_PUBKEY_LEN], uint32_t epoch,
+                                              const uint8_t lost[FZN_GROUP_SECRET_LEN],
+                                              const uint8_t committed[FZN_GROUP_SECRET_LEN],
+                                              const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng,
+                                              size_t *issued)
+{
+	static uint8_t bytes[FZN_GROUP_LINE_MAX], again[FZN_GROUP_LINE_MAX];
+	static fzn_group_line_t line;
+	fzn_group_line_head_t head;
+	fzn_group_lines_err_t err;
+	size_t len = 0, again_len = 0;
+	uint32_t s, newest;
+
+	if (!usable(l) || !group || !host || !lost || !committed || !aead || !rng || !issued)
+		return FZN_GROUP_LINES_ERR_MALFORMED;
+	*issued = 0;
+	err = fzn_group_lines_head(l, group, host, &head);
+	if (err != FZN_GROUP_LINES_OK)
+		return err;
+	/* THE LINES HELD WHEN THE CALL BEGAN: those it puts are not looked at. */
+	newest = head.have;
+	/* FROM THE BASE, sec 664: none below it is held. */
+	for (s = head.base + 1u; s <= newest; s++) {
+		if (fzn_group_lines_get(l, group, host, s, bytes, sizeof(bytes), &len) != FZN_GROUP_LINES_OK
+		    || fzn_group_line_peek(bytes, len, &line) != FZN_GROUP_LINE_OK || line.epoch != epoch
+		    || fzn_group_line_open(bytes, len, committed, l->hash, aead, &line) == FZN_GROUP_LINE_OK
+		    || fzn_group_line_open(bytes, len, lost, l->hash, aead, &line) != FZN_GROUP_LINE_OK
+		    || issued_again(l, group, host, s, head.have, line.id, committed, aead))
+			continue;
+		if (fzn_group_line_seal(&line, committed, l->hash, aead, rng, again, sizeof(again), &again_len)
+		    != FZN_GROUP_LINE_OK)
+			return FZN_GROUP_LINES_ERR_MALFORMED;
+		err = fzn_group_lines_put(l, head.have + 1u, again, again_len);
+		if (err == FZN_GROUP_LINES_OK)
+			err = fzn_group_lines_filed(l, group, host, head.have + 1u);
+		if (err != FZN_GROUP_LINES_OK)
+			return err;
+		head.have++;
+		(*issued)++;
+	}
+	return FZN_GROUP_LINES_OK;
+}

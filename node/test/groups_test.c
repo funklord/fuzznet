@@ -423,6 +423,22 @@ static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 		      "a secret not the epoch's committed one was handed out for a line, or kept");
 		CHECK(fzn_node_groups_secret_committed(&b->groups, &g, g.epoch + 1000u, got) == FZN_GROUP_LOG_ERR_MOOT,
 		      "an epoch with no commitment held was not said as such");
+		/* KEPT APART, sec 1520: the lost secret, for the lines B sealed
+		 * under it; and let go when they are sealed again. */
+		{
+			uint32_t epochs[4];
+			uint8_t secrets[4][FZN_GROUP_SECRET_LEN];
+			size_t n = 0;
+
+			CHECK(fzn_node_groups_forked_secrets(&b->groups, id, epochs, secrets, 4, &n) == FZN_GROUP_LOG_OK
+			              && n == 1 && epochs[0] == g.epoch && secrets[0][0] == 0x99,
+			      "the lost fork's secret was not kept apart for this host's own lines");
+			CHECK(fzn_node_groups_forked_forget(&b->groups, id, g.epoch) == FZN_GROUP_LOG_OK
+			              && fzn_node_groups_forked_secrets(&b->groups, id, epochs, secrets, 4, &n)
+			                         == FZN_GROUP_LOG_ERR_ABSENT
+			              && n == 0,
+			      "a lost secret let go was still held");
+		}
 	}
 	(void)tend(b, id);
 	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
@@ -643,6 +659,63 @@ static void test_a_members_host_is_its_members(void)
 }
 
 /* A HOST'S LINES HELD IN ORDER, sec 629, their senders kept. */
+/* A HOST'S LINES SEALED UNDER A LOST FORK'S SECRET, ISSUED AGAIN, sec 1520:
+ * the two under the lost secret sealed again under the committed one,
+ * after the newest; one already under the committed secret, and one of
+ * another epoch, left; a second call issues nothing; the new lines open
+ * under the committed secret with their ids and words. */
+static void test_lines_sealed_under_a_lost_secret_issued_again(void)
+{
+	struct user *a = &users[0];
+	static fzn_group_line_t line, got;
+	fzn_group_lines_t l;
+	fzn_group_line_head_t h;
+	uint8_t group[32], host[32], lost[FZN_GROUP_SECRET_LEN], committed[FZN_GROUP_SECRET_LEN];
+	uint8_t bytes[FZN_GROUP_LINE_MAX];
+	size_t len = 0, issued = 0;
+	static const char *words[4] = { "lost one", "kept", "lost two", "other epoch" };
+	int k, opened = 0;
+
+	user_up(a, 0x11u);
+	l.store = &a->ops;
+	l.hash = &HASH;
+	memset(group, 0x71, sizeof(group));
+	memset(host, 0x72, sizeof(host));
+	memset(lost, 0x73, sizeof(lost));
+	memset(committed, 0x74, sizeof(committed));
+	memcpy(line.group, group, 32u);
+	memcpy(line.host, host, 32u);
+	memcpy(line.sender, host, 32u);
+	for (k = 0; k < 4; k++) {
+		line.epoch = k == 3 ? 6u : 5u;
+		memset(line.id, 0x40 + k, sizeof(line.id));
+		line.stime = 1000u + (uint64_t)k;
+		line.text_len = strlen(words[k]);
+		memcpy(line.text, words[k], line.text_len);
+		CHECK(fzn_group_line_seal(&line, k == 1 ? committed : lost, &HASH, &AEAD, &RNG, bytes, sizeof(bytes),
+		                          &len)
+		                      == FZN_GROUP_LINE_OK
+		              && fzn_group_lines_put(&l, (uint32_t)k + 1u, bytes, len) == FZN_GROUP_LINES_OK,
+		      "fixture: a line held");
+	}
+	CHECK(fzn_group_lines_reissue(&l, group, host, 5u, lost, committed, &AEAD, &RNG, &issued) == FZN_GROUP_LINES_OK
+	              && issued == 2 && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+	              && h.have == 6u && h.filed == 6u,
+	      "the two lines under the lost secret were not issued again after the newest");
+	for (k = 5; k <= 6; k++)
+		if (fzn_group_lines_get(&l, group, host, (uint32_t)k, bytes, sizeof(bytes), &len) == FZN_GROUP_LINES_OK
+		    && fzn_group_line_open(bytes, len, committed, &HASH, &AEAD, &got) == FZN_GROUP_LINE_OK
+		    && got.epoch == 5u && got.id[0] == (k == 5 ? 0x40 : 0x42)
+		    && got.text_len == strlen(words[k == 5 ? 0 : 2])
+		    && memcmp(got.text, words[k == 5 ? 0 : 2], got.text_len) == 0)
+			opened++;
+	CHECK(opened == 2, "a line issued again did not open under the committed secret with its id and words");
+	CHECK(fzn_group_lines_reissue(&l, group, host, 5u, lost, committed, &AEAD, &RNG, &issued) == FZN_GROUP_LINES_OK
+	              && issued == 0 && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+	              && h.have == 6u,
+	      "a line issued again was issued a second time");
+}
+
 static void test_lines_are_held_in_order(void)
 {
 	struct user *a = &users[0];
@@ -1224,6 +1297,7 @@ int main(void)
 	test_acts_a_fork_dropped_come_back();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
+	test_lines_sealed_under_a_lost_secret_issued_again();
 	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();
 	test_two_groups_of_one_name();

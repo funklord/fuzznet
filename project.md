@@ -78553,11 +78553,9 @@ the next pass files them -- one second later on nlaptop, 185 lines
 twelve seconds later on nfresh. A fault shows as a wait never followed
 by a filing.
 
-**Open, taken next:** a line this host sealed under the lost side's
-secret before the fork was seen -- n's at 12:02:27 -- opens for nobody.
-Every other host retries it and passes it over; nothing seals it again.
-The writer has to issue it once more under the committed secret. Also
-open: dag (ndag) waited for epoch 2's secret while standing at 4, for a
+**A line this host sealed under the lost side's secret** before the
+fork was seen -- n's at 12:02:27 -- opened for nobody: sec 1520 issues
+it again. Still open: dag (ndag) waited for epoch 2's secret while standing at 4, for a
 line from n's estate root, and never filed it. A host is sealed the
 current epoch, and earlier ones only by backfill a step per pass, so
 dag may simply not have been given epoch 2 within the test's time.
@@ -78567,3 +78565,41 @@ line and is forgotten; an epoch with no commitment says so; the
 committed one is handed out once taken. `live_groups`,
 `live_group_backfill`, `live_group_hosts`, `live_group_skew`.
 Sabotage: one, probed.
+
+## 1520. Lines sealed under a lost fork's secret, issued again
+
+Sec 1519's open part. A host that draws an epoch's secret through an act
+that then loses a fork may already have sealed lines under it. Nobody
+else holds that secret, so every other host retried those lines for 30
+passes and passed them over, and the lines were lost to the conversation.
+
+Now the commitment check keeps a lost-side secret apart before
+forgetting it: one record per group (`fzn_node_groups_forked_secrets`),
+so a pass reads one subject per group, and the record holds at most one
+secret per kept epoch. On each lines pass, for an epoch with a kept
+secret whose committed secret is held here, `fzn_group_lines_reissue`
+looks at this host's lines of that epoch from the base up. A line that
+opens under the lost secret and not the committed one is sealed under
+the committed one -- same epoch, id, sender, time and words -- and put
+after this host's newest. A member's host then files it by its id,
+once: the first copy never opened, so it was never filed. A line already
+issued again (its id in a later line that opens under the committed
+secret) is not issued twice, so a restart in between does no harm. The
+record is let go when every line under it is issued again. Said as "N
+line(s) of group G this host sealed under a lost fork's secret, issued
+again under the committed one".
+
+**Rejected:** overwriting the bad slot in place. Lines are immutable,
+`fzn_group_lines_put` refuses a held slot, and a host that already took
+the bad copy reconciles by count, so it would never fetch the
+replacement.
+
+**Not covered:** a line is re-sealed at its own epoch and host. If the
+host's own HOST act was on the lost side, the line may not be admitted
+until the act is made again (sec 946's redo does that).
+
+Tests: `groups_test` -- the lost secret kept apart and let go; two lines
+under it issued again after the newest, opening under the committed
+secret with their ids and words; a line under the committed secret and
+one of another epoch left; a second call issues nothing. The live group
+scripts. Sabotage: two, each probed.

@@ -15208,6 +15208,44 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 	}
 }
 
+/* THIS HOST'S LINES SEALED UNDER A LOST FORK'S SECRET, ISSUED AGAIN, sec
+ * 1520: a line sealed in the moments before this host saw the fork its
+ * epoch's act lost opens for nobody else -- every other host retried it
+ * and passed it over (fuzzypickles' 20261127T1213Z, n's line at
+ * 12:02:27). Once the epoch's committed secret is held here, each such
+ * line is opened under the lost one, sealed under the committed one and
+ * put after this host's newest; a member's host files it by its id, once.
+ * The lost secret is let go when every line under it is issued again. */
+static size_t group_reissue(const fzn_group_t *g, const fzn_contact_device_t *own)
+{
+	static uint32_t epochs[FZN_GROUP_EPOCHS_KEPT];
+	static uint8_t lost[FZN_GROUP_EPOCHS_KEPT][FZN_GROUP_SECRET_LEN];
+	uint8_t secret[FZN_GROUP_SECRET_LEN];
+	size_t n = 0, k, issued = 0, now = 0;
+
+	if (fzn_node_groups_forked_secrets(&node_groups, g->id, epochs, lost, FZN_GROUP_EPOCHS_KEPT, &n)
+	    != FZN_GROUP_LOG_OK)
+		return 0;
+	for (k = 0; k < n; k++) {
+		/* THE COMMITTED SECRET NOT YET HERE: the lines wait for it. */
+		if (!epoch_secret(g, epochs[k], secret))
+			continue;
+		if (fzn_group_lines_reissue(&group_lines, g->id, fzn_contact_device_key(own), epochs[k], lost[k],
+		                            secret, contact_aead_ops, contact_rng_ops, &now)
+		    == FZN_GROUP_LINES_OK)
+			(void)fzn_node_groups_forked_forget(&node_groups, g->id, epochs[k]);
+		issued += now;
+	}
+	if (issued)
+		say(FZN_ENTRY_INFO, "node/groups",
+		    "%zu line(s) of group %02x%02x%02x%02x this host sealed under a lost fork's secret, "
+		    "issued again under the committed one",
+		    issued, g->id[0], g->id[1], g->id[2], g->id[3]);
+	fzn_wipe(secret, sizeof(secret));
+	fzn_wipe(lost, sizeof(lost));
+	return issued;
+}
+
 /* THE LINES PASS'S END: each group's lines filed, and said. */
 static void group_lines_settle(void)
 {
@@ -15218,8 +15256,10 @@ static void group_lines_settle(void)
 	if (!lines_on || !groups_signer(NULL, &own))
 		return;
 	for (i = 0; i < n_lines_groups; i++)
-		if (fzn_group_log_get(node_apply.store, lines_groups[i], &g) == FZN_GROUP_LOG_OK)
+		if (fzn_group_log_get(node_apply.store, lines_groups[i], &g) == FZN_GROUP_LOG_OK) {
 			filed += group_file(&g, &own);
+			(void)group_reissue(&g, &own);
+		}
 	if (lines_sealed || lines_taken || filed)
 		say(FZN_ENTRY_INFO, "node/groups", "lines pass: %zu sealed, %zu taken, %zu filed",
 		    lines_sealed, lines_taken, filed);

@@ -1459,6 +1459,20 @@ SABOTAGES = [
 		"a line is sealed and opened only under the secret its epoch committed to -- sec 1519",
 	),
 	(
+		"group-lines-reissued-twice",
+		"node/group_lines.c",
+		"\t\t    || issued_again(l, group, host, s, head.have, line.id, committed, aead))\n",
+		"\t\t    || 0)\n",
+		"a line issued again under the committed secret is not issued a second time -- sec 1520",
+	),
+	(
+		"groups-forked-secret-dropped",
+		"node/groups.c",
+		"\tforked_keep(g, held->id, epoch, secret);\n",
+		"",
+		"a lost fork's secret is kept for this host's own lines before it is forgotten -- sec 1520",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

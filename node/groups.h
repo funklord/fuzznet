@@ -199,6 +199,21 @@ fzn_group_log_err_t fzn_node_groups_secret(const fzn_node_groups_t *g,
 fzn_group_log_err_t fzn_node_groups_secret_committed(const fzn_node_groups_t *g, const fzn_group_t *held,
                                                      uint32_t epoch, uint8_t out[FZN_GROUP_SECRET_LEN]);
 
+/* THE SECRETS A LOST FORK LEFT HERE, sec 1520: one this host drew for an
+ * epoch whose commitment another host's act fixed, kept when the
+ * committed lookup forgets it -- so the lines this host sealed under it
+ * before the fork was seen can be opened here and sealed again under the
+ * committed one; nobody else holds it, so those lines open for nobody
+ * else. Up to `cap` into `epochs` and `secrets`, `*n` set; ABSENT when the
+ * group has none. */
+fzn_group_log_err_t fzn_node_groups_forked_secrets(const fzn_node_groups_t *g,
+                                                   const uint8_t id[FZN_GROUP_ID_LEN], uint32_t *epochs,
+                                                   uint8_t (*secrets)[FZN_GROUP_SECRET_LEN], size_t cap,
+                                                   size_t *n);
+/* Epoch `epoch`'s lost secret let go: its lines are sealed again. */
+fzn_group_log_err_t fzn_node_groups_forked_forget(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID_LEN],
+                                                  uint32_t epoch);
+
 /* THIS HOST'S DUTIES TO GROUP `id`, each act made counted into `*made`:
  *
  *   - a member's host not yet among the group's hosts names itself (HOST);
