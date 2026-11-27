@@ -78668,3 +78668,39 @@ Test: `conversation_view_test` -- nothing new, nothing done; a line from
 bob shown, with the reader at the end kept there; the same line not
 refreshed twice; and a fresh view, shown and left alone, showing a new
 line within its own two seconds. Sabotage: three, each probed.
+
+## 1523. A backfill steps over an epoch never keyed
+
+The last link of fuzzypickles' cluster (inbox 20261127T1356Z, at
+72f00af3). The wait lines of sec 1521 named it: dag "waits for epoch 2's
+secret; the group stands at epoch 4 here, backfilling; this host
+listed, joined at epoch 4, given epoch 0, given back to 4". Its HOST act
+had lost two forks and been made again at epoch 4. Reading both nodes'
+stores with a throwaway dumper (the group log, each host's listing, the
+commitments, the secrets held) showed the logs agreed: dag at 4, keyed
+4, given back to 4. Commitments existed for epochs 2 and 4 only. **Epoch
+3 was never keyed**: two acts with no tend between, so nobody drew it.
+
+A backfill gave a host the epoch just before the oldest it held, one at
+a time. The duty asked for epoch 3, found no commitment and stopped; the
+log's rule refused any step that skipped one. So dag never got epoch 2.
+Its own lines of epoch 2, sealed under a lost fork's secret, then could
+not be issued again (sec 1520 needs the committed secret), and n could
+not open them: the conversation stopped for good.
+
+Now the next epoch a backfill gives is the newest below the oldest held
+that has a commitment (`fzn_group_backfill_next`). An epoch never keyed
+-- or one no longer kept -- has nothing to give and is stepped over, by
+the duty and by the log's rule alike. That is safe: a KEYS act for a
+past epoch needs a commitment it can match, so an epoch with none never
+gains one. The rule still refuses a step past an epoch that has a
+secret to give (`group-backfill-in-order`, retargeted).
+
+This is a change to what a log accepts, so a host of this build and one
+of an earlier build disagree about such a step (the earlier one refuses
+it). Wire changes are free (sec 924), and the earlier build never
+reaches the state that needs it.
+
+Test: `groups_test` -- epoch 3 left unkeyed, C added at 5 given 4, 2
+and 1, and its backfill finished. Sabotage: two, each probed. The live
+group scripts.

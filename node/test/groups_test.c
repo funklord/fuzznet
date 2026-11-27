@@ -382,6 +382,50 @@ static void test_epochs_reach_members_and_no_one_else(void)
 	CHECK(!holds(c, id, 3u) && !holds(c, id, 1u), "C was backfilled with backfill off");
 }
 
+/* A BACKFILL STEPS OVER AN EPOCH NEVER KEYED, sec 1523: two members added
+ * with no tend between leave epoch 3 with no secret; C, added at 5, is
+ * still given 4, 2 and 1. */
+static void test_backfill_steps_over_an_epoch_never_keyed(void)
+{
+	struct user *a = &users[0], *c = &users[2];
+	static fzn_group_t g;
+	const fzn_group_host_t *h;
+	uint8_t id[FZN_GROUP_ID_LEN], subject[FZN_PUBKEY_LEN];
+	int k;
+
+	user_up(a, 0x11u);
+	user_up(c, 0x33u);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	(void)tend(a, id);
+	memset(subject, 0x51, sizeof(subject));
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, subject, 0u, 0u, NULL);
+	(void)tend(a, id);
+	memset(subject, 0x52, sizeof(subject));
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, subject, 0u, 0u, NULL);
+	memset(subject, 0x53, sizeof(subject));
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, subject, 0u, 0u, NULL);
+	(void)tend(a, id);
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	CHECK(g.epoch == 4u && fzn_group_commit(&g, 2u) && !fzn_group_commit(&g, 3u) && fzn_group_commit(&g, 4u),
+	      "fixture: epoch 3 never keyed, 2 and 4 keyed");
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, c->device.owner, 0u, 0u, NULL);
+	for (k = 0; k < 3; k++) {
+		(void)tend(a, id);
+		sync(a, c, id);
+		(void)tend(c, id);
+		sync(c, a, id);
+	}
+	(void)tend(a, id);
+	sync(a, c, id);
+	(void)tend(c, id);
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	h = fzn_group_host(&g, fzn_contact_device_key(&c->device));
+	CHECK(h && h->joined_epoch == 5u && h->backfilled_to == 1u && fzn_group_backfill_next(&g, h) == 0u,
+	      "C's backfill stopped at the epoch never keyed");
+	CHECK(same_secret(a, c, id, 4u) && same_secret(a, c, id, 2u) && same_secret(a, c, id, 1u),
+	      "C was not given the epochs past the one never keyed");
+}
+
 static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 {
 	struct user *a = &users[0], *b = &users[1];
@@ -1297,6 +1341,7 @@ int main(void)
 	test_acts_a_fork_dropped_come_back();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
+	test_backfill_steps_over_an_epoch_never_keyed();
 	test_lines_sealed_under_a_lost_secret_issued_again();
 	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();

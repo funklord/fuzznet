@@ -823,17 +823,18 @@ fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
 		uint32_t e = 0;
 
 		for (i = 0; i < held.n_hosts; i++) {
-			uint32_t want = held.hosts[i].backfilled_to - 1u;
+			/* THE NEXT WITH A SECRET, an epoch never keyed stepped over
+			 * (sec 1523). */
+			uint32_t want = fzn_group_backfill_next(&held, &held.hosts[i]);
 
-			if (held.hosts[i].backfilled_to > 1u && want > e
-			    && (held.backfill || want >= held.hosts[i].joined_epoch)
-			    && fzn_group_commit(&held, want) && secret_held(g, &held, want))
+			if (want > e && (held.backfill || want >= held.hosts[i].joined_epoch)
+			    && secret_held(g, &held, want))
 				e = want;
 		}
 		if (!e || !secret_of(g, &held, e, secret))
 			break;
 		for (i = 0, n = 0; i < held.n_hosts && n < FZN_GROUP_KEYS_PER_ACT; i++)
-			if (held.hosts[i].backfilled_to == e + 1u
+			if (fzn_group_backfill_next(&held, &held.hosts[i]) == e
 			    && (held.backfill || e >= held.hosts[i].joined_epoch))
 				to[n++] = &held.hosts[i];
 		err = seal_keys(g, &held, e, secret, fzn_group_commit(&held, e), to, n);

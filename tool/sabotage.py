@@ -1494,6 +1494,20 @@ SABOTAGES = [
 		"a refresh notes the newest line it showed, so the watch acts only on what is newer -- sec 1522",
 	),
 	(
+		"group-log-backfill-no-step-over",
+		"node/group_log.c",
+		"\t\t\tif (e != fzn_group_backfill_next(g, h))\n",
+		"\t\t\tif (e + 1u != h->backfilled_to)\n",
+		"a backfill's step over an epoch never keyed is taken by the log -- sec 1523",
+	),
+	(
+		"group-backfill-next-stops-at-gap",
+		"node/group_log.c",
+		"\t\tif (fzn_group_commit(g, --e))\n\t\t\treturn e;\n",
+		"\t\treturn --e;\n",
+		"the next epoch a backfill gives steps over one never keyed -- sec 1523",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -16062,7 +16076,7 @@ SABOTAGES = [
 	(
 		"group-backfill-in-order",
 		"node/group_log.c",
-		"\t\t\tif (e + 1u != h->backfilled_to)\n",
+		"\t\t\tif (e != fzn_group_backfill_next(g, h))\n",
 		"\t\t\tif (0)\n",
 		"a backfill skips epochs, and the host marked as holding them never gets them -- sec 627",
 	),

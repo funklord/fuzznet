@@ -161,6 +161,18 @@ static fzn_group_log_err_t rename_host(fzn_group_t *g, const uint8_t *owner, con
 	return FZN_GROUP_LOG_OK;
 }
 
+uint32_t fzn_group_backfill_next(const fzn_group_t *g, const fzn_group_host_t *h)
+{
+	uint32_t e;
+
+	if (!g || !h)
+		return 0u;
+	for (e = h->backfilled_to; e > 1u;)
+		if (fzn_group_commit(g, --e))
+			return e;
+	return 0u;
+}
+
 /* AN EPOCH'S SECRET SEALED TO HOSTS, sec 627. The first KEYS act for the
  * current epoch fixes its commitment; every later one, for that epoch or a
  * kept older one, must carry the same. Each box is for a listed host: for
@@ -198,7 +210,11 @@ static fzn_group_log_err_t keys(fzn_group_t *g, const fzn_group_act_t *a)
 			 * moot, one skipped is refused. */
 			if (e >= h->backfilled_to)
 				return FZN_GROUP_LOG_ERR_MOOT;
-			if (e + 1u != h->backfilled_to)
+			/* THE NEXT ONE WITH A SECRET TO GIVE, sec 1523: an epoch never
+			 * keyed between is stepped over. Refusing the step left a host
+			 * listed again after a fork without the epochs before a gap --
+			 * fuzzypickles' dag, at 4, never given 2 past an unkeyed 3. */
+			if (e != fzn_group_backfill_next(g, h))
 				return FZN_GROUP_LOG_ERR_DENIED;
 			h->backfilled_to = e;
 			fresh++;

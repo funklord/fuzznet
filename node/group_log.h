@@ -153,6 +153,11 @@ int fzn_group_is_member(const fzn_group_t *g, const uint8_t root[FZN_PUBKEY_LEN]
 const fzn_group_host_t *fzn_group_host(const fzn_group_t *g, const uint8_t key[FZN_PUBKEY_LEN]);
 /* Epoch `epoch`'s commitment, or NULL when it has none or is not kept. */
 const uint8_t *fzn_group_commit(const fzn_group_t *g, uint32_t epoch);
+/* THE NEXT EPOCH A BACKFILL GIVES `h`, sec 1523: the newest below the
+ * oldest it holds that has a commitment -- an epoch never keyed has
+ * nothing to give and is stepped over, and so is one no longer kept. 0
+ * when none is left. */
+uint32_t fzn_group_backfill_next(const fzn_group_t *g, const fzn_group_host_t *h);
 
 /* WHAT AN EPOCH'S SECRET COMMITS TO: the hash of a label, the group, the
  * epoch and the secret, so a box opened to a secret that is not the
