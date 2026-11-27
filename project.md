@@ -77881,3 +77881,44 @@ everything, which sec 742's rule already handled. The debug line is for
 their next failing run to show which asks timed out. Not pinned by a
 test for that reason; `live_siblings`, `live_trim`, `live_rejoin` and
 `live_logs` pass with it.
+
+## 1493. The library view takes what fuzzypickles' Library page did better
+
+The rest of fuzzypickles' comparison (inbox 20261126T2240Z; its fault and
+lengths past an hour were sec 1490), before it retires its Library page
+for `library_view`:
+
+- **Save the playable part of a file still arriving**, and save to a
+  phone picker's `content://` target: both read slice by slice through
+  `fzn_rpc_library_play` -- from the start until the read catches the
+  fetch -- and written by the view, private (0600) where the target is a
+  path; a file whole here and saved to a path still goes through the
+  node's export, then made 0600. **This reverses sec 1156's "save
+  cannot do the playable part"**: the view can, because the play slices
+  are exactly the playable prefix.
+- **Add from a phone's picker**: a `content://` file, which the node
+  cannot open, is copied first to a private file in the app's cache,
+  stored, and the copy goes. **A name too long for the catalogue is
+  refused** before its bytes are stored, where it was cut silently.
+- **Play on a file held nowhere here** asks for it and hands it to the
+  host's player at once, which plays a file still arriving -- **a second
+  reversal of sec 1156**, which refused it.
+- **The chosen file's detail**: how much plays here, and whether it is
+  whole. **Which hosts hold it, by name, is not yet**: fuzznetd names a
+  holder by the first eight bytes of its key, and the client drops them
+  (`holder_keys` is filled by no path against fuzznetd); carrying them
+  to be matched against the siblings' keys is a change to the client,
+  taken next.
+- **Every audio kind** -- and video, picture, and any other family a
+  file has -- beside the exact kinds, by the kind's prefix.
+- **Remove and share are confirmed inline** on a `fzn_notice_line` under
+  the list, no dialog; `remove()` and `share()` stay the acts.
+- **Narrow on a phone**: Kind, Size and Length dropped, by the view's
+  width through `fzn_phone_layout` or `set_narrow`.
+- **`on_notice`**: every line an act says, for the host's log.
+
+Tests: `library_view_test`, 35 checks -- the families, play elsewhere
+fetched and handed on, remove asked then done and told, the movie's
+three arrived slices saved 0600, a 300-letter name refused unstored, and
+narrow. Sabotage: six new entries, each caught; one guarding sec 1156's
+refusal to play a file elsewhere removed with that rule.

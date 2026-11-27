@@ -1032,6 +1032,48 @@ SABOTAGES = [
 		"a call ringing out says what it carries -- sec 1491",
 	),
 	(
+		"library-view-remove-unasked",
+		"gui/library_view.cpp",
+		"\tm_confirm->offer(tr(\"Remove this device's copy of %1? Other hosts keep theirs.\").arg(chosen_name()),\n",
+		"\t(void)remove();\n\tm_confirm->offer(tr(\"Remove this device's copy of %1? Other hosts keep theirs.\").arg(chosen_name()),\n",
+		"remove asks inline before it acts -- sec 1493",
+	),
+	(
+		"library-view-family-exact",
+		"gui/library_view.cpp",
+		"|| (kind.endsWith(QLatin1String(\"/*\")) && k.startsWith(kind.chopped(1))));",
+		"|| (0));",
+		"every audio kind shows every audio kind -- sec 1493",
+	),
+	(
+		"library-view-name-cut",
+		"gui/library_view.cpp",
+		"\t\tif ((size_t)name.size() >= sizeof(entry.name)) {\n",
+		"\t\tif (0) {\n",
+		"a name too long for the library is refused, not stored or cut -- sec 1493",
+	),
+	(
+		"library-view-save-open",
+		"gui/library_view.cpp",
+		"\t\tout.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);\n",
+		"",
+		"a part saved is written private, 0600 -- sec 1493",
+	),
+	(
+		"library-view-elsewhere-unfetched",
+		"gui/library_view.cpp",
+		"\t    && !fetch())\n\t\treturn false;\n",
+		"\t    && 1)\n\t\treturn false;\n",
+		"play on a file held elsewhere asks for it and hands it on -- sec 1493",
+	),
+	(
+		"library-view-narrow-full",
+		"gui/library_view.cpp",
+		"\t\tm_table->setColumnHidden(c, narrow);\n",
+		"\t\t(void)c;\n",
+		"narrow drops Kind, Size and Length -- sec 1493",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -17275,13 +17317,6 @@ SABOTAGES = [
 		"a binary listing of conversations cut before its STATUS is read as whole -- sec 1155",
 	),
 	(
-		"library-view-plays-a-file-elsewhere",
-		"gui/library_view.cpp",
-		"\t    || !(m_table->item(row, 0)->data(ROLE_HERE).toBool() || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))\n",
-		"\t    || 0)\n",
-		"a file held only on another host is handed to the player, which has nothing to play -- sec 1156",
-	),
-	(
 		"library-view-unshare-shares",
 		"gui/library_view.cpp",
 		"\tif (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 0)\n",
@@ -17291,8 +17326,8 @@ SABOTAGES = [
 	(
 		"library-view-broken-unsaid",
 		"gui/library_view.cpp",
-		"\tm_status->setText(dropped ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
-		"\tm_status->setText(0 ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
+		"\tsay(dropped ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
+		"\tsay(0 ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
 		"a verified file's broken pieces are said as every one whole -- sec 1156",
 	),
 	(

@@ -10,15 +10,19 @@
  */
 
 #include "../library_view.h"
+#include "../rpc_ask.h"
 
 #include <QAccessible>
 #include <QApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static int checks, failures;
 
@@ -38,6 +42,9 @@ static int checks, failures;
 
 static int silent, broken;
 static char last[200];
+static int removed, puts_asked;
+/* THE MOVIE ARRIVING, sec 1493: three slices of it reached. */
+#define MOVIE_REACHED (3u * FZN_RPC_LIBRARY_PLAY_MAX_SLICE)
 static char shares[200] = "ok 0 0";
 #define FAMILY "f0f0000000000000000000000000000000000000000000000000000000000009"
 #define BOB "b0b0000000000000000000000000000000000000000000000000000000000001"
@@ -51,6 +58,28 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	(void)ctx;
 	if (silent)
 		return 0;
+	/* `get file ROOT OFFSET LENGTH PATH`: the song whole, the movie as far
+	 * as it has arrived, written to PATH as fuzznetd writes a range. */
+	{
+		char hex[65], path[200];
+		unsigned long long off, n;
+		if (sscanf(line, "get file %64s %llu %llu %199s", hex, &off, &n, path) == 4) {
+			const bool movie = !strcmp(hex, MOVIE);
+			if (movie && off + n > MOVIE_REACHED)
+				return (size_t)snprintf(reply, cap, "error the fetch has not reached that range yet\n");
+			QFile out(QString::fromUtf8(path));
+			if (!out.open(QIODevice::WriteOnly))
+				return (size_t)snprintf(reply, cap, "error no\n");
+			out.write(QByteArray((int)n, movie ? 'm' : 's'));
+			return (size_t)snprintf(reply, cap, movie ? "ok partial\n" : "ok whole\n");
+		}
+	}
+	if (!strcmp(line, "get file " MOVIE))
+		return (size_t)snprintf(reply, cap, "ok 400 1000 734003200 partial private 0\n");
+	if (!strcmp(line, "remove file " SONG))
+		removed++;
+	if (!strncmp(line, "put file ", 9))
+		puts_asked++;
 	if (!strncmp(line, "put file ", 9)) {
 		if (strstr(line, "bad.bin"))
 			return (size_t)snprintf(reply, cap, "error the store is full\n");
@@ -110,7 +139,12 @@ int main(int argc, char **argv)
 
 	/* FINDING A FILE, sec 1207: by a word of its name or kind, any case, and
 	 * by kind; kept across a refresh; a file hidden is not acted on. */
-	CHECK(v.kinds() == QStringList({ "audio/ogg", "video/webm" }), "the kinds offered were not the files' own");
+	CHECK(v.kinds() == QStringList({ "Every audio kind", "Every video kind", "audio/ogg", "video/webm" }),
+	      "the kinds offered were not the files' own, after every kind of each family");
+	/* EVERY AUDIO KIND, sec 1493: the family's prefix, not one kind. */
+	v.set_kind("audio/*");
+	CHECK(v.rows().size() == 1 && v.rows()[0].startsWith("song.ogg"), "every audio kind did not show the audio");
+	v.set_kind("");
 	v.set_find("SONG");
 	CHECK(v.rows().size() == 1 && v.rows()[0].startsWith("song.ogg") && v.status() == "1 of 3 files shown.",
 	      "a file was not found by a word of its name, in another case");
@@ -186,9 +220,13 @@ int main(int argc, char **argv)
 		played = root;
 		played_name = name;
 	});
+	/* HELD ONLY ELSEWHERE: shared and removed never; played, it is asked
+	 * for and handed on at once (sec 1493). */
 	v.select(2);
-	CHECK(!v.play() && played.isEmpty() && !v.share("") && !v.remove(),
-	      "a file held only elsewhere was played, shared or removed");
+	CHECK(!v.share("") && !v.remove(), "a file held only elsewhere was shared or removed");
+	CHECK(v.play() && played.size() == 32 && (uint8_t)played[0] == 0x70 && v.status().startsWith("Asked for talk.webm"),
+	      "a file held only elsewhere was not asked for and handed to the host's player");
+	played.clear();
 	v.select(1);
 	CHECK(v.play() && played.size() == 32 && (uint8_t)played[0] == 0x50 && played_name == "song.ogg",
 	      "a file here was not handed to the host's player by its root and name");
@@ -207,13 +245,49 @@ int main(int argc, char **argv)
 	broken = 1;
 	CHECK(v.verify() && v.status().contains("2 broken, dropped to be fetched again"),
 	      "broken pieces were not said as dropped to be fetched again");
-	last[0] = '\0';
-	CHECK(v.remove() && !strcmp(last, "remove file " SONG) && v.status() == "song.ogg is removed from this device.",
-	      "removing this device's copy was not done and said");
+	/* THE CHOSEN FILE'S DETAIL: who holds it, and how much plays here. */
+	CHECK(v.detail() == "Whole here, 4.0 MB.", "how much of the chosen file plays here was not said");
+	/* REMOVE ASKED INLINE FIRST, sec 1493: nothing done until confirmed. */
+	QStringList notices;
+	v.on_notice([&notices](const QString &line) { notices << line; });
+	v.ask_remove();
+	CHECK(v.offered().startsWith("Remove this device's copy of song.ogg?") && !removed,
+	      "remove did not ask inline before acting");
+	CHECK(v.confirm() && removed == 1 && v.status() == "song.ogg is removed from this device."
+	              && notices.contains("song.ogg is removed from this device."),
+	      "removing this device's copy was not done on confirming, said, and told the host");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
 
+	/* THE PLAYABLE PART OF A FILE ARRIVING, saved private (sec 1493). */
+	silent = 0;
+	{
+		const QString to = QDir::tempPath() + QStringLiteral("/fzn-library-test-%1.part").arg(getpid());
+		int movie = -1;
+		for (int r = 0; r < v.rows().size(); r++)
+			if (v.rows()[r].startsWith("movie.mkv"))
+				movie = r;
+		v.select(movie);
+		CHECK(movie >= 0 && v.save_to(to) && QFileInfo(to).size() == (qint64)MOVIE_REACHED
+		              && QFileInfo(to).permissions() == (QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser | QFileDevice::WriteUser)
+		              && v.status().contains("that has arrived"),
+		      "the playable part of a file arriving was not saved, private, as far as it had come");
+		QFile::remove(to);
+	}
+	/* A NAME TOO LONG FOR THE LIBRARY, refused before its bytes are stored. */
+	{
+		const int asked = puts_asked;
+		CHECK(v.add_files({ QStringLiteral("/nonexistent/") + QString(300, QLatin1Char('n')) + QStringLiteral(".ogg") }) == 0
+		              && v.status().contains("longer than the library keeps") && puts_asked == asked,
+		      "a name too long was cut short or stored, not refused");
+	}
+	/* NARROW ON A PHONE: Kind, Size and Length dropped. */
+	v.set_narrow(true);
+	CHECK(v.narrow() && v.findChild<QTableWidget *>()->isColumnHidden(1) && v.findChild<QTableWidget *>()->isColumnHidden(3)
+	              && !v.findChild<QTableWidget *>()->isColumnHidden(4),
+	      "narrow did not drop Kind, Size and Length");
+	v.set_narrow(false);
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

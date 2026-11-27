@@ -35,6 +35,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QResizeEvent;
 class QTableWidget;
 struct fzn_gui_rpc;
 
@@ -46,8 +47,12 @@ public:
 	/* Ask for the library and show it. Whether the node answered. */
 	bool refresh();
 
-	/* THE HOST'S PLAYER, given the file's root and name. */
+	/* THE HOST'S PLAYER, given the file's root and name. Play on a file held
+	 * nowhere here asks for it first and hands it on at once: the host's
+	 * player plays a file still arriving (sec 1493). */
 	void on_play(std::function<void(const QByteArray &root, const QString &name)> play);
+	/* EVERY LINE THE VIEW SAYS, for a host's log or notice (sec 1493). */
+	void on_notice(std::function<void(const QString &line)> told) { m_notice_told = told; }
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	void select(int row);
@@ -56,14 +61,32 @@ public:
 	/* `to` a contact's name, `@NAME` a group, or empty for every contact. */
 	bool share(const QString &to);
 	bool unshare(const QString &to);
+	/* SAVED, written private (0600): a file whole here through the node,
+	 * and the playable part of one still arriving, or any file to a
+	 * `content://` target a phone's picker gives, read slice by slice
+	 * through the view (sec 1493). */
 	bool save_to(const QString &path);
 	bool verify();
 	bool remove();
+	/* CONFIRMED INLINE before they act (sec 1493): the question and its
+	 * button on a line under the list, no dialog. `offered` is the
+	 * question shown, `confirm` its button. */
+	void ask_remove();
+	void ask_share(const QString &to);
+	QString offered() const;
+	bool confirm();
 	/* FILES ADDED to the library from this machine (sec 1485): each put in
 	 * this host's store, private, and catalogued by its name and its kind
 	 * as the system names it, which has the node read its tags and hear a
 	 * tune. How many were added; the Add button asks which. */
 	int add_files(const QStringList &paths);
+	/* THE CHOSEN FILE'S DETAIL (sec 1493): how much of it plays here, and
+	 * whether it is whole. */
+	QString detail() const;
+	/* NARROW, for a phone (sec 1493): Kind, Size and Length dropped. Set
+	 * by the view's width unless the host pins its layout. */
+	void set_narrow(bool narrow);
+	bool narrow() const { return m_narrow; }
 
 	/* FINDING A FILE, sec 1207: the files whose name or kind holds `text`,
 	 * any case, and of the kind chosen -- empty for every kind. Both kept
@@ -71,7 +94,8 @@ public:
 	 * kind. */
 	void set_find(const QString &text);
 	void set_kind(const QString &kind);
-	/* The kinds offered, as the files say them, in order. */
+	/* The kinds offered, as the files say them, in order -- after "every
+	 * audio kind" and its like, "audio/" and a star, for each family a file has. */
 	QStringList kinds() const;
 
 	/* Whom the chosen file is shared with, as said: "every contact", a
@@ -83,7 +107,13 @@ public:
 	QStringList rows() const;
 	QString status() const;
 
+protected:
+	void resizeEvent(QResizeEvent *event) override;
+
 private:
+	void say(const QString &line);
+	bool save_slices(const QByteArray &root, const QString &path);
+	void read_detail();
 	QByteArray chosen_root() const;
 	QString chosen_name() const;
 	void read_shares();
@@ -106,6 +136,10 @@ private:
 	QPushButton *m_fetch;
 	QPushButton *m_refresh;
 	QLabel *m_status;
+	QLabel *m_detail;
+	class fzn_notice_line *m_confirm;
+	std::function<void(const QString &)> m_notice_told;
+	bool m_narrow = false;
 };
 
 #endif /* FZN_GUI_LIBRARY_VIEW_H */

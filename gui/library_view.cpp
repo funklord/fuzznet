@@ -5,6 +5,8 @@
 #include "combo.h"
 #include "size_words.h"
 #include "keep_place.h"
+#include "notice_line.h"
+#include "phone_layout.h"
 
 #include "rpc_ask.h"
 
@@ -19,9 +21,13 @@ extern "C" {
 #include <QMenu>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QFile>
 #include <QFileInfo>
 #include <QLabel>
 #include <QMimeDatabase>
+#include <QResizeEvent>
+#include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -90,6 +96,10 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
+	m_detail = new QLabel(this);
+	m_detail->setWordWrap(true);
+	m_detail->setAccessibleName(tr("Where the chosen file is"));
+	m_confirm = new fzn_notice_line(this);
 
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_play_button);
@@ -116,6 +126,8 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	col->addLayout(row);
 	col->addLayout(more);
 	col->addLayout(care);
+	col->addWidget(m_confirm);
+	col->addWidget(m_detail);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,
@@ -125,7 +137,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
 	connect(m_verify, &QPushButton::clicked, [this]() { verify(); });
-	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
+	connect(m_remove, &QPushButton::clicked, [this]() { ask_remove(); });
 	connect(m_add, &QPushButton::clicked, [this]() {
 		const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Add to the library"));
 		if (!paths.isEmpty())
@@ -172,7 +184,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 		if (to.startsWith(QLatin1Char('-')))
 			unshare(to.mid(1) == tr("every contact") ? QString() : to.mid(1));
 		else
-			share(to);
+			ask_share(to);
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
@@ -188,15 +200,42 @@ int fzn_library_view::add_files(const QStringList &paths)
 	int added = 0;
 
 	for (const QString &path : paths) {
-		const QByteArray at = path.toUtf8();
+		/* A PHONE'S PICKER GIVES content://, which the node cannot open:
+		 * copied first to a private file in this app's cache, which goes
+		 * once the node has stored it (sec 1493). */
+		const bool picked = path.startsWith(QLatin1String("content:"));
 		const QByteArray name = QFileInfo(path).fileName().toUtf8();
-		const QString kind = kinds.mimeTypeForFile(path).name();
+		const QString kind = picked ? kinds.mimeTypeForFile(QFileInfo(path).fileName(), QMimeDatabase::MatchExtension).name()
+		                            : kinds.mimeTypeForFile(path).name();
+		QTemporaryFile staged(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+		                      + QStringLiteral("/library-add-XXXXXX"));
 		fzn_rpc_blob_add_resp_t stored;
 		fzn_rpc_library_add_req_t entry;
 
+		if ((size_t)name.size() >= sizeof(entry.name)) {
+			say(tr("%1 was not added: its name is longer than the library keeps, %2 bytes.")
+			            .arg(QString::fromUtf8(name))
+			            .arg(sizeof(entry.name) - 1));
+			break;
+		}
+		if (picked) {
+			QFile from(path);
+			if (!from.open(QIODevice::ReadOnly) || !staged.open()) {
+				say(tr("%1 was not added: it could not be read.").arg(QString::fromUtf8(name)));
+				break;
+			}
+			while (!from.atEnd()) {
+				const QByteArray chunk = from.read(1 << 16);
+				if (chunk.isEmpty() || staged.write(chunk) != chunk.size())
+					break;
+			}
+			staged.flush();
+		}
+		const QByteArray at = (picked ? staged.fileName() : path).toUtf8();
+
 		if (fzn_rpc_blob_add(&m_rpc->c, at.constData(), (size_t)at.size(), FZN_RPC_BLOB_TIER_PRIVATE, &stored)
 		    != FZN_RPC_OK) {
-			m_status->setText(tr("%1 was not added: %2")
+			say(tr("%1 was not added: %2")
 			                          .arg(QString::fromUtf8(name), QString::fromUtf8(fzn_gui_rpc_silent(m_rpc))));
 			break;
 		}
@@ -204,7 +243,9 @@ int fzn_library_view::add_files(const QStringList &paths)
 		memcpy(entry.root, stored.root, sizeof(entry.root));
 		memcpy(entry.content_key, stored.key, sizeof(entry.content_key));
 		entry.size = stored.byte_len;
-		entry.name_len = (size_t)qMin(name.size(), (int)sizeof(entry.name) - 1);
+		/* A NAME TOO LONG FOR THE CATALOGUE is refused, not cut short
+		 * silently (sec 1493). Checked before the bytes are stored. */
+		entry.name_len = (size_t)name.size();
 		memcpy(entry.name, name.constData(), entry.name_len);
 		/* THE SYSTEM'S NAME FOR ITS KIND, where it has one past "a run of
 		 * bytes": the music and photo catalogues sort by it. */
@@ -213,7 +254,7 @@ int fzn_library_view::add_files(const QStringList &paths)
 			memcpy(entry.kind, kind.toLatin1().constData(), entry.kind_len);
 		}
 		if (fzn_rpc_library_add(&m_rpc->c, &entry) != FZN_RPC_OK) {
-			m_status->setText(tr("%1 was stored and not catalogued: %2")
+			say(tr("%1 was stored and not catalogued: %2")
 			                          .arg(QString::fromUtf8(name), QString::fromUtf8(fzn_gui_rpc_silent(m_rpc))));
 			break;
 		}
@@ -222,7 +263,7 @@ int fzn_library_view::add_files(const QStringList &paths)
 	if (added) {
 		const QString said = m_status->text();
 		refresh();
-		m_status->setText(added == paths.size() ? tr("Added %n file(s) to the library.", nullptr, added) : said);
+		say(added == paths.size() ? tr("Added %n file(s) to the library.", nullptr, added) : said);
 	}
 	return added;
 }
@@ -284,6 +325,22 @@ bool fzn_library_view::refresh()
 		m_kind->blockSignals(true);
 		m_kind->clear();
 		m_kind->addItem(tr("Every kind"), QString());
+		/* EVERY KIND OF A FAMILY, "audio/" and a star (sec 1493): a library holds
+		 * audio/mpeg, audio/flac and audio/ogg, and a person wants music. */
+		{
+			QStringList families;
+			for (const QString &k : found) {
+				const QString family = k.section(QLatin1Char('/'), 0, 0);
+				if (k.contains(QLatin1Char('/')) && !families.contains(family))
+					families << family;
+			}
+			for (const QString &f : families)
+				m_kind->addItem(f == QLatin1String("audio")   ? tr("Every audio kind")
+				                : f == QLatin1String("video") ? tr("Every video kind")
+				                : f == QLatin1String("image") ? tr("Every picture kind")
+				                                              : tr("Every %1 kind").arg(f),
+				                f + QStringLiteral("/*"));
+		}
 		for (const QString &k : found)
 			m_kind->addItem(k, k);
 		m_kind->setCurrentIndex(qMax(0, m_kind->findData(chosen)));
@@ -308,7 +365,8 @@ void fzn_library_view::apply_filter()
 		const QString k = m_table->item(r, 1)->text();
 		const bool show = (text.isEmpty() || name.contains(text, Qt::CaseInsensitive)
 		                   || k.contains(text, Qt::CaseInsensitive))
-		                  && (kind.isEmpty() || k == kind);
+		                  && (kind.isEmpty() || k == kind
+		                      || (kind.endsWith(QLatin1String("/*")) && k.startsWith(kind.chopped(1))));
 
 		m_table->setRowHidden(r, !show);
 		shown += show ? 1 : 0;
@@ -364,12 +422,15 @@ void fzn_library_view::select(int row)
 	 * its bytes on this host. */
 	const bool here = chosen && m_table->item(row, 0)->data(ROLE_HERE).toBool();
 	const bool arriving = chosen && m_table->item(row, 0)->data(ROLE_ARRIVING).toBool();
-	m_play_button->setEnabled((here || arriving) && m_play);
+	m_play_button->setEnabled(chosen && m_play);
 	m_share->setEnabled(here);
-	m_save->setEnabled(here);
+	m_save->setEnabled(here || arriving);
 	m_verify->setEnabled(here);
 	m_remove->setEnabled(here);
+	/* A QUESTION ABOUT ANOTHER FILE is not left to be answered for this one. */
+	m_confirm->say(QString());
 	read_shares();
+	read_detail();
 }
 
 bool fzn_library_view::fetch()
@@ -381,10 +442,10 @@ bool fzn_library_view::fetch()
 	QByteArray root = m_table->item(row, 0)->data(ROLE_ROOT).toByteArray();
 	fzn_rpc_blob_fetch_resp_t out;
 	if (fzn_rpc_blob_fetch(&m_rpc->c, (const uint8_t *)root.constData(), &out) != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Asked for %1. It arrives in the background.").arg(m_table->item(row, 0)->text()));
+	say(tr("Asked for %1. It arrives in the background.").arg(m_table->item(row, 0)->text()));
 	return true;
 }
 
@@ -457,8 +518,12 @@ bool fzn_library_view::play()
 {
 	const int row = m_table->currentRow();
 	const QByteArray root = chosen_root();
-	if (root.size() != 32 || !m_play
-	    || !(m_table->item(row, 0)->data(ROLE_HERE).toBool() || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))
+	if (root.size() != 32 || !m_play)
+		return false;
+	/* HELD NOWHERE HERE: asked for, and handed on at once -- the host's
+	 * player plays it as it arrives (sec 1493). */
+	if (!m_table->item(row, 0)->data(ROLE_HERE).toBool() && !m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()
+	    && !fetch())
 		return false;
 	m_play(root, chosen_name());
 	return true;
@@ -471,11 +536,11 @@ bool fzn_library_view::share(const QString &to)
 		return false;
 	if (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 1)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
 	read_shares();
-	m_status->setText(to.isEmpty() ? tr("%1 is shared with every contact.").arg(chosen_name())
+	say(to.isEmpty() ? tr("%1 is shared with every contact.").arg(chosen_name())
 	                               : tr("%1 is shared with %2.").arg(chosen_name(), to));
 	return true;
 }
@@ -487,11 +552,11 @@ bool fzn_library_view::unshare(const QString &to)
 		return false;
 	if (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 0)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
 	read_shares();
-	m_status->setText(to.isEmpty() ? tr("%1 is no longer shared with every contact.").arg(chosen_name())
+	say(to.isEmpty() ? tr("%1 is no longer shared with every contact.").arg(chosen_name())
 	                               : tr("%1 is no longer shared with %2.").arg(chosen_name(), to));
 	return true;
 }
@@ -500,16 +565,137 @@ bool fzn_library_view::save_to(const QString &path)
 {
 	const QByteArray root = chosen_root(), where = path.toUtf8();
 	fzn_rpc_blob_export_resp_t out;
-	if (root.size() != 32 || path.isEmpty() || !chosen_here(m_table))
+	const int row = m_table->currentRow();
+	if (root.size() != 32 || path.isEmpty() || row < 0)
 		return false;
+	const bool here = chosen_here(m_table), arriving = m_table->item(row, 0)->data(ROLE_ARRIVING).toBool();
+	/* A PHONE'S PICKER GIVES content://, which only the app can open, and
+	 * a file still arriving has only its playable part: both read slice
+	 * by slice here. */
+	if (!here || path.startsWith(QLatin1String("content:")))
+		return (here || arriving) && save_slices(root, path);
 	if (fzn_rpc_blob_export(&m_rpc->c, (const uint8_t *)root.constData(), nullptr, where.constData(),
 	                        (size_t)where.size(), &out)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), path));
+	/* PRIVATE, as everything this host keeps is (sec 1493). */
+	QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+	say(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), path));
 	return true;
+}
+
+/* THE PLAYABLE PART, in order from the start, until the read catches the
+ * fetch or the file ends. */
+bool fzn_library_view::save_slices(const QByteArray &root, const QString &path)
+{
+	fzn_rpc_library_play_resp_t *slice = new fzn_rpc_library_play_resp_t;
+	QFile out(path);
+	uint64_t at = 0;
+	bool whole = false, ok = true;
+
+	if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		say(tr("%1 could not be written: %2").arg(path, out.errorString()));
+		delete slice;
+		return false;
+	}
+	if (!path.startsWith(QLatin1String("content:")))
+		out.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+	for (;;) {
+		if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), at, FZN_RPC_LIBRARY_PLAY_MAX_SLICE,
+		                         slice)
+		    != FZN_RPC_OK) {
+			say(failed_words(m_rpc));
+			ok = false;
+			break;
+		}
+		if (slice->data_len && out.write((const char *)slice->data, (qint64)slice->data_len) != (qint64)slice->data_len) {
+			say(tr("%1 could not be written: %2").arg(path, out.errorString()));
+			ok = false;
+			break;
+		}
+		at += slice->data_len;
+		if (slice->underrun || !slice->data_len) {
+			whole = !slice->underrun && slice->complete;
+			break;
+		}
+	}
+	out.close();
+	delete slice;
+	if (!ok)
+		return false;
+	if (!at) {
+		say(tr("Nothing of %1 has arrived to save yet.").arg(chosen_name()));
+		return false;
+	}
+	say(whole ? tr("Saved %1 to %2.").arg(fzn_size_words(at), path)
+	          : tr("Saved the %1 that has arrived to %2; the rest is still coming.").arg(fzn_size_words(at), path));
+	return true;
+}
+
+void fzn_library_view::say(const QString &line)
+{
+	m_status->setText(line);
+	if (m_notice_told && !line.isEmpty())
+		m_notice_told(line);
+}
+
+void fzn_library_view::ask_remove()
+{
+	if (!chosen_here(m_table))
+		return;
+	m_confirm->offer(tr("Remove this device's copy of %1? Other hosts keep theirs.").arg(chosen_name()),
+	                 tr("Remove"), [this]() { (void)remove(); });
+}
+
+void fzn_library_view::ask_share(const QString &to)
+{
+	if (!chosen_here(m_table))
+		return;
+	m_confirm->offer(to.isEmpty() ? tr("Share %1 with every contact?").arg(chosen_name())
+	                              : tr("Share %1 with %2?").arg(chosen_name(), to),
+	                 tr("Share"), [this, to]() { (void)share(to); });
+}
+
+QString fzn_library_view::offered() const { return m_confirm->isHidden() ? QString() : m_confirm->text(); }
+
+bool fzn_library_view::confirm() { return m_confirm->act(); }
+
+/* HOW MUCH PLAYS HERE, and whether it is whole: a one-byte read is the
+ * probe, asked when a file here or arriving is chosen. Which hosts hold it
+ * is the Where column's count until the client carries their names. */
+void fzn_library_view::read_detail()
+{
+	const QByteArray root = chosen_root();
+	const int row = m_table->currentRow();
+
+	m_detail->clear();
+	if (root.size() != 32 || row < 0
+	    || !(chosen_here(m_table) || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))
+		return;
+	fzn_rpc_library_play_resp_t *probe = new fzn_rpc_library_play_resp_t;
+	if (fzn_rpc_library_play(&m_rpc->c, (const uint8_t *)root.constData(), 0, 1, probe) == FZN_RPC_OK)
+		m_detail->setText(probe->complete ? tr("Whole here, %1.").arg(fzn_size_words(probe->size))
+		                                  : tr("%1 of %2 plays here so far.")
+		                                            .arg(fzn_size_words(probe->playable), fzn_size_words(probe->size)));
+	delete probe;
+}
+
+QString fzn_library_view::detail() const { return m_detail->text(); }
+
+void fzn_library_view::set_narrow(bool narrow)
+{
+	m_narrow = narrow;
+	for (int c : { 1, 2, 3 })
+		m_table->setColumnHidden(c, narrow);
+}
+
+void fzn_library_view::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	if (fzn_phone_layout(event->size().width()) != m_narrow)
+		set_narrow(!m_narrow);
 }
 
 bool fzn_library_view::verify()
@@ -524,7 +710,7 @@ bool fzn_library_view::verify()
 	 * said only once the answer says done -- never of a file's start. */
 	for (;;) {
 		if (fzn_rpc_blob_scrub(&m_rpc->c, (const uint8_t *)root.constData(), from, &out) != FZN_RPC_OK) {
-			m_status->setText(failed_words(m_rpc));
+			say(failed_words(m_rpc));
 			return false;
 		}
 		checked += out.checked;
@@ -532,13 +718,13 @@ bool fzn_library_view::verify()
 		if (out.done)
 			break;
 		if (out.next_index <= from) {
-			m_status->setText(tr("The check stopped at piece %1 of %2.").arg(from).arg(out.leaf_count));
+			say(tr("The check stopped at piece %1 of %2.").arg(from).arg(out.leaf_count));
 			return false;
 		}
 		from = out.next_index;
 	}
 	/* A BROKEN PIECE IS DROPPED, to be fetched again: said so. */
-	m_status->setText(dropped ? tr("%1 pieces checked; %2 broken, dropped to be fetched again.")
+	say(dropped ? tr("%1 pieces checked; %2 broken, dropped to be fetched again.")
 	                                    .arg(checked)
 	                                    .arg(dropped)
 	                          : tr("%1 pieces checked, every one whole.").arg(checked));
@@ -552,12 +738,12 @@ bool fzn_library_view::remove()
 	if (root.size() != 32 || !chosen_here(m_table))
 		return false;
 	if (fzn_rpc_file_remove(&m_rpc->c, (const uint8_t *)root.constData()) != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
 	refresh();
 	/* OTHER DEVICES' COPIES STAY, so it can be fetched again from one. */
-	m_status->setText(tr("%1 is removed from this device.").arg(name));
+	say(tr("%1 is removed from this device.").arg(name));
 	return true;
 }
 
