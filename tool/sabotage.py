@@ -1207,6 +1207,13 @@ SABOTAGES = [
 		"what a contact may fetch is said by the files' names -- sec 1504",
 	),
 	(
+		"hosts-view-held-all-usable",
+		"gui/hosts_view.cpp",
+		"e->revoked ? tr(\" (revoked)\") : e->valid ? tr(\" (usable)\") : tr(\" (does not verify)\");",
+		"e->revoked ? tr(\" (revoked)\") : tr(\" (usable)\");",
+		"a capability that does not verify is not called usable -- sec 1505",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

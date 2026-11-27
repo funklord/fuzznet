@@ -6,6 +6,7 @@
 #include "rpc_ask.h"
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -59,6 +60,9 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_chain->setAccessibleName(tr("A chain given to this host"));
 	m_chain->setPlaceholderText(tr("h1 ... a chain given to this host"));
 	m_apply = new QPushButton(tr("Apply"), this);
+	m_held = new QLabel(this);
+	m_held->setWordWrap(true);
+	m_held->setAccessibleName(tr("What this host holds"));
 	m_granted = new QLabel(this);
 	m_granted->setWordWrap(true);
 	m_status = new QLabel(this);
@@ -104,6 +108,7 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	apply->addWidget(m_chain, 1);
 	apply->addWidget(m_apply);
 	col->addLayout(apply);
+	col->addWidget(m_held);
 	col->addWidget(m_granted);
 	col->addWidget(m_status);
 
@@ -143,7 +148,31 @@ void fzn_hosts_view::read_self()
 	                          .arg(m_reset_phrase)
 	                : tr("Resetting this host is not offered while the node does not say who it is."));
 	m_reset->setEnabled(m_user_known && m_reset_typed->text() == m_reset_phrase);
+	/* WHAT IT HOLDS, sec 1505: held is not authorised -- "usable" is the
+	 * word, as capability_view's -- and one that does not verify is said
+	 * apart from one that was revoked where the node tells them apart. */
+	{
+		fzn_rpc_cap_list_resp_t caps;
+		QStringList said;
+
+		m_held->clear();
+		if (fzn_rpc_cap_list(&m_rpc->c, &caps) != FZN_RPC_OK)
+			return;
+		for (size_t i = 0; i < caps.count; i++) {
+			const fzn_rpc_cap_list_entry_t *e = &caps.entries[i];
+			QString line = QString::fromUtf8(fzn_rpc_capability_type_name((uint8_t)e->type));
+			line += e->revoked ? tr(" (revoked)") : e->valid ? tr(" (usable)") : tr(" (does not verify)");
+			if (e->expires_at)
+				line += tr(" until %1").arg(QDateTime::fromSecsSinceEpoch((qint64)e->expires_at)
+				                                    .toString(QStringLiteral("yyyy-MM-dd")));
+			said << line;
+		}
+		m_held->setText(said.isEmpty() ? tr("This host holds no capability.")
+		                               : tr("This host holds: %1.").arg(said.join(QStringLiteral(", "))));
+	}
 }
+
+QString fzn_hosts_view::held() const { return m_held->text(); }
 
 void fzn_hosts_view::set_reset_text(const QString &typed) { m_reset_typed->setText(typed); }
 

@@ -78171,3 +78171,15 @@ A contact not active is shared nothing (sec 1499) and is not asked.
 Tests: `contacts_view_test`; its fake no longer takes a read it does
 not answer for the last act its checks look for. Sabotage: caught.
 
+## 1505. What this host holds, on the hosts view
+
+`fzn_rpc_cap_list` -- each capability this host's chains grant it --
+had no view: the hosts view made and applied an admin chain without
+ever saying what the host held. It now says, read with the host itself:
+"This host holds: member (usable), admin (does not verify) until
+2030-01-01." **Held is not authorised** (capability_view's rule, sec
+166), so the word is "usable"; one that does not verify is said apart
+from one revoked, where the node tells them apart -- fuzznetd's text
+listing does not, so it says "does not verify" for both.
+
+Tests: `hosts_view_test`, the line in full. Sabotage: caught.

@@ -60,8 +60,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", DESK, ROOT);
 	if (!strcmp(line, "get setting host host/name"))
 		return (size_t)snprintf(reply, cap, "ok host desk\n");
+	/* WHAT THIS HOST HOLDS, sec 1505: member usable, admin not verifying,
+	 * to lapse on 2030-01-01. */
 	if (!strcmp(line, "list capability"))
-		return (size_t)snprintf(reply, cap, "ok 0 0\n");
+		return (size_t)snprintf(reply, cap, "ok 2 member,1,1,0 admin,0,2,1893456000\n");
 	if (!strcmp(line, "get message owed"))
 		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
 	if (!strcmp(line, "get node"))
@@ -84,6 +86,10 @@ int main(int argc, char **argv)
 	qputenv("QT_QPA_PLATFORM", "offscreen");
 	QApplication app(argc, argv);
 	fzn_hosts_view v(node, nullptr);
+
+	/* WHAT THIS HOST HOLDS, sec 1505, read with the host itself. */
+	CHECK(v.refresh() && v.held() == "This host holds: member (usable), admin (does not verify) until 2030-01-01.",
+	      "what this host holds, and whether each is usable, was not said");
 
 	CHECK(v.refresh()
 	              && v.rows() == QStringList({ "phone | 0a0a000000000000 | 192.0.2.4:4000 | yes",

@@ -49,6 +49,9 @@ public:
 
 	/* Ask for this user's hosts and show them. Whether the node answered. */
 	bool refresh();
+	/* WHAT THIS HOST HOLDS, sec 1505: each capability its chains grant it,
+	 * and whether it is usable, read with the host itself. */
+	QString held() const;
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	void select(int row);
@@ -91,6 +94,7 @@ private:
 	unsigned char m_user[32];
 	bool m_user_known = false;
 	void read_self();
+	QLabel *m_held;
 	QPushButton *m_back_up;
 	QPushButton *m_make_admin;
 	QLineEdit *m_given;   /* the chain a grant answered, read-only */
