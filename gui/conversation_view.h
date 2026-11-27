@@ -192,6 +192,13 @@ public:
 	 * conversations list's set_layout. A tablet a host knows is touched
 	 * is wide, and a desktop window narrow is clicked. */
 	void set_touch(int on);
+	/* A STICKER'S WORDS WRITTEN IN THE COMPOSER, sec 1536: what the
+	 * picker hands over for a sticker that takes words. The line being
+	 * written becomes its words, held to `limit`, with a bar saying so and
+	 * a Cancel; Send sends the sticker with them, in reply where one is
+	 * under way. Whether a sticker is waiting for its words. */
+	void ask_sticker_words(const QByteArray &pack, quint64 id, int limit, const QString &what);
+	bool sticker_waits_for_words() const;
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -262,6 +269,12 @@ private:
 	/* Looks for each undrawn sticker's art, by sticker and words. */
 	QHash<QByteArray, int> m_art_tries;
 	int m_touch_pin = -1;
+	/* The sticker waiting for its words, empty pack for none. */
+	QByteArray m_words_pack;
+	quint64 m_words_id = 0;
+	class QWidget *m_words_row = nullptr;
+	QLabel *m_words_said = nullptr;
+	void end_sticker_words();
 	void apply_touch();
 	QByteArray newest_now();
 	/* Whose lines the list holds, so a newly opened one starts at its end. */

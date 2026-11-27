@@ -62,6 +62,12 @@ public:
 	 * on a phone the platform's picker -- in place of the picker's file
 	 * dialog. Unset, the dialog as before. */
 	void on_add_packs(std::function<void()> add);
+	/* A STICKER THAT TAKES WORDS HANDED TO THE HOST AS CHOSEN, sec 1536:
+	 * its pack, id, word limit and what it is, so the host asks for the
+	 * words in its own time -- the conversation view in its composer --
+	 * where `on_words` must answer before the pick returns. Set, it wins
+	 * over `on_words` and the picker's own row. */
+	void on_pick_words(std::function<void(const QByteArray &pack, quint64 id, int limit, const QString &what)> pick);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose sticker `row` of pack `pack` (both from 0, as shown); keep
@@ -112,6 +118,7 @@ private:
 
 	std::function<void(const QString &)> m_sound;
 	std::function<void()> m_add_packs;
+	std::function<void(const QByteArray &, quint64, int, const QString &)> m_pick_words;
 	/* EACH STICKER'S SOUND, written once into a directory the view owns
 	 * and removes with it. */
 	struct sounds;

@@ -482,6 +482,9 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_picker = new fzn_sticker_picker_view(ask, ask_ctx, this);
 	m_picker->hide();
 	m_picker->on_pick([this](const QString &ref) { (void)send_sticker(ref); });
+	m_picker->on_pick_words([this](const QByteArray &pack, quint64 id, int limit, const QString &what) {
+		ask_sticker_words(pack, id, limit, what);
+	});
 	/* STICKERS FOR WHAT IS TYPED, sec 1272: one row, above the line. */
 	m_suggest = new QListWidget(this);
 	m_suggest->setViewMode(QListView::IconMode);
@@ -544,6 +547,20 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_reply_row->hide();
 	connect(m_reply_cancel, &QPushButton::clicked, [this]() { reply_to(QByteArray()); });
 	col->addWidget(m_reply_row);
+	/* A STICKER'S WORDS BEING WRITTEN, said with a way out (sec 1536). */
+	m_words_row = new QWidget(this);
+	m_words_said = fzn_plain_label(m_words_row);
+	m_words_said->setWordWrap(true);
+	{
+		auto *words_cancel = new QPushButton(tr("Cancel"), m_words_row);
+		auto *bar = new QHBoxLayout(m_words_row);
+		words_cancel->setAccessibleName(tr("Cancel the sticker"));
+		bar->addWidget(m_words_said, 1);
+		bar->addWidget(words_cancel);
+		connect(words_cancel, &QPushButton::clicked, [this]() { end_sticker_words(); });
+	}
+	m_words_row->hide();
+	col->addWidget(m_words_row);
 	col->addLayout(write);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
@@ -977,6 +994,29 @@ void fzn_conversation_view::set_text(const QString &text) { m_text->setText(text
 
 bool fzn_conversation_view::send()
 {
+	/* THE LINE IS A STICKER'S WORDS (sec 1536): the sticker sent with
+	 * them, as drawn when they are left empty. */
+	if (!m_words_pack.isEmpty()) {
+		char ref[FZN_STICKER_REF_SENT_MAX + 1];
+		size_t ref_len = 0;
+		const QByteArray w = m_text->text().trimmed().toUtf8();
+
+		if ((w.isEmpty() ? fzn_rpc_sticker_reference(&m_rpc->c, m_words_pack.constData(),
+		                                             (size_t)m_words_pack.size(), m_words_id, ref, sizeof ref,
+		                                             &ref_len)
+		                 : fzn_rpc_sticker_reference_words(&m_rpc->c, m_words_pack.constData(),
+		                                                   (size_t)m_words_pack.size(), m_words_id, w.constData(),
+		                                                   (size_t)w.size(), ref, sizeof ref, &ref_len))
+		            != FZN_RPC_OK) {
+			m_notice->say(failed_words(m_rpc));
+			return false;
+		}
+		if (!send_as_reply(QByteArray(ref, (int)ref_len)))
+			return false;
+		end_sticker_words();
+		refresh();
+		return true;
+	}
 	if (!send_as_reply(m_text->text().toUtf8()))
 		return false;
 	m_text->clear();
@@ -1939,6 +1979,34 @@ void fzn_conversation_view::draw_stickers()
 		}
 		free(bytes);
 	}
+}
+
+void fzn_conversation_view::ask_sticker_words(const QByteArray &pack, quint64 id, int limit, const QString &what)
+{
+	if (pack.isEmpty() || limit <= 0)
+		return;
+	m_words_pack = pack;
+	m_words_id = id;
+	show_stickers(false);
+	m_text->clear();
+	m_text->setMaxLength(limit);
+	m_text->setPlaceholderText(tr("Its words, up to %n character(s)", nullptr, limit));
+	m_words_said->setText(what.isEmpty() ? tr("Words for the sticker") : tr("Words for %1").arg(what));
+	m_words_row->show();
+	m_text->setFocus();
+}
+
+bool fzn_conversation_view::sticker_waits_for_words() const { return !m_words_pack.isEmpty(); }
+
+/* THE COMPOSER A LINE AGAIN, the sticker let go. */
+void fzn_conversation_view::end_sticker_words()
+{
+	m_words_pack.clear();
+	m_words_id = 0;
+	m_text->clear();
+	m_text->setMaxLength(32767);
+	m_words_row->hide();
+	reply_to(m_reply_to);
 }
 
 int fzn_conversation_view::redraw_waiting()

@@ -172,6 +172,12 @@ void fzn_sticker_picker_view::on_sound(std::function<void(const QString &)> play
 
 void fzn_sticker_picker_view::on_add_packs(std::function<void()> add) { m_add_packs = std::move(add); }
 
+void fzn_sticker_picker_view::on_pick_words(
+        std::function<void(const QByteArray &pack, quint64 id, int limit, const QString &what)> pick)
+{
+	m_pick_words = std::move(pick);
+}
+
 void fzn_sticker_picker_view::on_words(std::function<bool(const QString &, int, QString *)> ask)
 {
 	m_words = std::move(ask);
@@ -563,6 +569,10 @@ bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
 	/* A MESSAGE OR NAME STICKER ASKS FOR ITS WORDS, sec 1296: the box holds
 	 * what the sender writes, so a choice with none to ask is half a
 	 * sticker. Cancelled, nothing is sent; left empty, it goes as drawn. */
+	if (limit > 0 && m_pick_words) {
+		m_pick_words(p, (quint64)id, limit, item->data(ROLE_DESCRIPTION).toString());
+		return true;
+	}
 	if (limit > 0) {
 		bool ok = false;
 

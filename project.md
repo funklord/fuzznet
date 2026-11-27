@@ -78978,3 +78978,32 @@ the buttons and their tests carry today.
 retargeted. Test: `conversation_view_test` -- pinned on at 800 px,
 bubbles and a finger-sized Send; pinned off at 320 px, neither; -1, the
 width again. Sabotage: one new, one retargeted, each probed.
+
+## 1536. A sticker's words written in the composer
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 11): its view asks
+a message or name sticker's words in the line being written, with the
+limit and a Cancel. Ours asked through `on_words`, which must answer
+before the pick returns, so a host could not ask in its own time, or on
+the picker's own row in a loop of its own (sec 1515).
+
+Now the picker hands a sticker that takes words to a host that asks for
+it (`on_pick_words`: its pack, id, limit and what it is) and picks
+nothing itself. The conversation view does that: the line being written
+becomes the sticker's words, held to the limit, with a bar "Words for
+WHAT" and a Cancel. Send makes the sticker's reference with the words
+-- as drawn when they are left empty -- and sends it, as the reply when
+one is under way (sec 1527). Cancel sends nothing and makes the line a
+line again. No loop waits anywhere. `on_words` and the picker's row
+stay for a host that sets neither.
+
+`conversation-view-suggestion-not-reply` matched the words path's send
+too and was spelled with more context. The picker's test now cancels
+the picker's own row if it should appear, so a broken hand-off fails
+rather than hangs: the first probe of it waited out the probe's ten
+minutes in that loop.
+
+Test: `sticker_picker_view_test` (a word-taking sticker handed to the
+host, nothing picked), `conversation_view_test` (words sent with the
+sticker, Cancel sending nothing). Sabotage: two new, one respelled,
+each probed.

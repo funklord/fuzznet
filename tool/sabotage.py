@@ -1552,8 +1552,8 @@ SABOTAGES = [
 	(
 		"conversation-view-suggestion-not-reply",
 		"gui/conversation_view.cpp",
-		"\tif (!send_as_reply(QByteArray(ref, (int)ref_len)))\n",
-		"\tif (!send_line(QByteArray(ref, (int)ref_len)))\n",
+		"\t/* A REFUSED SEND SAYS SO ITSELF, and the words stay. */\n\tif (!send_as_reply(QByteArray(ref, (int)ref_len)))\n",
+		"\t/* A REFUSED SEND SAYS SO ITSELF, and the words stay. */\n\tif (!send_line(QByteArray(ref, (int)ref_len)))\n",
 		"a suggestion sent while replying goes as the reply -- sec 1527",
 	),
 	(
@@ -1646,6 +1646,20 @@ SABOTAGES = [
 		"\tm_bubbles->narrow = m_touch_pin < 0 ? fzn_phone_layout(width()) : m_touch_pin == 1;\n",
 		"\tm_bubbles->narrow = fzn_phone_layout(width());\n",
 		"touch follows the host's word where it gives one -- sec 1535",
+	),
+	(
+		"sticker-picker-words-not-handed",
+		"gui/sticker_picker_view.cpp",
+		"\tif (limit > 0 && m_pick_words) {\n",
+		"\tif (0) {\n",
+		"a sticker that takes words is handed to a host that asks -- sec 1536",
+	),
+	(
+		"conversation-view-words-sent-as-line",
+		"gui/conversation_view.cpp",
+		"\tif (!m_words_pack.isEmpty()) {\n",
+		"\tif (0) {\n",
+		"a sticker's words written in the composer go with the sticker -- sec 1536",
 	),
 	(
 		"clock-words-no-hours",

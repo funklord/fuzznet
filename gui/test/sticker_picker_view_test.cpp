@@ -612,6 +612,27 @@ int main(int argc, char **argv)
 		picked.clear();
 		CHECK(v.pick_found(0) && picked == REF8 ":hi%20there",
 		      "a sticker's words were not asked on the picker's own row");
+		/* HANDED TO THE HOST AS CHOSEN (sec 1536): its pack, id and limit,
+		 * nothing picked here and no row of the picker's own. */
+		{
+			int limit = 0;
+			quint64 id = 0;
+			v.on_pick_words([&limit, &id](const QByteArray &, quint64 at, int most, const QString &) {
+				id = at;
+				limit = most;
+			});
+			picked.clear();
+			/* A FAILURE, NOT A HANG: the picker's own row, should it ask,
+			 * cancelled. */
+			QTimer::singleShot(300, [&v]() {
+				for (QPushButton *b : v.findChildren<QPushButton *>())
+					if (b->text() == "Cancel" && !b->isHidden())
+						b->click();
+			});
+			CHECK(v.pick_found(0) && picked.isEmpty() && id == 8u && limit > 0,
+			      "a sticker that takes words was not handed to the host as chosen");
+			v.on_pick_words(nullptr);
+		}
 		v.set_find(QStringLiteral("zebra"));
 		CHECK(v.found().isEmpty() && v.status() == "No sticker kept here fits that.", "finding none was not said");
 		v.set_find(QString());

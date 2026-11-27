@@ -60,7 +60,7 @@ static int art_away;
 static int dan_pack_kept;
 /* Bob has written again (sec 1522). */
 static int bob_more;
-static char last_set[200], last_add[200], last_file[600];
+static char last_set[200], last_add[600], last_file[600];
 static int file_partial;
 /* The file dan sent: its root is 64 hex digits of the number 3. */
 #define FILE_ROOT "0000000000000000000000000000000000000000000000000000000000000003"
@@ -227,6 +227,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		snprintf(ask_draw, sizeof ask_draw, "get sticker %064d 7 thumb ", 1);
 		if (!strcmp(line, ask_ref))
 			return (size_t)snprintf(reply, cap, "ok fzn:sticker/%064d/%064d/1000/7 waving\n", 1, 2);
+		/* WAVING WITH WORDS (sec 1536). */
+		snprintf(ask_ref, sizeof ask_ref, "get sticker %064d 7 text see%%20you", 1);
+		if (!strcmp(line, ask_ref))
+			return (size_t)snprintf(reply, cap, "ok fzn:sticker/%064d/%064d/1000/7:see%%20you\n", 1, 2);
 		/* THE STICKER THAT ANSWERS, sent while replying (sec 1527). */
 		snprintf(ask_ref, sizeof ask_ref, "get sticker %064d 9", 1);
 		if (!strcmp(line, ask_ref))
@@ -695,6 +699,27 @@ int main(int argc, char **argv)
 		      "a sticker whose pack landed later was not drawn");
 		const int asked = art_asked;
 		CHECK(late.redraw_waiting() == 0 && art_asked == asked, "a look with nothing waiting asked for art");
+	}
+	/* A STICKER'S WORDS WRITTEN IN THE COMPOSER (sec 1536): sent with the
+	 * sticker; cancelled, nothing sent and the line a line again. */
+	{
+		char root[65];
+		snprintf(root, sizeof root, "%064d", 1);
+		d.ask_sticker_words(QByteArray(root), 7, 20, "a waving hand");
+		d.set_text("see you");
+		last_add[0] = '\0';
+		CHECK(d.sticker_waits_for_words() && d.send() && strstr(last_add, "/7:see")
+		              && !d.sticker_waits_for_words() && d.text().isEmpty(),
+		      "a sticker's words written in the composer were not sent with it");
+		d.ask_sticker_words(QByteArray(root), 7, 20, "a waving hand");
+		QPushButton *cancel = nullptr;
+		for (QPushButton *b : d.findChildren<QPushButton *>())
+			if (b->accessibleName() == "Cancel the sticker")
+				cancel = b;
+		last_add[0] = '\0';
+		if (cancel)
+			cancel->click();
+		CHECK(cancel && !d.sticker_waits_for_words() && !last_add[0], "cancelling a sticker's words sent something");
 	}
 	/* KEPT ALREADY (sec 1534): said so, nothing asked of the node. */
 	dan_pack_kept = 1;
