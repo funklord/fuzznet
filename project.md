@@ -78759,3 +78759,24 @@ issued again, finds none for a line never re-issued, and none under the
 lost secret. The daemon's branch is not reached by a test; it is the
 pair of a fork and a line no script here makes. Sabotage: one new, one
 retargeted, each probed.
+
+## 1526. A file asked for by opening it is saved when it lands
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 4): tapping a file
+line that is not here yet asked the node for it and said "it arrives in
+the background". The person then had to come back and tap again to save
+it. fuzzypickles' own view writes the file when it lands.
+
+Now the tap asks where to put it at once -- the path the host gave, or
+the platform's save picker -- asks for the file, and keeps the two
+together. Each tick of the view's watch (sec 1522), shown or not, looks
+at every waiting file. One now whole is written where it was asked
+(through the staging of sec 1524 for a `content://` target) and let go.
+One the node no longer knows is let go too. A second tap that saves the
+file directly clears its wait, so it is not written twice. The waits
+are kept for the view's life; a closed view no longer writes them, and
+the file stays in the node either way.
+
+Test: `conversation_view_test` -- opened while partial, one save waits
+and nothing is written; once whole, a look writes it where it was asked
+and none waits. Sabotage: two, each probed.

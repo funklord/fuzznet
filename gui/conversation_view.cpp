@@ -493,6 +493,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_watch = new QTimer(this);
 	m_watch->setInterval(2000);
 	connect(m_watch, &QTimer::timeout, [this]() {
+		(void)land_pending();
 		if (isVisible())
 			(void)watch_now();
 	});
@@ -1269,7 +1270,53 @@ bool fzn_conversation_view::open_line(int row, const QString &save_path)
 	if (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known
 	    && st.complete)
 		return save_to(save_path);
-	return fetch();
+	/* NOT HERE YET: where to put it asked now, and written there when it
+	 * lands (sec 1526) -- the person was told to come back and tap again
+	 * (fuzzypickles' 0950Z item 4). */
+	QString where = save_path;
+	if (where.isEmpty())
+		where = QFileDialog::getSaveFileName(this, tr("Save the file when it arrives"),
+		                                     QString::fromUtf8(ref.mid(72)));
+	if (!fetch())
+		return false;
+	if (!where.isEmpty()) {
+		bool held = false;
+		for (const pending_save &p : m_pending)
+			held = held || p.ref == ref;
+		if (!held)
+			m_pending.append({ ref, where });
+		m_notice->say(tr("Asked for the file, said to be %1. It is saved to %2 when it arrives.")
+		                      .arg(fzn_size_words(file_size(ref)), where));
+	}
+	return true;
+}
+
+int fzn_conversation_view::pending_saves() const { return m_pending.size(); }
+
+/* EACH FILE WAITING, written once whole; one the node no longer knows, or
+ * that could not be written, said and let go. */
+int fzn_conversation_view::land_pending()
+{
+	int landed = 0;
+
+	for (int i = 0; i < m_pending.size();) {
+		const pending_save p = m_pending.value(i);
+		fzn_rpc_blob_status_resp_t st;
+
+		memset(&st, 0, sizeof st);
+		if (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)p.ref.constData(), &st) != FZN_RPC_OK) {
+			i++;
+			continue;
+		}
+		if (st.known && !st.complete) {
+			i++;
+			continue;
+		}
+		m_pending.removeAt(i);
+		if (st.known && save_ref(p.ref, p.where))
+			landed++;
+	}
+	return landed;
 }
 
 /* A PHONE'S PICKER GIVES content://, which only this app can open and the
@@ -1301,7 +1348,6 @@ bool fzn_conversation_view::save_to(const QString &path)
 {
 	QListWidgetItem *item = m_lines->currentItem();
 	QByteArray ref = item ? item->data(ROLE_FILE).toByteArray() : QByteArray();
-	fzn_rpc_blob_export_resp_t out;
 
 	if (ref.isEmpty())
 		return false;
@@ -1311,6 +1357,16 @@ bool fzn_conversation_view::save_to(const QString &path)
 		                                     QString::fromUtf8(ref.mid(72)));
 	if (where.isEmpty())
 		return false;
+	/* SAVED NOW: a wait for it to land let go, so it is not written twice. */
+	for (int i = m_pending.size(); i-- > 0;)
+		if (m_pending.value(i).ref == ref)
+			m_pending.removeAt(i);
+	return save_ref(ref, where);
+}
+
+bool fzn_conversation_view::save_ref(const QByteArray &ref, const QString &where)
+{
+	fzn_rpc_blob_export_resp_t out;
 	const bool picked = picked_uri(where);
 	QTemporaryFile staged(staged_name("save"));
 	if (picked) {

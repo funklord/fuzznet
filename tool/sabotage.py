@@ -1529,6 +1529,20 @@ SABOTAGES = [
 		"a line counts as issued again only by its own id -- sec 1525",
 	),
 	(
+		"conversation-view-pending-forgotten",
+		"gui/conversation_view.cpp",
+		"\t\t\tm_pending.append({ ref, where });\n",
+		"",
+		"a file asked for by opening it is kept to be saved when it lands -- sec 1526",
+	),
+	(
+		"conversation-view-pending-saved-partial",
+		"gui/conversation_view.cpp",
+		"\t\tif (st.known && !st.complete) {\n",
+		"\t\tif (0) {\n",
+		"a waiting file is written only once whole -- sec 1526",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

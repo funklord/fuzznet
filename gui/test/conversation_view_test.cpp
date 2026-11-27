@@ -534,7 +534,16 @@ int main(int argc, char **argv)
 	last_file[0] = '\0';
 	CHECK(d.open_line(0, "/tmp/holiday.jpg") && !strncmp(last_file, "fetch file " FILE_ROOT, 11 + 64),
 	      "a file not here whole was not asked for when its line was opened");
+	/* AND WRITTEN WHERE ASKED WHEN IT LANDS (sec 1526): waiting while it
+	 * is partial, written once whole, and waiting no more. */
+	CHECK(d.pending_saves() == 1 && d.land_pending() == 0 && d.pending_saves() == 1
+	              && d.status().contains("saved to /tmp/holiday.jpg when it arrives"),
+	      "a file asked for by opening it was not kept to be saved, or was saved while partial");
 	file_partial = 0;
+	last_file[0] = '\0';
+	CHECK(d.land_pending() == 1 && !strncmp(last_file, "get file " FILE_ROOT, 9 + 64)
+	              && strstr(last_file, " /tmp/holiday.jpg") && d.pending_saves() == 0,
+	      "a file that landed was not written where it was asked");
 	CHECK(d.open_line(0, "/tmp/holiday.jpg") && !strncmp(last_file, "get file " FILE_ROOT, 9 + 64)
 	              && strstr(last_file, " /tmp/holiday.jpg"),
 	      "a file here whole was not saved when its line was opened");

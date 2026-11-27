@@ -148,6 +148,11 @@ public:
 	/* Look now: whether the newest line changed, and the view was
 	 * refreshed for it. */
 	bool watch_now();
+	/* A FILE ASKED FOR BY OPENING IT, written where it was asked when it
+	 * lands, sec 1526: looked at on the watch's tick, shown or not. How
+	 * many are waiting, and a look now: how many were written. */
+	int pending_saves() const;
+	int land_pending();
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -197,6 +202,12 @@ private:
 	std::function<void(const QString &)> m_sound;
 	std::function<bool()> m_may_mark;
 	QTimer *m_watch = nullptr;
+	struct pending_save {
+		QByteArray ref;
+		QString where;
+	};
+	QVector<pending_save> m_pending;
+	bool save_ref(const QByteArray &ref, const QString &where);
 	/* The open conversation's newest line, as last shown: its id and
 	 * state, and for a group who read it. Empty until a refresh. */
 	QByteArray m_newest_seen;
