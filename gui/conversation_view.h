@@ -100,6 +100,9 @@ public:
 	 * line sent, ends it. `replying` says to which line, empty for none. */
 	void reply_to(const QByteArray &id);
 	QByteArray replying() const;
+	/* WHAT THE REPLY BAR SAYS, sec 1527: "Replying to WHO: words", empty
+	 * and hidden when no reply is under way; its Cancel lets the reply go. */
+	QString reply_bar() const;
 	/* A REACTION, sec 1282: `reaction` on the line with id `id`, sent as
 	 * a line the other end folds under it; an empty one takes this user's
 	 * back. What "React" on a chosen line sends, one of `reactions()`. */
@@ -202,6 +205,12 @@ private:
 	std::function<void(const QString &)> m_sound;
 	std::function<bool()> m_may_mark;
 	QTimer *m_watch = nullptr;
+	class QWidget *m_reply_row = nullptr;
+	QLabel *m_reply_said = nullptr;
+	class QPushButton *m_reply_cancel = nullptr;
+	/* `text` as the reply when one is under way (sec 1527): one send for
+	 * typed words, a sticker and a suggestion alike. */
+	bool send_as_reply(const QByteArray &text);
 	struct pending_save {
 		QByteArray ref;
 		QString where;

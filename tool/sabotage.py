@@ -1543,6 +1543,27 @@ SABOTAGES = [
 		"a waiting file is written only once whole -- sec 1526",
 	),
 	(
+		"conversation-view-sticker-not-reply",
+		"gui/conversation_view.cpp",
+		"\tif (!send_as_reply(ref.toUtf8()))\n",
+		"\tif (!send_line(ref.toUtf8()))\n",
+		"a sticker sent while replying goes as the reply -- sec 1527",
+	),
+	(
+		"conversation-view-suggestion-not-reply",
+		"gui/conversation_view.cpp",
+		"\tif (!send_as_reply(QByteArray(ref, (int)ref_len)))\n",
+		"\tif (!send_line(QByteArray(ref, (int)ref_len)))\n",
+		"a suggestion sent while replying goes as the reply -- sec 1527",
+	),
+	(
+		"conversation-view-reply-bar-hidden",
+		"gui/conversation_view.cpp",
+		"\t\tm_reply_row->setVisible(!m_reply_to.isEmpty());\n",
+		"",
+		"the reply under way is said, with a Cancel -- sec 1527",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -18495,8 +18516,8 @@ SABOTAGES = [
 	(
 		"conversation-sticker-sends-text",
 		"gui/conversation_view.cpp",
-		"\tif (!send_line(ref.toUtf8()))\n",
-		"\tif (!send_line(m_text->text().toUtf8()))\n",
+		"\tif (!send_as_reply(ref.toUtf8()))\n",
+		"\tif (!send_as_reply(m_text->text().toUtf8()))\n",
 		"a sticker chosen sends the words being written in its place -- sec 1243",
 	),
 	(
@@ -18691,8 +18712,8 @@ SABOTAGES = [
 	(
 		"reply-never-ends",
 		"gui/conversation_view.cpp",
-		"\treply_to(QByteArray());\n\tm_text->clear();\n",
-		"\tm_text->clear();\n",
+		"\tif (!send_line(out))\n\t\treturn false;\n\treply_to(QByteArray());\n",
+		"\tif (!send_line(out))\n\t\treturn false;\n",
 		"every line after a reply sent as a reply too; conversation_view_test -- sec 1282",
 	),
 	(

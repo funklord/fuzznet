@@ -220,6 +220,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		snprintf(ask_draw, sizeof ask_draw, "get sticker %064d 7 thumb ", 1);
 		if (!strcmp(line, ask_ref))
 			return (size_t)snprintf(reply, cap, "ok fzn:sticker/%064d/%064d/1000/7 waving\n", 1, 2);
+		/* THE STICKER THAT ANSWERS, sent while replying (sec 1527). */
+		snprintf(ask_ref, sizeof ask_ref, "get sticker %064d 9", 1);
+		if (!strcmp(line, ask_ref))
+			return (size_t)snprintf(reply, cap, "ok fzn:sticker/%064d/%064d/1000/9 eating\n", 1, 2);
+		snprintf(ask_ref, sizeof ask_ref, "get sticker %064d 7", 1);
 		if (!strncmp(line, ask_draw, strlen(ask_draw))) {
 			QImage one(1, 1, QImage::Format_ARGB32);
 			one.fill(Qt::blue);
@@ -784,6 +789,29 @@ int main(int argc, char **argv)
 		CHECK(e.send_file("/tmp/fzn-send-test.jpg") && strstr(last_add, "attach " FILE_ROOT)
 		              && strstr(last_add, " reply " ID1) && e.replying().isEmpty(),
 		      "a file sent while replying did not name the line it answers, or the reply did not end");
+		/* REPLYING TO WHOM, SAID, WITH A WAY OUT (sec 1527); and a sticker
+		 * or a suggestion sent while replying goes as the reply. */
+		e.reply_to(QByteArray::fromHex(ID1));
+		CHECK(e.reply_bar() == "Replying to gil: where shall we eat", "the reply bar did not say whom and what");
+		{
+			QPushButton *cancel = nullptr;
+			for (QPushButton *b : e.findChildren<QPushButton *>())
+				if (b->accessibleName() == "Cancel the reply")
+					cancel = b;
+			if (cancel)
+				cancel->click();
+			CHECK(cancel && e.replying().isEmpty() && e.reply_bar().isEmpty(), "Cancel did not end the reply");
+		}
+		e.reply_to(QByteArray::fromHex(ID1));
+		last_add[0] = '\0';
+		CHECK(e.send_sticker("fzn:sticker/1111/2222/1000/7 waving") && strstr(last_add, "fzn:reply/" ID1)
+		              && e.replying().isEmpty() && e.reply_bar().isEmpty(),
+		      "a sticker sent while replying did not go as the reply");
+		e.reply_to(QByteArray::fromHex(ID1));
+		last_add[0] = '\0';
+		CHECK(e.suggested() == QStringList({ "eating" }) && e.send_suggested(0) && strstr(last_add, "fzn:reply/" ID1)
+		              && e.replying().isEmpty(),
+		      "a suggestion sent while replying did not go as the reply");
 		last_add[0] = '\0';
 		CHECK(e.react(QByteArray::fromHex(ID1), fzn_conversation_view::reactions().value(0))
 		              && strstr(last_add, "message gil") && strstr(last_add, "fzn:react/" ID1 "%20\xf0\x9f\x91\x8d"),

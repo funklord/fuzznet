@@ -78780,3 +78780,25 @@ the file stays in the node either way.
 Test: `conversation_view_test` -- opened while partial, one save waits
 and nothing is written; once whole, a look writes it where it was asked
 and none waits. Sabotage: two, each probed.
+
+## 1527. A sticker or suggestion sent while replying goes as the reply
+
+fuzzypickles' comparison (inbox 20261127T0950Z, items 8 and 9):
+
+- **A sticker or a suggestion chosen while replying went out plain**,
+  and the reply was left pending, so the next line typed answered the
+  old line instead. The suggestions are even made for the line being
+  answered (sec 1321). Now typed words, a sticker and a suggestion go
+  through one path: wrapped as the reply when one is under way, the
+  reply ended after.
+- **No way to see or cancel a reply.** The placeholder said it, but
+  only until a word was typed. A bar above the line being written now
+  says "Replying to WHO: words" -- a contact by name, a group's line by
+  its writer, this user's own as "yourself" -- with Cancel, and is
+  hidden when no reply is under way.
+
+Two sabotage entries, `conversation-sticker-sends-text` and
+`reply-never-ends`, named lines the one path replaced and were
+retargeted. Test: `conversation_view_test` -- the bar's words, Cancel
+ending the reply, a sticker and a suggestion each sent as the reply.
+Sabotage: three new, two retargeted, each probed.

@@ -525,6 +525,21 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	col->addWidget(m_notice);
 	col->addWidget(m_picker);
 	col->addWidget(m_suggest);
+	/* REPLYING TO WHOM, said where the reply is written, with a way out
+	 * (sec 1527); the placeholder alone hid it once a word was typed. */
+	m_reply_row = new QWidget(this);
+	m_reply_said = fzn_plain_label(m_reply_row);
+	m_reply_said->setWordWrap(true);
+	m_reply_cancel = new QPushButton(tr("Cancel"), m_reply_row);
+	m_reply_cancel->setAccessibleName(tr("Cancel the reply"));
+	{
+		auto *bar = new QHBoxLayout(m_reply_row);
+		bar->addWidget(m_reply_said, 1);
+		bar->addWidget(m_reply_cancel);
+	}
+	m_reply_row->hide();
+	connect(m_reply_cancel, &QPushButton::clicked, [this]() { reply_to(QByteArray()); });
+	col->addWidget(m_reply_row);
 	col->addLayout(write);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
@@ -940,9 +955,20 @@ void fzn_conversation_view::set_text(const QString &text) { m_text->setText(text
 
 bool fzn_conversation_view::send()
 {
-	QByteArray text = m_text->text().toUtf8();
+	if (!send_as_reply(m_text->text().toUtf8()))
+		return false;
+	m_text->clear();
+	refresh();
+	return true;
+}
 
-	/* IN REPLY, sec 1282: the words after the line they answer's id. */
+/* IN REPLY, sec 1282: the words after the line they answer's id -- a
+ * sticker's reference and a suggestion's too (sec 1527), which went out
+ * plain and left the reply pending (fuzzypickles' 0950Z item 8). */
+bool fzn_conversation_view::send_as_reply(const QByteArray &text)
+{
+	QByteArray out = text;
+
 	if (m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN && !text.trimmed().isEmpty()) {
 		char wrapped[FZN_MESSAGE_TEXT_MAX + 1u];
 		const size_t n = fzn_message_reply_write((const uint8_t *)m_reply_to.constData(), text.constData(),
@@ -951,13 +977,11 @@ bool fzn_conversation_view::send()
 			m_notice->say(tr("That is too long to send as a reply."));
 			return false;
 		}
-		text = QByteArray(wrapped, (int)n);
+		out = QByteArray(wrapped, (int)n);
 	}
-	if (!send_line(text))
+	if (!send_line(out))
 		return false;
 	reply_to(QByteArray());
-	m_text->clear();
-	refresh();
 	return true;
 }
 
@@ -1061,7 +1085,7 @@ bool fzn_conversation_view::send_suggested(int i)
 		return false;
 	}
 	/* A REFUSED SEND SAYS SO ITSELF, and the words stay. */
-	if (!send_line(QByteArray(ref, (int)ref_len)))
+	if (!send_as_reply(QByteArray(ref, (int)ref_len)))
 		return false;
 	m_text->clear();
 	m_suggest->clear();
@@ -1072,7 +1096,7 @@ bool fzn_conversation_view::send_suggested(int i)
 
 bool fzn_conversation_view::send_sticker(const QString &ref)
 {
-	if (!send_line(ref.toUtf8()))
+	if (!send_as_reply(ref.toUtf8()))
 		return false;
 	show_stickers(false);
 	refresh();
@@ -1101,22 +1125,42 @@ bool fzn_conversation_view::send_line(const QByteArray &text)
 
 void fzn_conversation_view::reply_to(const QByteArray &id)
 {
-	QString quoted;
+	QString quoted, who;
 
 	m_reply_to = id.size() == (int)FZN_MESSAGE_ID_LEN ? id : QByteArray();
 	for (int i = 0; !m_reply_to.isEmpty() && i < m_lines->count() && quoted.isEmpty(); i++)
-		if (m_lines->item(i)->data(ROLE_ID).toByteArray() == m_reply_to)
-			quoted = m_lines->item(i)->data(ROLE_BODY).toString();
+		if (m_lines->item(i)->data(ROLE_ID).toByteArray() == m_reply_to) {
+			const QListWidgetItem *answered = m_lines->item(i);
+			quoted = answered->data(ROLE_BODY).toString();
+			/* WHO WROTE IT: a group's line carries its writer on its first
+			 * line; a contact's is theirs; this user's own, yourself. */
+			if (!answered->data(ROLE_IN).toBool())
+				who = tr("yourself");
+			else if (m_contact.startsWith(QLatin1Char('@')) && quoted.contains(QLatin1Char('\n'))) {
+				who = quoted.section(QLatin1Char('\n'), 0, 0);
+				quoted = quoted.section(QLatin1Char('\n'), 1);
+			} else
+				who = m_contact;
+		}
 	if (quoted.size() > 40)
 		quoted = quoted.left(39) + QChar(0x2026);
 	m_text->setPlaceholderText(m_reply_to.isEmpty() ? tr("Write a line")
 	                                                : tr("Your reply to \"%1\"").arg(quoted));
+	if (m_reply_row) {
+		m_reply_said->setText(m_reply_to.isEmpty() ? QString() : tr("Replying to %1: %2").arg(who, quoted));
+		m_reply_row->setVisible(!m_reply_to.isEmpty());
+	}
 	if (!m_reply_to.isEmpty())
 		m_text->setFocus();
 	suggest_now();
 }
 
 QByteArray fzn_conversation_view::replying() const { return m_reply_to; }
+
+QString fzn_conversation_view::reply_bar() const
+{
+	return m_reply_row && !m_reply_row->isHidden() ? m_reply_said->text() : QString();
+}
 
 bool fzn_conversation_view::unsend(const QByteArray &id)
 {
