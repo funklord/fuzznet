@@ -155,6 +155,7 @@ private:
 		QByteArray key; /* the contact's key or the group's id, sec 1274 */
 		size_t unread;
 		uint64_t stime_ms; /* the newest line's, for the view's own order */
+		QString standing; /* why a contact no longer active cannot be sent to, sec 1499 */
 		int kind;
 	};
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: "Read marks: ..." entries,

@@ -78063,3 +78063,18 @@ to be run on that build. Sabotage `live-answer-said-once` -- the repeat
 removed -- fails phase b. **The frame taken as an answer is not pinned**:
 with the repeat, no script reaches it; it is the answer of last resort.
 
+## 1499. A contact no longer active is sent nothing from its row
+
+fuzzypickles' answer on its item 9 (sec 1496): its list keeps only
+contacts whose state is active, and it asked that ours -- which keeps
+rows for contacts since removed, counted as ours being ahead -- not
+offer sending to such a row as if ordinary. A **suspended** contact
+(removed on another of this user's devices), a **retired** one (removed
+for good) and an **absent** one (held only by devices since revoked)
+kept their names, so their rows offered a file, a call and location
+sharing, each then refused by the node. Now each is offered disabled
+with why -- "removed on another of your devices" -- location sharing is
+not offered, and `act` refuses them saying the same; read marks stay.
+
+Tests: `conversations_view_test`, the twin contact suspended. Sabotage:
+caught.

@@ -91,7 +91,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (twin && !strcmp(line, "list message unread"))
 		return (size_t)snprintf(reply, cap, "ok 3 0 3 " BOB ",2,0 " FAMILY ",3,0 " DAN ",1,0\n");
 	if (twin && !strcmp(line, "list contact 0"))
-		return (size_t)snprintf(reply, cap, "ok 2 0 bob," BOB " family," DAN "\n");
+		return (size_t)snprintf(reply, cap, "ok 2 0 bob," BOB " family," DAN ",suspended\n");
 	if (big) {
 		const size_t said = big_page(line, reply, cap);
 		if (said)
@@ -467,6 +467,13 @@ int main(int argc, char **argv)
 		CHECK(w.select("family", false) && tree->currentItem()->text(0).startsWith("family -- old")
 		              && w.select("family", true) && tree->currentItem()->text(0).startsWith("family -- carol"),
 		      "a contact and a group called family were not told apart");
+		/* A CONTACT NO LONGER ACTIVE, sec 1499: listed, but sending and
+		 * calling offered disabled saying why, and refused if chosen. */
+		CHECK(w.select("family", false) && w.chosen_actions().contains("Call")
+		              && w.refused("Call") == "removed on another of your devices"
+		              && !w.chosen_actions().contains("Share my location") && !w.act_chosen("Call")
+		              && w.status() == "family is removed on another of your devices.",
+		      "a suspended contact was offered sending and calling as if ordinary");
 		/* COUNTS, and changed at once by the host marking one read. */
 		CHECK(w.contacts_count() == 2 && w.groups_count() == 1 && w.unread_total() == 6,
 		      "the counts for a host were not contacts, groups and every unread line");

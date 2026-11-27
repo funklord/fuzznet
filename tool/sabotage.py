@@ -1151,6 +1151,13 @@ SABOTAGES = [
 		"a call's answer is said again, so one lost datagram does not leave the caller ringing -- sec 1498",
 	),
 	(
+		"conversations-view-inactive-offered",
+		"gui/conversations_view.cpp",
+		"\t\tfor (const QString &a : out)\n\t\t\tm_refused.insert(a, standing);\n",
+		"",
+		"a contact no longer active is not offered sending as if ordinary -- sec 1499",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

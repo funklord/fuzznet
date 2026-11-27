@@ -48,6 +48,8 @@ extern "C" {
 #define ROLE_OPEN (Qt::UserRole)
 #define ROLE_KIND (Qt::UserRole + 1)
 #define ROLE_KEY (Qt::UserRole + 2)
+/* Why a contact no longer active is sent nothing, or empty, sec 1499. */
+#define ROLE_STANDING (Qt::UserRole + 3)
 enum { ROW_CONTACT = 1, ROW_GROUP = 2, ROW_UNNAMED = 3 };
 
 static QString failed_words(const fzn_gui_rpc *r)
@@ -539,6 +541,7 @@ void fzn_conversations_view::lay_out()
 		item->setData(0, ROLE_OPEN, r.open);
 		item->setData(0, ROLE_KIND, r.kind);
 		item->setData(0, ROLE_KEY, r.key);
+		item->setData(0, ROLE_STANDING, r.standing);
 	}
 	if (contacts) {
 		contacts->setExpanded(true);
@@ -624,11 +627,27 @@ bool fzn_conversations_view::refresh()
 		return answered;
 	}
 	/* NAMES AND COUNTS BY KEY: a contact's root key, a group's id. */
-	QHash<QByteArray, QString> contact_name, group_name;
+	QHash<QByteArray, QString> contact_name, group_name, standing;
 	QHash<QByteArray, size_t> counts;
-	for (i = 0; i < peers.count; i++)
-		contact_name.insert(QByteArray((const char *)peers.entries[i].root_pubkey, 32),
-		                    QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len));
+	for (i = 0; i < peers.count; i++) {
+		const QByteArray key((const char *)peers.entries[i].root_pubkey, 32);
+		contact_name.insert(key, QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len));
+		/* A CONTACT NO LONGER ACTIVE, sec 1499: still listed, with its
+		 * lines, but nothing is sent to it, and its menu says why. */
+		switch (peers.entries[i].state) {
+		case FZN_RPC_CONTACT_SUSPENDED:
+			standing.insert(key, tr("removed on another of your devices"));
+			break;
+		case FZN_RPC_CONTACT_RETIRED:
+			standing.insert(key, tr("no longer a contact"));
+			break;
+		case FZN_RPC_CONTACT_ABSENT:
+			standing.insert(key, tr("held only by devices since revoked"));
+			break;
+		default:
+			break;
+		}
+	}
 	for (i = 0; i < groups.count; i++)
 		group_name.insert(QByteArray((const char *)groups.entries[i].chat_id, 32),
 		                  QString::fromUtf8(groups.entries[i].name, (int)groups.entries[i].name_len));
@@ -656,6 +675,7 @@ bool fzn_conversations_view::refresh()
 		r.key = key;
 		r.kind = is_group ? ROW_GROUP : contact_name.contains(key) ? ROW_CONTACT : ROW_UNNAMED;
 		r.stime_ms = e->stime_ms;
+		r.standing = standing.value(key);
 		m_rows.append(r);
 	}
 	/* NEWEST FIRST BY THE VIEW'S OWN ORDER (sec 1496), not the node's. */
@@ -808,6 +828,15 @@ QStringList fzn_conversations_view::actions(int group, int row)
 	if (kind != ROW_CONTACT)
 		return {}; /* nobody to name: a contact since removed */
 	QStringList out({ tr("Send a file..."), tr("Call"), tr("Video call") });
+	/* NOT ACTIVE, sec 1499: sending, calling and sharing offered disabled,
+	 * saying why, rather than as if ordinary and refused by the node. */
+	const QString standing = item->data(0, ROLE_STANDING).toString();
+	if (!standing.isEmpty()) {
+		for (const QString &a : out)
+			m_refused.insert(a, standing);
+		read_marks_menu(item->data(0, ROLE_KEY).toByteArray(), &out);
+		return out;
+	}
 	const int on = sharing(item->data(0, ROLE_OPEN).toString());
 	if (on == 0)
 		out << tr("Share my location");
@@ -995,6 +1024,13 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
 	if (kind != ROW_CONTACT && kind != ROW_GROUP)
 		return false;
+	/* A CONTACT NO LONGER ACTIVE IS SENT NOTHING, saying why (sec 1499). */
+	if (kind == ROW_CONTACT && !item->data(0, ROLE_STANDING).toString().isEmpty()
+	    && (action == tr("Send a file...") || action == tr("Call") || action == tr("Video call")
+	        || action == tr("Share my location"))) {
+		m_status->setText(tr("%1 is %2.").arg(to, item->data(0, ROLE_STANDING).toString()));
+		return false;
+	}
 	/* REFUSED TO ONE WHO IS NOT AN ADMIN, saying why, as offered. */
 	if (kind == ROW_GROUP && (action == tr("Add a member") || action == tr("Remove a member"))) {
 		if (!m_refused.value(action).isEmpty())
