@@ -620,6 +620,28 @@ int main(int argc, char **argv)
 		/* A PHONE KEEPING HEADINGS, by the host's word (sec 1512): opened,
 		 * the list is left, nothing chosen. */
 		w.set_layout(0);
+		/* A NARROW DESKTOP PANE UNDER HEADINGS (sec 1517, fuzzypickles'
+		 * 20261127T1009Z): no sideways scroll, an empty column hidden, the
+		 * name drawn first by a delegate of its own, and only after it cut. */
+		{
+			const QFontMetrics fm(tree->font());
+			const QString shown = fzn_conversations_view::row_shown(fm, "Ana", " -- a long line about the weekend",
+			                                                        fm.horizontalAdvance("Ana -- a l"));
+			CHECK(tree->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff && tree->itemDelegateForColumn(0)
+			              && tree->isColumnHidden(1) && !tree->isColumnHidden(2),
+			      "a narrow pane could scroll sideways, an empty column took width, or no delegate drew the name");
+			CHECK(shown.startsWith("Ana -- ") && shown.length() < 34
+			              && fzn_conversations_view::row_shown(fm, "Ana", " -- hi", 1000) == "Ana -- hi"
+			              && fzn_conversations_view::row_shown(fm, "Anastasia", " -- hi there",
+			                                                   fm.horizontalAdvance("Anastasia") + 1)
+			                         .startsWith("Anastasia")
+			              && fzn_conversations_view::row_shown(fm, "Anastasia", " -- hi",
+			                                                   fm.horizontalAdvance("Ana"))
+			                         .startsWith("A"),
+			      "the name was not shown whole before the line was cut");
+			CHECK(tree->topLevelItem(0)->child(0)->data(0, Qt::UserRole + 4).toInt() > 0,
+			      "a row did not say how much of it is the name");
+		}
 		w.set_keep_chosen(0);
 		tree->itemClicked(tree->topLevelItem(0)->child(0), 0);
 		CHECK(!w.flat() && !tree->currentItem() && tree->selectedItems().isEmpty(),

@@ -30,7 +30,9 @@ extern "C" {
 #include <QLineEdit>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include <QSet>
+#include <QStyledItemDelegate>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 
@@ -52,7 +54,52 @@ extern "C" {
 #define ROLE_KEY (Qt::UserRole + 2)
 /* Why a contact no longer active is sent nothing, or empty, sec 1499. */
 #define ROLE_STANDING (Qt::UserRole + 3)
+/* How many characters of column 0's text are the name, sec 1517. */
+#define ROLE_NAME_LEN (Qt::UserRole + 4)
 enum { ROW_CONTACT = 1, ROW_GROUP = 2, ROW_UNNAMED = 3 };
+
+QString fzn_conversations_view::row_shown(const QFontMetrics &fm, const QString &name, const QString &rest,
+                                          int width)
+{
+	const int name_w = fm.horizontalAdvance(name);
+
+	if (name_w >= width)
+		return fm.elidedText(name, Qt::ElideRight, width);
+	if (fm.horizontalAdvance(name + rest) <= width)
+		return name + rest;
+	return name + fm.elidedText(rest, Qt::ElideRight, width - name_w);
+}
+
+/* COLUMN 0 DRAWN NAME FIRST, sec 1517: the name and the newest line are
+ * one text, so a narrow pane cut the name with the line -- "Ana -- ..."
+ * on every row (fuzzypickles' inbox 20261127T1009Z). The item keeps the
+ * whole text, which a screen reader says; only what is drawn is cut, and
+ * after the name. */
+class row_delegate : public QStyledItemDelegate {
+public:
+	using QStyledItemDelegate::QStyledItemDelegate;
+	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+	{
+		const int name_len = index.data(ROLE_NAME_LEN).toInt();
+		if (name_len <= 0) {
+			QStyledItemDelegate::paint(painter, option, index);
+			return;
+		}
+		QStyleOptionViewItem opt = option;
+		initStyleOption(&opt, index);
+		const QWidget *w = opt.widget;
+		QStyle *style = w ? w->style() : QApplication::style();
+		const QRect text_rect = style->subElementRect(QStyle::SE_ItemViewItemText, &opt, w);
+		/* THE STYLE'S OWN MARGIN either side of the text. */
+		const int margin = style->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, w) + 1;
+		const QString text = opt.text;
+		opt.text = fzn_conversations_view::row_shown(opt.fontMetrics, text.left(name_len), text.mid(name_len),
+		                                             text_rect.width() - 2 * margin);
+		opt.textElideMode = Qt::ElideNone;
+		opt.features &= ~QStyleOptionViewItem::WrapText;
+		style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, w);
+	}
+};
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -182,6 +229,11 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	for (int c = 1; c < 5; c++)
 		m_tree->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
 	m_tree->setWordWrap(true);
+	/* NO SIDEWAYS SCROLL in a narrow pane, sec 1517: the name column takes
+	 * what is left and its line is cut, never the list widened. */
+	m_tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	m_tree->header()->setMinimumSectionSize(0);
+	m_tree->setItemDelegateForColumn(0, new row_delegate(m_tree));
 	m_tree->setAccessibleName(tr("Conversations"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_new_group = new QPushButton(tr("New group"), this);
@@ -541,6 +593,9 @@ void fzn_conversations_view::lay_out()
 	fzn_keep_place place(m_tree, 0, ROLE_OPEN);
 	m_tree->clear();
 	QTreeWidgetItem *contacts = nullptr, *group_head = nullptr;
+	/* WHICH OF COLUMNS 1-4 HOLD ANYTHING: an empty one takes no width
+	 * (sec 1517). */
+	bool used[5] = { true, false, false, false, false };
 	if (!m_flat) {
 		contacts = new QTreeWidgetItem(m_tree, { tr("Contacts") });
 		group_head = new QTreeWidgetItem(m_tree, { tr("Groups") });
@@ -557,6 +612,7 @@ void fzn_conversations_view::lay_out()
 		                                                       r.unread ? QString::number(r.unread) : QString(),
 		                                                       r.waiting });
 		item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+		item->setData(0, ROLE_NAME_LEN, r.name_len);
 		if (m_flat && is_group) {
 			item->setIcon(0, group_icon(palette()));
 			item->setData(0, Qt::AccessibleDescriptionRole, tr("a group"));
@@ -581,11 +637,15 @@ void fzn_conversations_view::lay_out()
 			if (stale)
 				item->setForeground(1, palette().brush(QPalette::Disabled, QPalette::Text));
 		}
+		for (int c = 1; c < 5; c++)
+			used[c] = used[c] || !item->text(c).isEmpty();
 		item->setData(0, ROLE_OPEN, r.open);
 		item->setData(0, ROLE_KIND, r.kind);
 		item->setData(0, ROLE_KEY, r.key);
 		item->setData(0, ROLE_STANDING, r.standing);
 	}
+	for (int c = 1; c < 5; c++)
+		m_tree->setColumnHidden(c, !used[c]);
 	if (contacts) {
 		contacts->setExpanded(true);
 		group_head->setExpanded(true);
@@ -752,8 +812,9 @@ bool fzn_conversations_view::refresh()
 		               : contact_name.value(key, QString::fromLatin1(key.toHex()));
 		row r;
 		r.name = name;
-		r.text = QStringLiteral("%1 -- %2").arg(said(name.toUtf8().constData(), (size_t)name.toUtf8().size()),
-		                                        line_words(e));
+		const QString shown_name = said(name.toUtf8().constData(), (size_t)name.toUtf8().size());
+		r.text = QStringLiteral("%1 -- %2").arg(shown_name, line_words(e));
+		r.name_len = shown_name.size();
 		r.when = e->stime_ms ? when_words(now, e->stime_ms) : QString();
 		r.unread = counts.value(key, 0);
 		r.open = is_group ? QStringLiteral("@") + name : name;

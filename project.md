@@ -78465,3 +78465,23 @@ Seen in `live_group_backfill`, where a later member waits for the
 secret of the epoch it joined at: "a line of group 476cfddf from host
 c93872c7, its 2, waits for epoch 2's secret; the group stands at epoch 2
 here" -- said once, and the script passes.
+
+## 1517. A conversation's name whole in a narrow pane
+
+Under headings in a 230 px desktop pane (fuzzypickles' README picture,
+inbox 20261127T1009Z), every row read "Ana -- ...". The name and the
+newest line are one text in column 0, and that column got only what the
+"when" column and the empty badge and unread columns left. The whole
+text was then cut from the right, the name with it, and a sideways
+scrollbar showed.
+
+Column 0 is now drawn by a delegate of its own. It draws the name whole
+and cuts only the line after it; the name itself is cut only when it
+alone does not fit (`fzn_conversations_view::row_shown`). The item keeps
+the whole text, which is what a screen reader says and what hosts read.
+A column empty in every row is hidden, so it takes no width. The list
+never scrolls sideways; the name column takes what is left.
+
+Test: `conversations_view_test`. Sabotage: four, each probed. The name
+check needed a width just past the name: at a roomier one, cutting the
+whole text also kept "Ana -- ".

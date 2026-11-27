@@ -30,6 +30,7 @@
 
 #include <QHash>
 #include <QColor>
+#include <QFontMetrics>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -145,6 +146,10 @@ public:
 	static QColor initial_colour(const QString &name);
 	/* BY KEY, sec 1496: two contacts sharing a name look different. */
 	static QColor key_colour(const QByteArray &key);
+	/* WHAT A ROW SHOWS IN `width` px, sec 1517: the name whole, and only
+	 * the rest after it cut -- the name itself cut only when it alone does
+	 * not fit. */
+	static QString row_shown(const QFontMetrics &fm, const QString &name, const QString &rest, int width);
 	/* ONE LIST ON A PHONE, sec 1245: whether the rows are shown flat --
 	 * contacts and groups together, newest first, a group marked -- not
 	 * under two headings. `open` and `act` count a kind's rows either way. */
@@ -176,6 +181,7 @@ private:
 		QString standing; /* why a contact no longer active cannot be sent to, sec 1499 */
 		QString waiting; /* how long its oldest line has waited undelivered, sec 1501 */
 		int kind;
+		int name_len = 0; /* how much of text is the name, sec 1517 */
 	};
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: "Read marks: ..." entries,
 	 * the one standing marked; and choosing one. */
