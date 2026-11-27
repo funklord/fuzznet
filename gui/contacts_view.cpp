@@ -1,5 +1,6 @@
 /* Contacts and pairing requests as a widget: gui/contacts_view.h, sec 1107. */
 #include "contacts_view.h"
+#include "combo.h"
 #include "plain_label.h"
 #include "choose_accessible.h"
 #include "keep_place.h"
@@ -10,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QClipboard>
+#include <QComboBox>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QLineEdit>
@@ -139,6 +141,20 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	col->addLayout(change);
 	col->addLayout(cards);
 	col->addWidget(m_card_row);
+	/* WHERE THIS HOST IS REACHED, offered when the card is refused for
+	 * want of it (sec 1539): one row, a choice and a button. */
+	m_address_row = new QWidget(this);
+	m_card_address = new fzn_combo_box(m_address_row);
+	m_card_address->setAccessibleName(tr("Where this host is reached"));
+	{
+		auto *use = new QPushButton(tr("Use for my card"), m_address_row);
+		auto *row = new QHBoxLayout(m_address_row);
+		row->addWidget(m_card_address, 1);
+		row->addWidget(use);
+		connect(use, &QPushButton::clicked, [this]() { (void)use_card_address(m_card_address->currentIndex()); });
+	}
+	m_address_row->hide();
+	col->addWidget(m_address_row);
 	col->addWidget(m_shared);
 	col->addWidget(m_status);
 
@@ -197,10 +213,68 @@ QString fzn_contacts_view::my_card()
 	fzn_rpc_card_show_resp_t out;
 
 	if (fzn_rpc_card_show(&m_rpc->c, nullptr, 0u, &out) != FZN_RPC_OK) {
-		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		const QString refused = QString::fromUtf8(fzn_gui_rpc_silent(m_rpc));
+		if (!offer_card_addresses(refused))
+			m_status->setText(refused);
 		return QString();
 	}
+	m_address_row->hide();
 	return QString::fromUtf8((const char *)out.card_blob, (int)out.card_blob_len);
+}
+
+/* A CARD REFUSED FOR WANT OF AN ADDRESS (the node's "no card: this host
+ * has no address"): the addresses peers report, offered. None reported,
+ * the refusal stands as it was. */
+bool fzn_contacts_view::offer_card_addresses(const QString &refused)
+{
+	fzn_rpc_addr_observe_resp_t seen;
+
+	if (!refused.contains(QStringLiteral("no address")))
+		return false;
+	memset(&seen, 0, sizeof seen);
+	m_card_address->clear();
+	if (fzn_rpc_addr_observe(&m_rpc->c, 0, &seen) == FZN_RPC_OK)
+		for (size_t i = 0; i < seen.count; i++) {
+			const QString at = QString::fromUtf8(seen.entries[i].address, (int)seen.entries[i].address_len);
+			if (!at.isEmpty() && m_card_address->findText(at) < 0)
+				m_card_address->addItem(at);
+		}
+	if (!m_card_address->count())
+		return false;
+	m_address_row->show();
+	m_status->setText(tr("Your card needs where this host is reached. Choose one your contacts see it at."));
+	return true;
+}
+
+QStringList fzn_contacts_view::card_addresses() const
+{
+	QStringList out;
+	for (int i = 0; m_address_row && !m_address_row->isHidden() && i < m_card_address->count(); i++)
+		out << m_card_address->itemText(i);
+	return out;
+}
+
+bool fzn_contacts_view::use_card_address(int row)
+{
+	const QString address = row >= 0 && row < m_card_address->count() ? m_card_address->itemText(row) : QString();
+	const int colon = address.lastIndexOf(QLatin1Char(':'));
+
+	if (colon <= 0 || colon + 1 >= address.size())
+		return false;
+	/* WRITTEN AS THE REACH VIEW ADVERTISES ONE (sec 1196): `HOST PORT`. */
+	const QByteArray value = (address.left(colon) + QLatin1Char(' ') + address.mid(colon + 1)).toUtf8();
+	if (fzn_rpc_config_set(&m_rpc->c, "net.address", 11u, value.constData(), (size_t)value.size(), nullptr, 0,
+	                       nullptr)
+	    != FZN_RPC_OK) {
+		m_status->setText(tr("%1 was refused: %2").arg(address, failed_words(m_rpc)));
+		return false;
+	}
+	const QString card = my_card();
+	if (card.isEmpty())
+		return false;
+	QGuiApplication::clipboard()->setText(card);
+	m_status->setText(tr("Your card carries %1 and is copied: send it to whom you want as a contact.").arg(address));
+	return true;
 }
 
 bool fzn_contacts_view::add_contact(const QString &card, const QString &name)

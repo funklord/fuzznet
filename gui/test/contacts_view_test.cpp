@@ -41,6 +41,9 @@ static const char ADA_CARD[] =
         "DZFW5THTYQUVRSTO7LZTLYD4E5NPNVOETSPKNOLOFWNBX2TZYA6ZPAYDWSPPXZQGF2EMLSQ6WIL5WXRHFN3AOBEYTENZOGAXDALRRUYIAAAADMFSGCAAAAAAAAAAAAACHWM4M336JJFCEDWS3PT4PN2YOAIX2T7L6CQAABMHQCITSLJ2T3APVPAVFMCHC2U4VQRUXGL5LCAZLPEUGQI7XZK2B26L7GP64DBYF";
 
 static int silent;
+/* This host has no address yet; one is set (sec 1539). */
+static int no_address;
+static char address_set[160];
 static char last[160];
 static const char *write_reply = "ok";
 
@@ -68,7 +71,20 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        "ok 5 0 bob,%s alice,%s carol,%s,suspended zed,%s,later dee,%s,retired\n",
 		                        BOB, DAN, CAL, ZED, DEE);
 	if (!strcmp(line, "get card"))
-		return (size_t)snprintf(reply, cap, "ok %s\n", ADA_CARD);
+		return no_address ? (size_t)snprintf(reply, cap,
+		                                     "error no card: this host has no address and its estate no manifest entry\n")
+		                  : (size_t)snprintf(reply, cap, "ok %s\n", ADA_CARD);
+	/* WHERE TWO PEERS SEE THIS HOST (sec 1539). */
+	if (!strcmp(line, "get address"))
+		return (size_t)snprintf(reply, cap, "ok 2 1 0123456789abcdef,203.0.113.5,4000,1700000000 "
+		                                    "fedcba9876543210,198.51.100.7,4100,1700000100\n");
+	if (!strcmp(line, "get schema net/address"))
+		return (size_t)snprintf(reply, cap, "ok net/address,address,host,0,253,-,-,advertised,where\n");
+	if (!strncmp(line, "set setting ", 12) && strstr(line, "net")) {
+		snprintf(address_set, sizeof address_set, "%s", line);
+		no_address = 0;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (!strncmp(line, "add contact ", 12)) {
 		snprintf(last, sizeof last, "%s", line);
 		return (size_t)snprintf(reply, cap, "ok %s\n", ZED);
@@ -168,6 +184,15 @@ int main(int argc, char **argv)
 	 * added under the name it offers, or the one typed; a name held
 	 * refused before asking; text that is no card refused. */
 	CHECK(v.my_card() == QString::fromLatin1(ADA_CARD), "this host's card was not read");
+	/* NO ADDRESS YET (sec 1539): the card refused, where peers see this
+	 * host offered; one chosen is written and the card then shown. */
+	no_address = 1;
+	CHECK(v.my_card().isEmpty() && v.card_addresses() == QStringList({ "203.0.113.5:4000", "198.51.100.7:4100" })
+	              && v.status().startsWith("Your card needs where this host is reached"),
+	      "a card refused for want of an address did not offer where peers see this host");
+	CHECK(v.use_card_address(1) && strstr(address_set, "198.51.100.7 4100") && !no_address
+	              && v.status().startsWith("Your card carries 198.51.100.7:4100") && v.card_addresses().isEmpty(),
+	      "an address chosen was not written as this host's, or the card not shown after");
 	last[0] = '\0';
 	CHECK(v.add_contact(QString::fromLatin1(ADA_CARD), QString()) && !strncmp(last, "add contact ada ", 16)
 	              && v.status() == "Asked ada to be a contact; they answer from their requests.",

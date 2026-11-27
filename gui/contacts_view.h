@@ -62,6 +62,13 @@ public:
 	 * `name` (the name their card offers where empty). The buttons copy the
 	 * one and ask for the other. */
 	QString my_card();
+	/* WHERE THIS HOST IS REACHED, CHOSEN, sec 1539: a card is refused
+	 * while this host has no address, and the addresses its peers report
+	 * seeing it at are then offered on a row of their own. What is
+	 * offered, and the one at `row` written as this host's address -- the
+	 * card shown after. */
+	QStringList card_addresses() const;
+	bool use_card_address(int row);
 	bool add_contact(const QString &card, const QString &name);
 
 	/* WHAT IS ON SCREEN: each contact as NAME KEY16, each request as
@@ -90,6 +97,10 @@ private:
 	QPushButton *m_my_card;
 	QPushButton *m_add;
 	QWidget *m_card_row;
+	QWidget *m_address_row = nullptr;
+	class QComboBox *m_card_address = nullptr;
+	/* The refusal and its offer, when the card has no address. */
+	bool offer_card_addresses(const QString &refused);
 	QString m_name_for; /* the row the name box was filled for */
 	fzn_press_again m_again; /* Reject and Remove asked again, sec 1515 */
 	QLineEdit *m_card;

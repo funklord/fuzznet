@@ -79052,3 +79052,22 @@ failing run's line says whether dag was asked at all.
 
 Seen in `live_pairing`, which passes: "1 peer(s) have said where they
 see this host; this pass asked 1, 1 answered".
+
+## 1539. My card's address chosen when this host has none
+
+fuzzypickles' contacts comparison (inbox 20261127T0955Z, item 3) read
+the contacts view's `card_show(nullptr, 0)` as giving a card nobody can
+reach. Measured: the node refuses a card while this host has no address
+-- "no card: this host has no address and its estate no manifest
+entry" -- so no unreachable card is made, but the view stopped at that
+refusal and left the person nothing to do.
+
+Now a card refused for want of an address offers, on a row of its own,
+the addresses this host's peers report seeing it at (`get address`, no
+new probe); "Use for my card" writes the one chosen as `net.address`,
+as the reach view advertises one (sec 1196), then shows the card and
+copies it. No address reported, the refusal stands as it was.
+
+Test: `contacts_view_test` -- the card refused, the two reported
+addresses offered, the second written as `198.51.100.7 4100` and the
+card shown after. Sabotage: one, probed.

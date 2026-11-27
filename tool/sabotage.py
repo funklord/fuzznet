@@ -1676,6 +1676,13 @@ SABOTAGES = [
 		"the stickers waiting for their pack are counted for a host's suite -- sec 1537",
 	),
 	(
+		"contacts-view-card-address-unoffered",
+		"gui/contacts_view.cpp",
+		"\tm_address_row->show();\n\tm_status->setText(tr(\"Your card needs",
+		"\tm_status->setText(tr(\"Your card needs",
+		"a card refused for want of an address offers where peers see this host -- sec 1539",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
