@@ -157,6 +157,9 @@ public:
 	/* THE HOST'S PLAYER FOR A STICKER'S SOUND (sec 1301), given the file it
 	 * was written to; unset, no sound is fetched. */
 	void on_sound(std::function<void(const QString &path)> play);
+	/* EVERY ACT'S OUTCOME, as its notice says it, told the host for its
+	 * log (sec 1533): a send refused, a file saved, a reply ended. */
+	void on_log(std::function<void(const QString &line)> log);
 	/* WHETHER THE LINES SHOWN MAY BE MARKED READ NOW, sec 1518: asked at
 	 * each refresh, so a host marks read only what a person can see -- its
 	 * window in front, this view showing. Unset, every refresh marks. */

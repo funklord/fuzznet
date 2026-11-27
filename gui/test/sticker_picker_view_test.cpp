@@ -539,6 +539,24 @@ int main(int argc, char **argv)
 	CHECK(!v.playing(), "a sticker played on after its tab was built again");
 #endif
 
+	/* "ADD STICKER PACKS" HANDED TO THE HOST (sec 1533): its hook called,
+	 * and no dialog of the picker's own. */
+	{
+		int asked = 0;
+		QPushButton *add = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Add sticker packs")
+				add = b;
+		v.on_add_packs([&asked]() { asked++; });
+		QTimer::singleShot(200, []() {
+			if (QApplication::activeModalWidget())
+				QApplication::activeModalWidget()->close();
+		});
+		if (add)
+			add->click();
+		v.on_add_packs(nullptr);
+		CHECK(add && asked == 1, "adding sticker packs was not handed to the host");
+	}
 	/* A PHONE'S PICKED PACK (sec 1532): content:... is a plain name here. */
 	{
 		QTemporaryDir here, cache;

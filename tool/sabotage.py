@@ -1613,6 +1613,20 @@ SABOTAGES = [
 		"a content:// path is copied for the node, not handed to it -- sec 1532",
 	),
 	(
+		"notice-line-said-untold",
+		"gui/notice_line.h",
+		"\t\tif (m_said && !text.isEmpty() && !from_refresh)\n\t\t\tm_said(text);\n",
+		"",
+		"what an act came to is told the host's log -- sec 1533",
+	),
+	(
+		"sticker-picker-add-own-dialog",
+		"gui/sticker_picker_view.cpp",
+		"\t\tif (m_add_packs)\n\t\t\tm_add_packs();\n\t\telse\n",
+		"\t\tif (0)\n\t\t\tm_add_packs();\n\t\telse\n",
+		"adding sticker packs is handed to a host that asks for it -- sec 1533",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

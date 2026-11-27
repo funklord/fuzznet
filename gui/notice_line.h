@@ -66,7 +66,14 @@ public:
 		m_action->setText(QString());
 		m_action->hide();
 		setVisible(!text.isEmpty());
+		/* TOLD, sec 1533: what an act came to, for a host's log -- not a
+		 * refresh's word, nor an offer. */
+		if (m_said && !text.isEmpty() && !from_refresh)
+			m_said(text);
 	}
+
+	/* WHO HEARS what is said: a host's log. */
+	void on_said(std::function<void(const QString &)> said) { m_said = std::move(said); }
 
 	/* OFFERED: one action, `action` its words. */
 	void offer(const QString &text, const QString &action, std::function<void()> act)
@@ -109,6 +116,7 @@ private:
 	QPushButton *m_action;
 	QPushButton *m_dismiss;
 	std::function<void()> m_act;
+	std::function<void(const QString &)> m_said;
 	bool m_refresh = false;
 };
 

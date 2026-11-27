@@ -120,7 +120,12 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	col->addLayout(row);
 	col->addWidget(m_status);
 
-	connect(m_keep, &QPushButton::clicked, [this]() { keep_files(QStringList()); });
+	connect(m_keep, &QPushButton::clicked, [this]() {
+		if (m_add_packs)
+			m_add_packs();
+		else
+			keep_files(QStringList());
+	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &text) { set_find(text); });
 	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
@@ -164,6 +169,8 @@ fzn_sticker_picker_view::~fzn_sticker_picker_view()
 }
 
 void fzn_sticker_picker_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
+
+void fzn_sticker_picker_view::on_add_packs(std::function<void()> add) { m_add_packs = std::move(add); }
 
 void fzn_sticker_picker_view::on_words(std::function<bool(const QString &, int, QString *)> ask)
 {

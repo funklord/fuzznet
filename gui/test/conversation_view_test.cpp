@@ -703,10 +703,16 @@ int main(int argc, char **argv)
 	      "a file was not sent to a group not open here");
 	file_partial = 0;
 	last_file[0] = '\0';
+	/* EVERY ACT'S OUTCOME TOLD THE HOST'S LOG (sec 1533). */
+	QStringList logged;
+	d.on_log([&logged](const QString &line) { logged << line; });
 	CHECK(d.save_file(QByteArray::fromHex(FILE_ROOT FILE_KEY "00000000002625a0") + "holiday.jpg",
 	                  "/tmp/holiday-files.jpg")
 	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday-files.jpg"),
 	      "a file the view did not draw was not saved by its whole reference");
+	CHECK(logged.size() == 1 && logged.value(0).startsWith("Saved 2.4 MB to /tmp/holiday-files.jpg"),
+	      "a saved file was not told the host's log");
+	d.on_log(nullptr);
 	/* A PHONE'S content:// FILES, sec 1524: a picked one copied to a
 	 * private cache file for the node, sent under its own name, the copy
 	 * gone after; a save to one exported to such a file and copied out.

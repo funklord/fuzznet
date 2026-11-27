@@ -78914,3 +78914,22 @@ Test: `sticker_picker_view_test` (a picked pack kept from a staged copy,
 nothing left in the cache), `notebook_view_test` (a picked file attached
 from a staged copy under its name), `conversation_view_test` as before.
 Sabotage: three new, four retargeted, each probed.
+
+## 1533. A host hears every act's outcome, and adds sticker packs itself
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 13):
+
+- **A log line for every act.** fuzzypickles' window keeps a log of what
+  each act came to. Ours said it only on the view's own notice line, so
+  a host that hides or replaces that line lost it. `fzn_notice_line`
+  now tells a listener what it says (`on_said`) -- an act's outcome, not
+  an offer nor a refresh's word -- and the conversation view hands that
+  to its host with `on_log`.
+- **"Add sticker packs" handed to the host.** The picker opened a file
+  dialog of its own. A host with an import of its own -- on a phone, the
+  platform's picker -- sets `on_add_packs`, and the button calls it
+  instead. Unset, the dialog as before, staged (sec 1532).
+
+Test: `conversation_view_test` (a saved file's outcome told the log once),
+`sticker_picker_view_test` (the button calls the host's hook and opens
+no dialog). Sabotage: two, each probed.

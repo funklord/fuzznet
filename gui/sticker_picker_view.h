@@ -58,6 +58,10 @@ public:
 	 * heard before it is sent, as the log plays it once received (sec 1301).
 	 * Unset, no sound is fetched. */
 	void on_sound(std::function<void(const QString &path)> play);
+	/* "ADD STICKER PACKS" HANDED TO THE HOST, sec 1533 -- its own import,
+	 * on a phone the platform's picker -- in place of the picker's file
+	 * dialog. Unset, the dialog as before. */
+	void on_add_packs(std::function<void()> add);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose sticker `row` of pack `pack` (both from 0, as shown); keep
@@ -107,6 +111,7 @@ private:
 	void rest();
 
 	std::function<void(const QString &)> m_sound;
+	std::function<void()> m_add_packs;
 	/* EACH STICKER'S SOUND, written once into a directory the view owns
 	 * and removes with it. */
 	struct sounds;

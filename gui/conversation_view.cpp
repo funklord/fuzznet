@@ -782,6 +782,8 @@ void fzn_conversation_view::merge_calls(bool full, uint32_t now)
 
 void fzn_conversation_view::mark_read_when(std::function<bool()> may) { m_may_mark = std::move(may); }
 
+void fzn_conversation_view::on_log(std::function<void(const QString &line)> log) { m_notice->on_said(std::move(log)); }
+
 void fzn_conversation_view::set_watch_ms(int ms)
 {
 	if (ms <= 0) {
