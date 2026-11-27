@@ -77978,3 +77978,43 @@ cent, a cycle counted rising through +1000 from below -1000 so coding
 noise about zero is not counted as pitch (a bare sign count read libopus
 at 464 Hz). Sabotage: the old refusal and the frame size ignored, both
 caught.
+
+## 1496. The conversations list takes what fuzzypickles' did better
+
+fuzzypickles compared its conversation list with `conversations_view`
+(inbox 20261126T2240Z) before hosting ours. Taken now:
+
+- **No cap**: the first refresh has room for 1024 and grows to the
+  node's total, then keeps that room, where 8192 hid every conversation
+  past it. `conversations_view_test` lists **twenty thousand**, paged a
+  hundred at a time as fuzznetd pages them, with a badge asked for each:
+  about 300 ms here. That also answers the badge question (their item
+  3): the per-row callback costs nothing measurable at that scale.
+- **A new group named inline**, a line under the list, where a
+  `QInputDialog` blocked the window.
+- **Choosing**: one click or tap opens a conversation -- activation
+  alone wanted a double click in most desktop styles -- and the
+  activation a double click also brings is the same act, not a second;
+  on a desktop the open conversation stays chosen across refreshes
+  (**sec 1232's clearing is now a phone's alone**, where the list is
+  left); `select(name, is_group)` sets it; `on_chosen` tells the host
+  each change and whether a person made it or a refresh lost it; the
+  chosen row's menu is offered for a phone's More button.
+- **Counts for the host**: contacts, groups and unread lines, and
+  `mark_read` changing them at once.
+- **The host's controls**: ours hidden (`set_controls_shown`), the
+  layout pinned flat or under headings (`set_layout`).
+- **Newest first by the view's own order**, not the node's.
+- **Pictures coloured by key**, so two contacts with one name differ.
+- **A contact and a group with one name**, pinned by a test.
+
+**Still to take from that list**: a mark per row for undelivered lines
+saying how long the oldest has waited (item 4); in the group menu,
+removing a member or changing an admin confirmed inline, contacts that
+are only a prekey offered disabled with why, location sharing at a
+chosen precision (item 8); and what "only ordinary contacts" (item 9)
+excludes, which our list -- conversations, not contacts -- reads
+differently, asked back.
+
+Tests: `conversations_view_test`, 64 checks. Sabotage: six new entries;
+five older ones repointed to the code that moved.

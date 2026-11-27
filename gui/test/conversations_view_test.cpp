@@ -12,6 +12,10 @@
 
 #include <QAccessible>
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QTreeWidget>
 
 #include <math.h>
@@ -44,11 +48,57 @@ static int silent, members_mode, called;
 static char read_choice[8]; /* bob's own read-marks choice, "" none (sec 1274) */
 static char asked[512];
 
+/* TWENTY THOUSAND CONTACTS, each with a conversation, sec 1496: every
+ * listing paged a hundred at a time, as fuzznetd pages them. */
+static int big;
+/* A CONTACT AND A GROUP CALLED family, listed oldest first, sec 1496. */
+static int twin;
+#define BIG_N 20000u
+#define BIG_PAGE 100u
+
+static size_t big_page(const char *line, char *reply, size_t cap)
+{
+	size_t from = 0, at, n;
+	const int newest = !strncmp(line, "list message newest", 19);
+	const int unread = !strncmp(line, "list message unread", 19);
+	const int contact = !strncmp(line, "list contact ", 13);
+
+	if (!newest && !unread && !contact)
+		return 0;
+	if (sscanf(line + (contact ? 13 : 19), "%zu", &from) != 1)
+		from = 0;
+	at = contact ? (size_t)snprintf(reply, cap, "ok %u %zu", BIG_N, from)
+	             : (size_t)snprintf(reply, cap, "ok %u %zu %u", BIG_N, from,
+	                                from + BIG_PAGE > BIG_N ? BIG_N - (unsigned)from : BIG_PAGE);
+	for (n = from; n < from + BIG_PAGE && n < BIG_N && at < cap; n++)
+		at += contact ? (size_t)snprintf(reply + at, cap - at, " c%zu,%064zx", n, n + 1)
+		      : newest ? (size_t)snprintf(reply + at, cap - at, " %064zx,%llu,in,-,text,hello", n + 1,
+		                                  1700000000000ull + n * 1000ull)
+		               : (size_t)snprintf(reply + at, cap - at, " %064zx,%u,0", n + 1, n % 7 ? 0u : 1u);
+	at += (size_t)snprintf(reply + at, cap - at, "\n");
+	return at;
+}
+
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
 	if (silent)
 		return 0;
+	if (twin && !strcmp(line, "list message newest"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 3 0 3 " DAN ",1700004600000,in,-,text,old " FAMILY
+		                        ",1700005700000,in,carol,text,hi " BOB ",1700005800000,in,-,text,new\n");
+	if (twin && !strcmp(line, "list message unread"))
+		return (size_t)snprintf(reply, cap, "ok 3 0 3 " BOB ",2,0 " FAMILY ",3,0 " DAN ",1,0\n");
+	if (twin && !strcmp(line, "list contact 0"))
+		return (size_t)snprintf(reply, cap, "ok 2 0 bob," BOB " family," DAN "\n");
+	if (big) {
+		const size_t said = big_page(line, reply, cap);
+		if (said)
+			return said;
+		if (!strcmp(line, "list group 0"))
+			return (size_t)snprintf(reply, cap, "ok 0 0\n");
+	}
 	/* BOB'S LINE AT 23:50, CAROL'S FILE IN THE FAMILY AT 23:48, DAN NOTHING. */
 	/* READ MARKS, sec 1274: the choice everywhere off, and bob's own as
 	 * the menu set it -- "" when it follows. */
@@ -217,10 +267,11 @@ int main(int argc, char **argv)
 	{
 		auto *tree = v.findChild<QTreeWidget *>();
 
-		/* AND OPENING ONE LEAVES NOTHING HIGHLIGHTED, sec 1232; a row
-		 * chosen without opening it is the one a refresh keeps. */
-		CHECK(tree && !tree->currentItem() && tree->selectedItems().isEmpty(),
-		      "a conversation opened was left highlighted");
+		/* ON A DESKTOP THE OPEN ONE STAYS CHOSEN, sec 1496 (sec 1232's
+		 * clearing is a phone's, which leaves the list). */
+		CHECK(tree && tree->currentItem() && tree->currentItem()->text(0).startsWith("family")
+		              && v.chosen() == "@family",
+		      "a conversation opened on a desktop was not left chosen");
 		tree->setCurrentItem(tree->topLevelItem(1)->child(0));
 		opened.clear();
 		CHECK(v.refresh() && tree && tree->currentItem() && tree->currentItem()->text(0).startsWith("family")
@@ -391,6 +442,103 @@ int main(int argc, char **argv)
 		      "an initial's colour was not the name's alone, or white on it was not 4.5:1");
 	}
 
+	/* WHAT A HOST HOSTING THE LIST WANTS OF IT, sec 1496 (fuzzypickles,
+	 * inbox 20261126T2240Z). */
+	{
+		fzn_conversations_view w(node, nullptr);
+		QStringList told;
+		QString opened_here;
+		int opens = 0;
+		auto *tree = w.findChild<QTreeWidget *>();
+
+		silent = 0;
+		twin = 1;
+		w.resize(800, 600);
+		w.on_open([&opened_here, &opens](const QString &to) {
+			opened_here = to;
+			opens++;
+		});
+		w.on_chosen([&told](const QString &to, bool person) { told << to + (person ? " by a person" : " by a refresh"); });
+		CHECK(w.refresh(), "fixture: the twins listed");
+		/* NEWEST FIRST BY THE VIEW, whatever order the node gave. */
+		CHECK(w.shown().value(1).startsWith("  bob") && w.shown().value(2).startsWith("  family"),
+		      "the contacts were not shown newest first by the view's own order");
+		/* A CONTACT AND A GROUP SHARING A NAME, kept apart. */
+		CHECK(w.select("family", false) && tree->currentItem()->text(0).startsWith("family -- old")
+		              && w.select("family", true) && tree->currentItem()->text(0).startsWith("family -- carol"),
+		      "a contact and a group called family were not told apart");
+		/* COUNTS, and changed at once by the host marking one read. */
+		CHECK(w.contacts_count() == 2 && w.groups_count() == 1 && w.unread_total() == 6,
+		      "the counts for a host were not contacts, groups and every unread line");
+		w.mark_read("@family");
+		CHECK(w.unread_total() == 3, "marking a conversation read did not change the count at once");
+		/* ONE CLICK OPENS, and on a desktop it stays chosen, told as a
+		 * person's choice; a refresh that loses it told as the refresh's. */
+		QTreeWidgetItem *bob_row = tree->topLevelItem(0)->child(0);
+		tree->itemClicked(bob_row, 0);
+		tree->itemActivated(bob_row, 0);
+		CHECK(opened_here == "bob" && opens == 1 && w.chosen() == "bob" && told == QStringList({ "bob by a person" }),
+		      "one click did not open bob once, keep it chosen and tell the host");
+		CHECK(w.refresh() && tree->currentItem() && tree->currentItem()->text(0).startsWith("bob"),
+		      "a refresh did not keep the open conversation chosen");
+		twin = 0;
+		w.refresh();
+		CHECK(told.size() == 1 && w.chosen() == "bob", "fixture: bob still listed");
+		/* THE CHOSEN ONE'S MENU, for a phone's More. */
+		CHECK(w.chosen_actions().contains("Send a file..."), "the chosen conversation's menu was not offered");
+		/* A NEW GROUP NAMED INLINE, no dialog. */
+		w.ask_group_name();
+		auto *name = w.findChild<QLineEdit *>();
+		QPushButton *make = nullptr;
+		for (QPushButton *b : w.findChildren<QPushButton *>())
+			if (b->text() == "Make the group")
+				make = b;
+		CHECK(name && make && name->isVisibleTo(&w), "New group did not ask the name inline");
+		if (name && make) {
+			name->setText("gardeners");
+			make->click();
+		}
+		CHECK(name && !name->isVisibleTo(&w) && w.status().startsWith("Made the group gardeners"),
+		      "the group named inline was not made");
+		/* THE HOST'S OWN CONTROLS: ours hidden. */
+		w.set_controls_shown(false);
+		CHECK(!make->isVisibleTo(&w) && !w.findChild<QLabel *>()->isVisibleTo(&w),
+		      "the host could not hide the view's own controls");
+		/* ON A PHONE, opened, the list is left with nothing highlighted. */
+		w.set_layout(1);
+		tree->itemClicked(tree->topLevelItem(0), 0);
+		CHECK(w.flat() && opens == 2 && !tree->currentItem() && tree->selectedItems().isEmpty(),
+		      "a conversation opened on a phone was left highlighted");
+		/* COLOURS BY KEY: two contacts with one name differ. */
+		CHECK(fzn_conversations_view::key_colour(QByteArray(32, '\x10'))
+		              != fzn_conversations_view::key_colour(QByteArray(32, '\x90')),
+		      "two keys gave one colour");
+	}
+	/* TWENTY THOUSAND, sec 1496 (fuzzypickles' list holds them, with their
+	 * badges, in under a second): every one listed, none hidden past a
+	 * cap, the newest first, and a refresh in a bounded time. */
+	{
+		fzn_conversations_view many(node, nullptr);
+		QElapsedTimer took;
+		int badges = 0;
+
+		silent = 0;
+		big = 1;
+		many.set_badge([&badges](const QString &, bool *) {
+			badges++;
+			return QString();
+		});
+		took.start();
+		const bool done = many.refresh();
+		const qint64 ms = took.elapsed();
+		const QStringList rows = many.shown();
+		fprintf(stderr, "conversations_view_test: 20000 contacts refreshed in %lld ms\n", (long long)ms);
+		CHECK(done && rows.size() >= (int)BIG_N && rows.join("\n").contains("c19999") && many.status().isEmpty()
+		              && badges >= (int)BIG_N,
+		      "twenty thousand conversations were not all listed, with their badges");
+		CHECK(ms < 5000, "twenty thousand conversations took five seconds or more to refresh");
+		big = 0;
+	}
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

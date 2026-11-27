@@ -39,6 +39,7 @@
 #include <stdint.h>
 
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QResizeEvent;
 class QTreeWidget;
@@ -59,9 +60,39 @@ public:
 	 * added from its menu (sec 1483): whether the node made it, said either
 	 * way. The New group button asks the name and calls this. */
 	bool create_group(const QString &name);
+	/* THE NAME ASKED INLINE, sec 1496: New group shows a line under the
+	 * list for the name, no dialog; `ask_group_name` is that button. */
+	void ask_group_name();
 
-	/* WHAT TO DO WHEN ONE IS CHOSEN: given the contact's name, or `@NAME`. */
+	/* WHAT TO DO WHEN ONE IS CHOSEN: given the contact's name, or `@NAME`.
+	 * One click or tap opens it (sec 1496), as a messenger's list does. */
 	void on_open(std::function<void(const QString &)> open);
+	/* THE OPEN ONE, sec 1496: on a desktop it stays chosen in the list,
+	 * across refreshes, and the host may set it -- a contact by name, a
+	 * group by its name with `is_group`. Whether it is listed. */
+	bool select(const QString &name, bool is_group);
+	QString chosen() const;
+	/* TOLD WHEN THE CHOICE CHANGES: what is chosen now (empty for none),
+	 * and whether a person chose it or a refresh lost it. */
+	void on_chosen(std::function<void(const QString &to, bool by_person)> told) { m_chosen_told = told; }
+	/* THE CHOSEN ONE'S MENU, for a phone's More button: its actions, and
+	 * the menu shown under `at` (global). Empty, and nothing shown, with
+	 * none chosen. */
+	QStringList chosen_actions();
+	bool act_chosen(const QString &action);
+	void show_chosen_menu(const QPoint &at);
+	/* COUNTS FOR A HOST'S STATUS STRIP AND TASKBAR, sec 1496: contacts and
+	 * groups listed, and the unread lines across them all; changed at once
+	 * by `mark_read`, which a host calls as it marks one read. */
+	int contacts_count() const;
+	int groups_count() const;
+	size_t unread_total() const;
+	void mark_read(const QString &to);
+	/* THE HOST'S CONTROLS (sec 1496): the Refresh and New group buttons
+	 * and the status line hidden where the host has its own; the layout
+	 * pinned flat (1) or under headings (0), or by width (-1). */
+	void set_controls_shown(bool shown);
+	void set_layout(int flat);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose the `row`th conversation under contacts (`group` 0) or groups
@@ -94,6 +125,8 @@ public:
 	 * initial clears 4.5:1 (WCAG). The circle is the initial's own ground,
 	 * so it needs nothing of the desktop's. Shown on a phone's flat list. */
 	static QColor initial_colour(const QString &name);
+	/* BY KEY, sec 1496: two contacts sharing a name look different. */
+	static QColor key_colour(const QByteArray &key);
 	/* ONE LIST ON A PHONE, sec 1245: whether the rows are shown flat --
 	 * contacts and groups together, newest first, a group marked -- not
 	 * under two headings. `open` and `act` count a kind's rows either way. */
@@ -121,6 +154,7 @@ private:
 		QString name, text, when, open;
 		QByteArray key; /* the contact's key or the group's id, sec 1274 */
 		size_t unread;
+		uint64_t stime_ms; /* the newest line's, for the view's own order */
 		int kind;
 	};
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: "Read marks: ..." entries,
@@ -128,6 +162,8 @@ private:
 	void read_marks_menu(const QByteArray &key, QStringList *out);
 	bool read_marks_act(const QByteArray &key, const QString &name, const QString &action);
 	QVector<row> m_rows;
+	/* How many conversations the last refresh had room for. */
+	size_t m_room = 0;
 	bool m_flat = false;
 	QTreeWidgetItem *row_item(int group, int row) const;
 	int sharing(const QString &contact);
@@ -147,6 +183,15 @@ private:
 	QPushButton *m_refresh;
 	QPushButton *m_new_group;
 	QLabel *m_status;
+	QLineEdit *m_group_name;
+	QPushButton *m_make_group;
+	QWidget *m_group_row;
+	QString m_chosen, m_last_open;
+	qint64 m_last_open_at = 0;
+	int m_layout_pin = -1;
+	std::function<void(const QString &, bool)> m_chosen_told;
+	void opened(const QString &to);
+	void show_menu(QTreeWidgetItem *item, const QPoint &at);
 };
 
 #endif /* FZN_GUI_CONVERSATIONS_VIEW_H */

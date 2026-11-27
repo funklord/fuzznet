@@ -18054,14 +18054,14 @@ SABOTAGES = [
 	(
 		"conversations-layout-wipes-status",
 		"gui/conversations_view.cpp",
-		"\tplace.restore();\n}\n\nvoid fzn_conversations_view::resizeEvent",
-		"\tplace.restore();\n\tm_status->clear();\n}\n\nvoid fzn_conversations_view::resizeEvent",
+		"\tplace.restore();\n\t/* THE OPEN ONE STAYS CHOSEN on a desktop",
+		"\tplace.restore();\n\tm_status->clear();\n\t/* THE OPEN ONE STAYS CHOSEN on a desktop",
 		"a change of width wipes what the last refresh said -- sec 1245",
 	),
 	(
 		"conversations-never-flat",
 		"gui/conversations_view.cpp",
-		"\tconst bool flat = fzn_phone_layout(event->size().width());\n",
+		"\tconst bool flat = m_layout_pin < 0 ? fzn_phone_layout(event->size().width()) : m_layout_pin == 1;\n",
 		"\tconst bool flat = false;\n",
 		"a phone shows the conversations under two headings, never one list -- sec 1245",
 	),
@@ -19188,7 +19188,7 @@ SABOTAGES = [
 	(
 		"initial-unshown",
 		"gui/conversations_view.cpp",
-		"\t\t\titem->setIcon(0, initial_icon(r.name));\n",
+		"\t\t\titem->setIcon(0, initial_icon(r.name, r.key));\n",
 		"\t\t\t(void)r;\n",
 		"a contact on a phone's list has no picture -- sec 1264",
 	),
@@ -19930,9 +19930,9 @@ SABOTAGES = [
 	(
 		"conversations-opened-left-highlighted",
 		"gui/conversations_view.cpp",
-		"\tm_open(to);\n\t/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */\n\tm_tree->clearSelection();\n\tm_tree->setCurrentItem(nullptr);\n",
-		"\tm_open(to);\n",
-		"a conversation opened stays highlighted in the list -- sec 1232",
+		"\t\t/* NOTHING LEFT HIGHLIGHTED once it is open on a phone, sec 1232. */\n\t\tm_tree->clearSelection();\n\t\tm_tree->setCurrentItem(nullptr);\n",
+		"",
+		"a conversation opened on a phone stays highlighted in the list -- sec 1232",
 	),
 	(
 		"conversations-stale-badge-bright",

@@ -12,6 +12,7 @@ extern "C" {
 }
 
 #include <QAction>
+#include <QApplication>
 #include <QByteArray>
 #include <QColor>
 #include <QDateTime>
@@ -24,13 +25,14 @@ extern "C" {
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
-#include <QInputDialog>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSet>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 
+#include <algorithm>
 #include <cmath>
 #include <QVBoxLayout>
 
@@ -39,7 +41,8 @@ extern "C" {
 #include <time.h>
 
 /* The most conversations shown: past it the listing is cut and said so. */
-#define CONVERSATIONS_MAX 8192u
+/* ROOM FOR THE FIRST REFRESH; grown to what the node holds (sec 1496). */
+#define CONVERSATIONS_FIRST 1024u
 
 /* A ROW'S ITEM carries what to open it by, and what kind of row it is. */
 #define ROLE_OPEN (Qt::UserRole)
@@ -181,6 +184,21 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	m_new_group->setToolTip(tr("Make a group; add its members from its menu"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
+	/* THE NEW GROUP'S NAME, ASKED INLINE (sec 1496): a line under the list,
+	 * where a dialog blocked the window. */
+	m_group_row = new QWidget(this);
+	m_group_name = new QLineEdit(m_group_row);
+	m_group_name->setPlaceholderText(tr("The new group's name"));
+	m_group_name->setAccessibleName(tr("The new group's name"));
+	m_make_group = new QPushButton(tr("Make the group"), m_group_row);
+	auto *cancel_group = new QPushButton(tr("Cancel"), m_group_row);
+	{
+		auto *naming = new QHBoxLayout(m_group_row);
+		naming->addWidget(m_group_name, 1);
+		naming->addWidget(m_make_group);
+		naming->addWidget(cancel_group);
+	}
+	m_group_row->hide();
 
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_new_group);
@@ -188,73 +206,198 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	row->addStretch(1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_tree, 1);
+	col->addWidget(m_group_row);
 	col->addLayout(row);
 	col->addWidget(m_status);
+	connect(m_make_group, &QPushButton::clicked, [this]() {
+		if (create_group(m_group_name->text())) {
+			m_group_name->clear();
+			m_group_row->hide();
+		}
+	});
+	connect(m_group_name, &QLineEdit::returnPressed, [this]() { m_make_group->click(); });
+	connect(cancel_group, &QPushButton::clicked, [this]() {
+		m_group_name->clear();
+		m_group_row->hide();
+	});
 
 	/* A SCREEN READER OPENS ONE TOO, sec 1423: its double tap only selects,
 	 * so the row is opened as activation opens it. */
 	fzn_select_rows_through_cells(m_tree);
 	fzn_choose_on_accessible_select(m_tree, [this](const QModelIndex &) {
 		QTreeWidgetItem *item = m_tree->currentItem();
-		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
-
-		if (!to.isEmpty() && m_open) {
-			m_open(to);
-			m_tree->clearSelection();
-			m_tree->setCurrentItem(nullptr);
-		}
+		opened(item ? item->data(0, ROLE_OPEN).toString() : QString());
 	});
+	/* ONE CLICK OR TAP OPENS IT (sec 1496), and Enter: activation alone
+	 * wanted a double click in most desktop styles. */
 	connect(m_tree, &QTreeWidget::itemActivated, [this](QTreeWidgetItem *item, int) {
 		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
-		if (!to.isEmpty() && m_open) {
-			m_open(to);
-			/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */
-			m_tree->clearSelection();
-			m_tree->setCurrentItem(nullptr);
-		}
+		/* THE ACTIVATION A DOUBLE CLICK BRINGS after its first click
+		 * opened it already: one act, not two. */
+		if (to == m_last_open && QDateTime::currentMSecsSinceEpoch() - m_last_open_at
+		                                 <= QApplication::doubleClickInterval())
+			return;
+		opened(to);
+	});
+	connect(m_tree, &QTreeWidget::itemClicked, [this](QTreeWidgetItem *item, int) {
+		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
+		opened(to);
+		m_last_open = to;
+		m_last_open_at = QDateTime::currentMSecsSinceEpoch();
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
-	connect(m_new_group, &QPushButton::clicked, [this]() {
-		bool ok = false;
-		const QString name = QInputDialog::getText(this, tr("New group"), tr("Its name:"), QLineEdit::Normal,
-		                                           QString(), &ok);
-		if (ok)
-			create_group(name);
-	});
+	connect(m_new_group, &QPushButton::clicked, [this]() { ask_group_name(); });
 	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_tree, &QTreeWidget::customContextMenuRequested, [this](const QPoint &at) {
-		int group = 0, row = 0;
-		if (!place_of(m_tree, m_tree->itemAt(at), m_flat, &group, &row))
-			return;
-		QMenu menu(this);
-		QHash<QString, QMenu *> under;
-		for (const QString &a : actions(group, row)) {
-			/* "WHAT: WHO" UNDER A SUBMENU OF WHAT (sec 1246), and the act
-			 * named in full however it was reached. */
-			const int colon = a.indexOf(QStringLiteral(": "));
-			QMenu *in = &menu;
-			if (colon > 0) {
-				const QString what = a.left(colon);
-				if (!under.contains(what))
-					under.insert(what, menu.addMenu(what));
-				in = under.value(what);
-			}
-			QAction *offered = in->addAction(colon > 0 ? a.mid(colon + 2) : a);
-			offered->setData(a);
-			/* OFFERED DISABLED, SAYING WHY, rather than refused when chosen. */
-			if (!refused(a).isEmpty()) {
-				offered->setEnabled(false);
-				offered->setText(tr("%1 -- %2").arg(a, refused(a)));
-			}
-		}
-		QAction *chosen = menu.exec(m_tree->viewport()->mapToGlobal(at));
-		if (chosen)
-			act(group, row, chosen->data().toString());
+		show_menu(m_tree->itemAt(at), m_tree->viewport()->mapToGlobal(at));
 	});
 	m_status->setText(tr("No conversations yet."));
 }
 
 fzn_conversations_view::~fzn_conversations_view() { delete m_rpc; }
+
+/* A ROW'S MENU at `at`, global. */
+void fzn_conversations_view::show_menu(QTreeWidgetItem *item, const QPoint &at)
+{
+	int group = 0, row = 0;
+	if (!place_of(m_tree, item, m_flat, &group, &row))
+		return;
+	QMenu menu(this);
+	QHash<QString, QMenu *> under;
+	for (const QString &a : actions(group, row)) {
+		/* "WHAT: WHO" UNDER A SUBMENU OF WHAT (sec 1246), and the act
+		 * named in full however it was reached. */
+		const int colon = a.indexOf(QStringLiteral(": "));
+		QMenu *in = &menu;
+		if (colon > 0) {
+			const QString what = a.left(colon);
+			if (!under.contains(what))
+				under.insert(what, menu.addMenu(what));
+			in = under.value(what);
+		}
+		QAction *offered = in->addAction(colon > 0 ? a.mid(colon + 2) : a);
+		offered->setData(a);
+		/* OFFERED DISABLED, SAYING WHY, rather than refused when chosen. */
+		if (!refused(a).isEmpty()) {
+			offered->setEnabled(false);
+			offered->setText(tr("%1 -- %2").arg(a, refused(a)));
+		}
+	}
+	QAction *chosen = menu.exec(at);
+	if (chosen)
+		act(group, row, chosen->data().toString());
+}
+
+/* OPENED, once however it was asked -- a click and the activation a
+ * double click also brings are one act -- the host told, and the choice
+ * kept on a desktop; on a phone the list is left, so nothing stays. */
+void fzn_conversations_view::opened(const QString &to)
+{
+	if (to.isEmpty() || !m_open)
+		return;
+	m_last_open.clear();
+	m_open(to);
+	if (m_flat) {
+		/* NOTHING LEFT HIGHLIGHTED once it is open on a phone, sec 1232. */
+		m_tree->clearSelection();
+		m_tree->setCurrentItem(nullptr);
+		return;
+	}
+	if (to != m_chosen) {
+		m_chosen = to;
+		if (m_chosen_told)
+			m_chosen_told(to, true);
+	}
+}
+
+bool fzn_conversations_view::select(const QString &name, bool is_group)
+{
+	const QString to = is_group ? QStringLiteral("@") + name : name;
+	QTreeWidgetItemIterator it(m_tree);
+
+	for (; *it; ++it)
+		if ((*it)->data(0, ROLE_OPEN).toString() == to) {
+			m_tree->setCurrentItem(*it);
+			m_chosen = to;
+			return true;
+		}
+	return false;
+}
+
+QString fzn_conversations_view::chosen() const { return m_chosen; }
+
+QStringList fzn_conversations_view::chosen_actions()
+{
+	int group = 0, row = 0;
+	return place_of(m_tree, m_tree->currentItem(), m_flat, &group, &row) ? actions(group, row) : QStringList();
+}
+
+bool fzn_conversations_view::act_chosen(const QString &action)
+{
+	int group = 0, row = 0;
+	return place_of(m_tree, m_tree->currentItem(), m_flat, &group, &row) && act(group, row, action);
+}
+
+void fzn_conversations_view::show_chosen_menu(const QPoint &at) { show_menu(m_tree->currentItem(), at); }
+
+int fzn_conversations_view::contacts_count() const
+{
+	int n = 0;
+	for (const row &r : m_rows)
+		n += r.kind != ROW_GROUP;
+	return n;
+}
+
+int fzn_conversations_view::groups_count() const
+{
+	int n = 0;
+	for (const row &r : m_rows)
+		n += r.kind == ROW_GROUP;
+	return n;
+}
+
+size_t fzn_conversations_view::unread_total() const
+{
+	size_t n = 0;
+	for (const row &r : m_rows)
+		n += r.unread;
+	return n;
+}
+
+void fzn_conversations_view::mark_read(const QString &to)
+{
+	for (row &r : m_rows)
+		if (r.open == to && r.unread) {
+			r.unread = 0;
+			lay_out();
+			return;
+		}
+}
+
+void fzn_conversations_view::set_controls_shown(bool shown)
+{
+	m_refresh->setVisible(shown);
+	m_new_group->setVisible(shown);
+	m_status->setVisible(shown);
+	if (!shown)
+		m_group_row->hide();
+}
+
+void fzn_conversations_view::set_layout(int flat)
+{
+	m_layout_pin = flat < 0 ? -1 : flat ? 1 : 0;
+	const bool want = m_layout_pin < 0 ? fzn_phone_layout(width()) : m_layout_pin == 1;
+	if (want != m_flat) {
+		m_flat = want;
+		lay_out();
+	}
+}
+
+void fzn_conversations_view::ask_group_name()
+{
+	m_group_row->show();
+	m_group_name->setFocus();
+}
 
 void fzn_conversations_view::on_open(std::function<void(const QString &)> open) { m_open = open; }
 
@@ -282,6 +425,15 @@ static double luminance(const QColor &c)
 	return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF());
 }
 
+/* A HUE DARKENED until white on it clears 4.5:1 (WCAG). */
+static QColor under_white(int hue)
+{
+	QColor c = QColor::fromHsl(hue, 150, 100);
+	while (1.05 / (luminance(c) + 0.05) < 4.5 && c.lightness() > 20)
+		c = QColor::fromHsl(c.hslHue(), c.hslSaturation(), c.lightness() - 8);
+	return c;
+}
+
 QColor fzn_conversations_view::initial_colour(const QString &name)
 {
 	/* A HUE FROM THE NAME by FNV-1a, stable across runs where qHash is
@@ -289,13 +441,17 @@ QColor fzn_conversations_view::initial_colour(const QString &name)
 	uint32_t h = 2166136261u;
 	for (const QChar ch : name.toCaseFolded())
 		h = (h ^ ch.unicode()) * 16777619u;
-	QColor c = QColor::fromHsl((int)(h % 360u), 150, 100);
-	while (1.05 / (luminance(c) + 0.05) < 4.5 && c.lightness() > 20)
-		c = QColor::fromHsl(c.hslHue(), c.hslSaturation(), c.lightness() - 8);
-	return c;
+	return under_white((int)(h % 360u));
 }
 
-static QIcon initial_icon(const QString &name)
+QColor fzn_conversations_view::key_colour(const QByteArray &key)
+{
+	/* A HUE FROM THE KEY'S FIRST BYTES, darkened as `initial_colour`. */
+	const uint32_t h = key.size() >= 4 ? ((uint32_t)(uint8_t)key[0] << 8 | (uint8_t)key[1]) : 0u;
+	return under_white((int)(h % 360u));
+}
+
+static QIcon initial_icon(const QString &name, const QByteArray &key)
 {
 	const int px = 32;
 	QPixmap pm(px, px);
@@ -306,7 +462,9 @@ static QIcon initial_icon(const QString &name)
 	p.begin(&pm);
 	p.setRenderHint(QPainter::Antialiasing);
 	p.setPen(Qt::NoPen);
-	p.setBrush(fzn_conversations_view::initial_colour(name));
+	/* BY KEY where there is one (sec 1496): two contacts called Anna. */
+	p.setBrush(key.size() == 32 ? fzn_conversations_view::key_colour(key)
+	                            : fzn_conversations_view::initial_colour(name));
 	p.drawEllipse(0, 0, px, px);
 	f.setBold(true);
 	f.setPixelSize(px / 2);
@@ -359,7 +517,7 @@ void fzn_conversations_view::lay_out()
 			item->setData(0, Qt::AccessibleDescriptionRole, tr("a group"));
 		} else if (m_flat) {
 			/* A PICTURE FOR A CONTACT, its initial (sec 1264). */
-			item->setIcon(0, initial_icon(r.name));
+			item->setIcon(0, initial_icon(r.name, r.key));
 		}
 		/* THE UNREAD COUNT AS A MARK, bold in the highlight's colour, and
 		 * said in words to a screen reader. */
@@ -387,12 +545,16 @@ void fzn_conversations_view::lay_out()
 		group_head->setExpanded(true);
 	}
 	place.restore();
+	/* THE OPEN ONE STAYS CHOSEN on a desktop, whatever was under the
+	 * pointer before the refill. */
+	if (!m_flat && !m_chosen.isEmpty())
+		(void)select(m_chosen.startsWith(QLatin1Char('@')) ? m_chosen.mid(1) : m_chosen, m_chosen.startsWith(QLatin1Char('@')));
 }
 
 void fzn_conversations_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	const bool flat = fzn_phone_layout(event->size().width());
+	const bool flat = m_layout_pin < 0 ? fzn_phone_layout(event->size().width()) : m_layout_pin == 1;
 	if (flat != m_flat) {
 		m_flat = flat;
 		lay_out();
@@ -422,17 +584,35 @@ bool fzn_conversations_view::create_group(const QString &name)
 bool fzn_conversations_view::refresh()
 {
 	const uint32_t now = m_now ? m_now : (uint32_t)time(NULL);
-	auto *newest = (fzn_rpc_newest_entry_t *)calloc(CONVERSATIONS_MAX, sizeof(fzn_rpc_newest_entry_t));
-	auto *unread = (fzn_rpc_unread_entry_t *)calloc(CONVERSATIONS_MAX, sizeof(fzn_rpc_unread_entry_t));
+	size_t room = m_room ? m_room : CONVERSATIONS_FIRST;
+	auto *newest = (fzn_rpc_newest_entry_t *)calloc(room, sizeof(fzn_rpc_newest_entry_t));
+	auto *unread = (fzn_rpc_unread_entry_t *)calloc(room, sizeof(fzn_rpc_unread_entry_t));
 	fzn_rpc_peer_list_resp_t peers;
 	fzn_rpc_group_list_resp_t groups;
 	size_t n = 0, total = 0, n_unread = 0, unread_total = 0, i;
+	int listed = 0;
 
 	memset(&peers, 0, sizeof peers);
 	memset(&groups, 0, sizeof groups);
-	if (!newest || !unread
-	    || fzn_rpc_newest_all(&m_rpc->c, newest, CONVERSATIONS_MAX, &n, &total) != FZN_RPC_OK
-	    || fzn_rpc_unread_all(&m_rpc->c, unread, CONVERSATIONS_MAX, &n_unread, &unread_total) != FZN_RPC_OK
+	/* AS MANY AS THERE ARE, sec 1496: room for what the last refresh found,
+	 * and grown to the total once if there are more -- where a cap of
+	 * 8192 hid every conversation past it. */
+	if (newest && unread && fzn_rpc_newest_all(&m_rpc->c, newest, room, &n, &total) == FZN_RPC_OK
+	    && fzn_rpc_unread_all(&m_rpc->c, unread, room, &n_unread, &unread_total) == FZN_RPC_OK) {
+		listed = 1;
+		if (total > room || unread_total > room) {
+			room = qMax(total, unread_total);
+			free(newest);
+			free(unread);
+			newest = (fzn_rpc_newest_entry_t *)calloc(room, sizeof(fzn_rpc_newest_entry_t));
+			unread = (fzn_rpc_unread_entry_t *)calloc(room, sizeof(fzn_rpc_unread_entry_t));
+			listed = newest && unread
+			         && fzn_rpc_newest_all(&m_rpc->c, newest, room, &n, &total) == FZN_RPC_OK
+			         && fzn_rpc_unread_all(&m_rpc->c, unread, room, &n_unread, &unread_total) == FZN_RPC_OK;
+		}
+		m_room = room;
+	}
+	if (!newest || !unread || !listed
 	    || fzn_rpc_peer_list(&m_rpc->c, &peers) != FZN_RPC_OK
 	    || fzn_rpc_group_list(&m_rpc->c, &groups) != FZN_RPC_OK) {
 		m_status->setText(newest && unread ? failed_words(m_rpc) : tr("No room to list them."));
@@ -475,9 +655,24 @@ bool fzn_conversations_view::refresh()
 		r.open = is_group ? QStringLiteral("@") + name : name;
 		r.key = key;
 		r.kind = is_group ? ROW_GROUP : contact_name.contains(key) ? ROW_CONTACT : ROW_UNNAMED;
+		r.stime_ms = e->stime_ms;
 		m_rows.append(r);
 	}
+	/* NEWEST FIRST BY THE VIEW'S OWN ORDER (sec 1496), not the node's. */
+	std::stable_sort(m_rows.begin(), m_rows.end(), [](const row &a, const row &b) { return a.stime_ms > b.stime_ms; });
 	lay_out();
+	/* THE OPEN ONE GONE -- a group left, a contact removed -- the host
+	 * told, as a rebuild's doing rather than a person's. */
+	if (!m_chosen.isEmpty()) {
+		bool still = false;
+		for (const row &r : m_rows)
+			still |= r.open == m_chosen;
+		if (!still) {
+			m_chosen.clear();
+			if (m_chosen_told)
+				m_chosen_told(QString(), false);
+		}
+	}
 	/* THE STATUS IS THE REFRESH'S, not the layout's: laid out again at
 	 * another width, the list keeps whatever was last said of it. */
 	m_status->setText(!n ? tr("No conversations yet.")
@@ -497,10 +692,7 @@ bool fzn_conversations_view::open(int group, int row)
 	if (to.isEmpty() || !m_open)
 		return false;
 	m_tree->setCurrentItem(item);
-	m_open(to);
-	/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */
-	m_tree->clearSelection();
-	m_tree->setCurrentItem(nullptr);
+	opened(to);
 	return true;
 }
 
