@@ -40,6 +40,8 @@ static char members[512];
 static int earlier = 1;
 static char asked[1024];
 static int silent;
+/* WHAT BOB AND CAROL HOLD OF THIS HOST'S LINES, sec 1510. */
+static int watered;
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -52,6 +54,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	}
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok " SELF " " SELF "\n");
+	if (watered && !strcmp(line, "get group family water 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 2 0 1700005800000 " BOB ",x,1700005800000,y " CAROL ",x,-,y\n");
 	if (!strcmp(line, "get group family member 0"))
 		return (size_t)snprintf(reply, cap, "ok %s\n", members);
 	if (!strcmp(line, "list group 0"))
@@ -120,6 +125,12 @@ int main(int argc, char **argv)
 	CHECK(strstr(asked, "remove group family\n") != nullptr, "leaving did not ask the node");
 
 	v.set_group("family");
+	/* THE ROSTER SAYS WHAT EACH HOLDS of this host's lines (sec 1510). */
+	watered = 1;
+	CHECK(v.refresh() && v.members().filter("bob").value(0).endsWith(" -- has all your lines")
+	              && v.members().filter("dan").value(0).endsWith(" -- has said nothing yet"),
+	      "the roster did not say what each member holds of this host's lines");
+	watered = 0;
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
 

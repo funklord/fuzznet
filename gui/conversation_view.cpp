@@ -1183,14 +1183,22 @@ bool fzn_conversation_view::send_file(const QString &path)
 	const bool group = m_contact.startsWith(QLatin1Char('@'));
 	QByteArray to = (group ? m_contact.mid(1) : m_contact).toUtf8();
 	fzn_rpc_blob_add_resp_t stored;
+	/* SENT IN REPLY while a reply is under way (sec 1510), as a line is:
+	 * the node writes the reply mark before the reference (sec 1395). */
+	const bool replying = m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;
 	if (fzn_rpc_blob_add(&m_rpc->c, at.constData(), (size_t)at.size(), FZN_RPC_BLOB_TIER_PRIVATE, &stored)
 	            != FZN_RPC_OK
-	    || fzn_rpc_message_attach(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
-	                              stored.root, name.constData(), (size_t)name.size())
+	    || (replying ? fzn_rpc_message_attach_reply(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
+	                                                stored.root, name.constData(), (size_t)name.size(),
+	                                                (const uint8_t *)m_reply_to.constData())
+	                 : fzn_rpc_message_attach(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
+	                                          stored.root, name.constData(), (size_t)name.size()))
 	               != FZN_RPC_OK) {
 		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
+	if (replying)
+		reply_to(QByteArray());
 	refresh();
 	m_notice->say(tr("Sent %1, %2.").arg(QString::fromUtf8(name), fzn_size_words(stored.byte_len)));
 	return true;

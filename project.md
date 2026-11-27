@@ -78266,3 +78266,27 @@ a prekey contact refused, two ticked and one refused by the node, ready
 and opened, skipping, notices, 320 px); `conversations_view_test` (the
 three hooks). `qtty_render_test` renders the new form. Sabotage: five
 entries, each caught.
+
+## 1510. A file sent in reply, and what each group member holds
+
+The run's last walk of the goal gap: of the 191 calls in `local/rpc.h`,
+49 appear in no view. Most are reached another way -- the notes through
+the notebook's own requests, retention and unread in binary, a call's
+frames through `local/`'s sound path, `fzn_rpc_node` and the events as
+plumbing, a host's own location fixes fed by its platform -- or were
+settled in this run (secs 1502-1508). Two were a person's:
+
+- **A file sent while replying** went as a plain attachment: the
+  conversation view used `fzn_rpc_message_attach` whatever was under
+  way. `fzn_rpc_message_attach_reply` (sec 1395, fuzzypickles' ask)
+  writes the reply mark before the reference; the view now sends with
+  it while a reply is under way, and ends the reply, as a line does.
+- **What each group member holds of this host's lines**
+  (`fzn_rpc_group_water`, sec 911) is asked apart, as its comment says a
+  roster wants it, and no roster asked. The group view's members now
+  say "has all your lines", "has your lines to DATE TIME", or "has said
+  nothing yet"; a node that cannot say leaves them unmarked.
+
+Tests: `conversation_view_test` (a file in reply names its line and
+ends the reply); `group_view_test` (bob holding all, dan unheard).
+Sabotage: both caught.

@@ -1263,6 +1263,20 @@ SABOTAGES = [
 		"who could not be added to a new group is said, with why -- sec 1508",
 	),
 	(
+		"conversation-view-file-reply-plain",
+		"gui/conversation_view.cpp",
+		"\tconst bool replying = m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;\n",
+		"\tconst bool replying = false;\n",
+		"a file sent while replying names the line it answers -- sec 1510",
+	),
+	(
+		"group-view-water-unsaid",
+		"gui/group_view.cpp",
+		"\t\tif (watered && !you && show.own_high_seq)\n",
+		"\t\tif (0)\n",
+		"the roster says what each member holds of this host's lines -- sec 1510",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

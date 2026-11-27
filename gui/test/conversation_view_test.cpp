@@ -617,6 +617,13 @@ int main(int argc, char **argv)
 		e.set_text("plain");
 		last_add[0] = '\0';
 		CHECK(e.send() && !strstr(last_add, "fzn:reply/"), "a line after the reply was sent as one too");
+		/* A FILE IN REPLY, sec 1510: sent naming the line it answers, and
+		 * the reply ended, as a line in reply is. */
+		e.reply_to(QByteArray::fromHex(ID1));
+		last_add[0] = '\0';
+		CHECK(e.send_file("/tmp/fzn-send-test.jpg") && strstr(last_add, "attach " FILE_ROOT)
+		              && strstr(last_add, " reply " ID1) && e.replying().isEmpty(),
+		      "a file sent while replying did not name the line it answers, or the reply did not end");
 		last_add[0] = '\0';
 		CHECK(e.react(QByteArray::fromHex(ID1), fzn_conversation_view::reactions().value(0))
 		              && strstr(last_add, "message gil") && strstr(last_add, "fzn:react/" ID1 "%20\xf0\x9f\x91\x8d"),

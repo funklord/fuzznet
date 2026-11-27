@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QDateTime>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSet>
@@ -114,6 +115,10 @@ bool fzn_group_view::refresh()
 	}
 	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
 	 * (sec 1225). */
+	/* WHAT EACH HOLDS OF THIS HOST'S LINES, sec 1510: asked apart, as the
+	 * call says a roster wants it; a node that cannot say leaves the rows
+	 * unmarked. */
+	const bool watered = fzn_rpc_group_water(&m_rpc->c, group.constData(), (size_t)group.size(), &show) == FZN_RPC_OK;
 	fzn_keep_place member_place(m_members, 0, ROLE_NAME);
 	const QString contact_chosen = m_contacts->currentText();
 	m_members->clear();
@@ -125,6 +130,12 @@ bool fzn_group_view::refresh()
 		QString said = you ? tr("you") : !name.isEmpty() ? name : QString::fromUtf8(fzn_rpc_group_nameless_label(&show, i));
 		if (m->admin)
 			said += tr(" (admin)");
+		if (watered && !you && show.own_high_seq)
+			said += !m->heard                            ? tr(" -- has said nothing yet")
+			        : m->acked_seq >= show.own_high_seq ? tr(" -- has all your lines")
+			                                            : tr(" -- has your lines to %1")
+			                                                      .arg(QDateTime::fromMSecsSinceEpoch((qint64)m->acked_seq)
+			                                                                   .toString(QStringLiteral("yyyy-MM-dd HH:mm")));
 		auto *item = new QListWidgetItem(said, m_members);
 		item->setData(ROLE_NAME, you ? QString() : name);
 		item->setData(ROLE_ADMIN, (bool)m->admin);
