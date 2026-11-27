@@ -2531,24 +2531,48 @@ static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg,
 		slice = resends < FZN_CALLER_RESENDS && left > FZN_CALLER_RESEND_MS
 		                ? FZN_CALLER_RESEND_MS
 		                : left;
-		int heard;
+		const uint64_t slice_end = mono_ms() + slice;
 
-		/* MARKED, so an extension's `ready` called in the wait is known to
-		 * be mid-step, sec 835. */
-		waiting_in_turn = 1;
-		heard = !answering
-		        || fzn_node_wait_answering(answering, caller->fd, slice, answering_local);
-		waiting_in_turn = 0;
-		if (heard) {
-			spent = mono_ms() - began;
-			left = spent < 3000u ? 3000u - (unsigned)spent : 1u;
+		/* THE WAIT THAT SERVES STAYS IN CHARGE, sec 1494: what has arrived
+		 * is read, a millisecond at most, and the rest of the slice is
+		 * waited for serving others again. Given the whole slice, a reply
+		 * whose first piece had come sat in the caller's own read until
+		 * the slice ended, answering nobody -- and two siblings asking
+		 * each other at once each held the other's answer until a resend,
+		 * 1.2 s an ask from the first reply in two pieces on (fuzzypickles,
+		 * inbox 20261127T0033Z: 7.9 to 26 s held at ROUND_RECONCILE). */
+		for (;;) {
+			const uint64_t at = mono_ms();
+			int heard;
+
+			if (at >= slice_end)
+				break;
+			/* MARKED, so an extension's `ready` called in the wait is
+			 * known to be mid-step, sec 835. */
+			waiting_in_turn = 1;
+			heard = !answering
+			        || fzn_node_wait_answering(answering, caller->fd, (unsigned)(slice_end - at),
+			                                   answering_local);
+			waiting_in_turn = 0;
+			if (!heard)
+				break;
 			err = fzn_caller_recv_for(caller, msg, reply, reply_cap, reply_len,
-			                          answering && left > slice ? slice : left);
+			                          answering ? 1u : (unsigned)(slice_end - at));
 			if (err != FZN_CALLER_ERR_TIMEOUT)
 				return err;
+			if (!answering)
+				break;
 		}
 		if (resends >= FZN_CALLER_RESENDS || mono_ms() - began >= 3000u)
 			break;
+		/* WHAT THE SOCKET HAD, sec 1492: fuzzypickles' sibling answered each
+		 * ask at once and this node took only the third copy -- counted
+		 * here, so a resend says what every datagram before it was. */
+		say(FZN_ENTRY_DEBUG, "node/round",
+		    "message %lu resent after %llu ms: heard %lu, unopened %lu, unasked %lu, another's %lu, "
+		    "given up %lu, refused %lu, pieces %lu",
+		    (unsigned long)msg, (unsigned long long)(mono_ms() - began), caller->heard, caller->unopened,
+		    caller->unasked, caller->elsewhere, caller->late, caller->refused, caller->pieces);
 		if (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)
 			break;
 		resends++;

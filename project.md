@@ -77922,3 +77922,37 @@ fetched and handed on, remove asked then done and told, the movie's
 three arrived slices saved 0600, a 300-letter name refused unstored, and
 narrow. Sabotage: six new entries, each caught; one guarding sec 1156's
 refusal to play a file elsewhere removed with that rule.
+
+## 1494. A node asking in turn goes on serving while a reply arrives
+
+**The cause of fuzzypickles' 8 to 26 s at `ROUND_RECONCILE`** (inbox
+20261127T0033Z, after sec 1492's bound did not end it). Their sibling's
+log showed it answering every ask at once, and from the first reply in
+two pieces on, n taking each answer only after resending twice, 1.2 s
+an ask. Reproduced here by `live_siblings` with its logs kept: 19 and 27
+resends in two runs, every reply copy counted as another message's,
+each copy of an answer arriving after n had moved on.
+
+**What held it**: `recv_answering` waits through
+`fzn_node_wait_answering`, which serves this node's peers and clients
+while it waits. Woken by the caller's socket it called
+`fzn_caller_recv_for` with the whole 600 ms slice, and that read waits
+on the caller's own socket alone. Once the first piece of a two-piece
+reply had come, the rest of the slice was spent there answering nobody.
+Two siblings asking each other at once each held the other's answer
+until a resend, and every ask after that was a step behind.
+
+**Now a wakeup reads what has arrived, a millisecond at most, and the
+rest of the slice is waited for in the serving wait again**; a resend
+only when the slice is spent. Measured: `live_siblings`, 0 resends and
+0 kept replies where there were 19 and 27; the two loop-held warnings
+left are single 3 s waits on a peer the script stops on purpose.
+
+**Sec 1492's reading was wrong**: its asks were answered, only late,
+and its bound -- two unanswered asks end a peer's pass -- caught nothing
+here. It stays as a bound on a peer truly gone part-way; the resend
+line it added (`message M resent after N ms: heard, unopened, unasked,
+another's, ...`) is what found this, and stays at debug.
+
+Tests: `make livecheck`. Not pinned by a unit test: the timing between
+two daemons is what failed, and the live scripts run two.
