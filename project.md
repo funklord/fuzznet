@@ -78726,3 +78726,36 @@ Test: `conversation_view_test`, on the desktop, where a path beginning
 copy with the same bytes, is sent under its name and leaves nothing in
 the cache; a save to one ends with the node's bytes in it. Sabotage:
 two, each probed.
+
+## 1525. A reader passes over a line its writer issued again
+
+fuzzypickles' loop at cbfc8f79 (inbox 20261127T1503Z): dag's side was
+fixed by secs 1519, 1520 and 1523 -- it waited for epoch 2, re-issued
+its line sealed under a lost secret at 14:53:06, and filed from then on.
+The window's host, n, still stopped. At 14:52:05 n said, once, that
+dag's line 1 would not open under epoch 2's committed secret. At 14:54:04
+it took four lines and filed none, with no line of its own (sec 1516 says
+each waiting line once), and then nothing for nine minutes.
+
+The re-issued copy sat behind the bad one. A host files another host's
+lines in order, and a line that will not open was retried for 30 passes
+before being passed over -- about half an hour -- with every line behind
+it held, the writer's re-issued copy among them.
+
+Now a line that will not open is passed over at once when the same
+line, by its id, is in a later slot of that host's and opens there: the
+writer's copy issued again (`fzn_group_lines_issued_again`). Said: "a
+line of group G from host H, its N, sealed under a lost fork's secret,
+passed over for its writer's copy issued again".
+
+**Rejected: passing over at once any line that will not open under the
+committed secret.** The reader's own log may be on the side of a fork
+that is about to lose, and its committed secret for that epoch may
+change once it reconciles; a good line would then be lost. The writer's
+copy, opening under the reader's secret, shows which side is which.
+
+Test: `groups_test` -- a reader finds the writer's copy of the line
+issued again, finds none for a line never re-issued, and none under the
+lost secret. The daemon's branch is not reached by a test; it is the
+pair of a fork and a line no script here makes. Sabotage: one new, one
+retargeted, each probed.

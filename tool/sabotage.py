@@ -1461,7 +1461,7 @@ SABOTAGES = [
 	(
 		"group-lines-reissued-twice",
 		"node/group_lines.c",
-		"\t\t    || issued_again(l, group, host, s, head.have, line.id, committed, aead))\n",
+		"\t\t    || fzn_group_lines_issued_again(l, group, host, s, head.have, line.id, committed, aead))\n",
 		"\t\t    || 0)\n",
 		"a line issued again under the committed secret is not issued a second time -- sec 1520",
 	),
@@ -1520,6 +1520,13 @@ SABOTAGES = [
 		"\tconst bool picked = picked_uri(where);\n",
 		"\tconst bool picked = false;\n",
 		"a save to a content:// target goes through a staged file -- sec 1524",
+	),
+	(
+		"group-lines-issued-again-any-id",
+		"node/group_lines.c",
+		"\t\t    && memcmp(later.id, id, FZN_GROUP_LINE_ID_LEN) == 0\n",
+		"",
+		"a line counts as issued again only by its own id -- sec 1525",
 	),
 	(
 		"clock-words-no-hours",

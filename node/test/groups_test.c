@@ -758,6 +758,18 @@ static void test_lines_sealed_under_a_lost_secret_issued_again(void)
 	              && issued == 0 && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
 	              && h.have == 6u,
 	      "a line issued again was issued a second time");
+	/* A READER'S VIEW of the same (sec 1525): the first copy of "lost
+	 * one" has its writer's copy later; "kept" has none. */
+	{
+		uint8_t lost_id[FZN_GROUP_LINE_ID_LEN], kept_id[FZN_GROUP_LINE_ID_LEN];
+
+		memset(lost_id, 0x40, sizeof(lost_id));
+		memset(kept_id, 0x41, sizeof(kept_id));
+		CHECK(fzn_group_lines_issued_again(&l, group, host, 1u, 6u, lost_id, committed, &AEAD)
+		              && !fzn_group_lines_issued_again(&l, group, host, 2u, 6u, kept_id, committed, &AEAD)
+		              && !fzn_group_lines_issued_again(&l, group, host, 1u, 6u, lost_id, lost, &AEAD),
+		      "a reader did not find the writer's copy issued again, or found one not there");
+	}
 }
 
 static void test_lines_are_held_in_order(void)

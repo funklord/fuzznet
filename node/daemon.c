@@ -14715,6 +14715,26 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				                                                contact_hash_ops,
 				                                                contact_aead_ops, &line);
 
+				/* ISSUED AGAIN BY ITS WRITER, sec 1525: a copy sealed under a
+				 * lost fork's secret, with the same line later in the
+				 * writer's slots under the committed one (sec 1520), is
+				 * passed over at once. Its retries held every line behind
+				 * it, the re-issued one too -- fuzzypickles' n, four taken
+				 * and none filed for the rest of a run (20261127T1503Z). */
+				if (oerr == FZN_GROUP_LINE_ERR_OPEN
+				    && fzn_group_line_peek(bytes, len, &line) == FZN_GROUP_LINE_OK
+				    && fzn_group_lines_issued_again(&group_lines, g->id, heads[i].host, s, heads[i].have,
+				                                    line.id, secret, contact_aead_ops)) {
+					say(FZN_ENTRY_INFO, "node/groups",
+					    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x, its %lu, sealed "
+					    "under a lost fork's secret, passed over for its writer's copy issued again",
+					    g->id[0], g->id[1], g->id[2], g->id[3], heads[i].host[0], heads[i].host[1],
+					    heads[i].host[2], heads[i].host[3], (unsigned long)s);
+					if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
+					    != FZN_GROUP_LINES_OK)
+						break;
+					continue;
+				}
 				if (oerr == FZN_GROUP_LINE_ERR_OPEN) {
 					if (line_try_again(g->id, heads[i].host, s)) {
 						/* SAID ON ITS FIRST FAILURE, sec 1519, not only

@@ -143,6 +143,14 @@ fzn_group_lines_err_t fzn_group_lines_filed(const fzn_group_lines_t *l,
                                             const uint8_t group[FZN_GROUP_ID_LEN],
                                             const uint8_t host[FZN_PUBKEY_LEN], uint32_t filed);
 
+/* LINE `id` OF `host`'s ISSUED AGAIN after slot `from`, up to `have`: a
+ * later line by that id that opens under `secret`. Nonzero when there is
+ * one -- a reader then passes the copy it cannot open over, sec 1525. */
+int fzn_group_lines_issued_again(const fzn_group_lines_t *l, const uint8_t group[FZN_GROUP_ID_LEN],
+                                 const uint8_t host[FZN_PUBKEY_LEN], uint32_t from, uint32_t have,
+                                 const uint8_t id[FZN_GROUP_LINE_ID_LEN],
+                                 const uint8_t secret[FZN_GROUP_SECRET_LEN], const fzn_aead_ops_t *aead);
+
 /* `host`'s LINES OF `epoch` SEALED UNDER `lost`, ISSUED AGAIN under
  * `committed`, sec 1520: a lost fork's secret opens them for nobody but
  * their writer. Each held from the base up that opens under `lost` and

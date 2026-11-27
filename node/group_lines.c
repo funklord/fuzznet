@@ -395,16 +395,18 @@ fzn_group_lines_err_t fzn_group_lines_sender(const fzn_group_lines_t *l,
 	return FZN_GROUP_LINES_OK;
 }
 
-/* LINE `id` ISSUED AGAIN after slot `from`: a later line of `host`'s by
- * that id that opens under `committed`. */
-static int issued_again(const fzn_group_lines_t *l, const uint8_t *group, const uint8_t *host, uint32_t from,
-                        uint32_t have, const uint8_t *id, const uint8_t *committed, const fzn_aead_ops_t *aead)
+int fzn_group_lines_issued_again(const fzn_group_lines_t *l, const uint8_t group[FZN_GROUP_ID_LEN],
+                                 const uint8_t host[FZN_PUBKEY_LEN], uint32_t from, uint32_t have,
+                                 const uint8_t id[FZN_GROUP_LINE_ID_LEN],
+                                 const uint8_t committed[FZN_GROUP_SECRET_LEN], const fzn_aead_ops_t *aead)
 {
 	static uint8_t bytes[FZN_GROUP_LINE_MAX];
 	static fzn_group_line_t later;
 	size_t len = 0;
 	uint32_t s;
 
+	if (!usable(l) || !group || !host || !id || !committed || !aead)
+		return 0;
 	for (s = from + 1u; s <= have; s++)
 		if (fzn_group_lines_get(l, group, host, s, bytes, sizeof(bytes), &len) == FZN_GROUP_LINES_OK
 		    && fzn_group_line_peek(bytes, len, &later) == FZN_GROUP_LINE_OK
@@ -442,7 +444,7 @@ fzn_group_lines_err_t fzn_group_lines_reissue(const fzn_group_lines_t *l, const 
 		    || fzn_group_line_peek(bytes, len, &line) != FZN_GROUP_LINE_OK || line.epoch != epoch
 		    || fzn_group_line_open(bytes, len, committed, l->hash, aead, &line) == FZN_GROUP_LINE_OK
 		    || fzn_group_line_open(bytes, len, lost, l->hash, aead, &line) != FZN_GROUP_LINE_OK
-		    || issued_again(l, group, host, s, head.have, line.id, committed, aead))
+		    || fzn_group_lines_issued_again(l, group, host, s, head.have, line.id, committed, aead))
 			continue;
 		if (fzn_group_line_seal(&line, committed, l->hash, aead, rng, again, sizeof(again), &again_len)
 		    != FZN_GROUP_LINE_OK)
