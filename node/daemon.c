@@ -14611,6 +14611,29 @@ static int line_try_again(const uint8_t group[FZN_GROUP_ID_LEN],
  * is not here yet waits for it, as does one that will not open under the
  * secret held (`line_try_again`, sec 979); one not admitted is passed
  * over. */
+/* A LINE WAITING FOR ITS EPOCH'S SECRET, said once per line (sec 1516): the
+ * last one said, so each pass's retry of the same line is quiet. */
+static void line_wait_said(const fzn_group_t *g, const uint8_t host[FZN_PUBKEY_LEN], uint32_t seq,
+                           uint32_t epoch)
+{
+	static uint8_t said_group[FZN_GROUP_ID_LEN], said_host[FZN_PUBKEY_LEN];
+	static uint32_t said_seq;
+	static int said_any;
+
+	if (said_any && said_seq == seq && memcmp(said_group, g->id, sizeof(said_group)) == 0
+	    && memcmp(said_host, host, sizeof(said_host)) == 0)
+		return;
+	said_any = 1;
+	said_seq = seq;
+	memcpy(said_group, g->id, sizeof(said_group));
+	memcpy(said_host, host, sizeof(said_host));
+	say(FZN_ENTRY_INFO, "node/groups",
+	    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x, its %lu, waits for epoch %u's "
+	    "secret; the group stands at epoch %u here",
+	    g->id[0], g->id[1], g->id[2], g->id[3], host[0], host[1], host[2], host[3], (unsigned long)seq,
+	    (unsigned)epoch, (unsigned)g->epoch);
+}
+
 static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 {
 	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
@@ -14659,8 +14682,16 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				continue;
 			}
 			if (fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
-			    != FZN_GROUP_LOG_OK)
+			    != FZN_GROUP_LOG_OK) {
+				/* SAID, ONCE A LINE, sec 1516: a line taken and never filed
+				 * waited here in silence -- fuzzypickles' two-node cluster,
+				 * "3 taken, 0 filed" and nothing after (inbox
+				 * 20261127T1007Z). Which epoch it wants, and which the group
+				 * stands at here, tell a secret not yet come from a group
+				 * log behind the writer's. */
+				line_wait_said(g, heads[i].host, s, line.epoch);
 				break;
+			}
 			{
 				fzn_group_line_err_t oerr = fzn_group_line_open(bytes, len, secret,
 				                                                contact_hash_ops,

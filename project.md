@@ -78437,3 +78437,31 @@ Tests: `conversation_view_test` (React through the hook),
 `hosts_view_test` (an address kept), `group_view_test` (Leave asked, a
 count said), `traffic_view_test` (a row kept); the style gates, shown
 refusing a planted dialog. Sabotage: ten, each probed.
+
+## 1516. A group line waiting for its epoch's secret says so
+
+fuzzypickles caught its two-node cluster with debug logs (inbox
+20261127T1007Z, at d825fdfc). There were no loop stalls, so it is not sec
+1494's hold. dag sealed two group lines at 09:57:02-03. The window's host
+took them at 09:57:55 -- "lines pass: 0 sealed, 3 taken, 0 filed" -- and
+never filed them, and the view waited 180 s for a line that never came.
+The facts around it: both hosts' group logs had forked a minute earlier
+("5 act(s) of this host's lost a fork, 4 made again" on the window's
+host; dag took 5 acts at 09:56:43). After that, the window's host logged
+no group pass that took anything.
+
+A line taken and not filed stops in `group_file` at one of three
+places. Two of them were said already: a line from before a joining that
+does not backfill (sec 1139), and one that would not open after its
+passes. The third was silent: **no secret here for the epoch the line
+was written at**, which is what a group log behind the writer's -- an
+epoch the fork's re-made acts moved -- would produce. It is now said,
+once per line: which epoch the line wants, and which epoch the group
+stands at here. Each pass's retry of the same line stays quiet. Whether
+this is the cluster's cause is open until a run fails with the line in
+its log. fuzzypickles was asked for one.
+
+Seen in `live_group_backfill`, where a later member waits for the
+secret of the epoch it joined at: "a line of group 476cfddf from host
+c93872c7, its 2, waits for epoch 2's secret; the group stands at epoch 2
+here" -- said once, and the script passes.
