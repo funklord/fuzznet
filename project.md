@@ -78603,3 +78603,34 @@ under it issued again after the newest, opening under the committed
 secret with their ids and words; a line under the committed secret and
 one of another epoch left; a second call issues nothing. The live group
 scripts. Sabotage: two, each probed.
+
+## 1521. A wait for an epoch's secret says what the log gave this host
+
+fuzzypickles' loop at 6895950e (inbox 20261127T1302Z) caught the cluster
+again, now with each stop named:
+
+- **n**: right after losing a fork, "a line of group a3bd7da2 from host
+  666e78af, its 1, would not open under ... epoch 2's secret; the group
+  stands at epoch 2 here". n's epoch-2 secret is the committed one (sec
+  1519 lets through no other), so dag sealed that line under its own
+  lost-side secret. That is sec 1520's case, seen from the reader's
+  side, and sec 1520 re-issues such a line -- once dag holds the
+  committed epoch-2 secret.
+- **dag (ndag)**: standing at epoch 4, it waited for epoch 2's secret
+  and filed nothing for ten minutes. It had forked three times; its
+  re-made act came after the epochs it was waiting for.
+
+The second is why the first does not heal: dag never gets epoch 2.
+There are two readings, and the code serves neither. **The log believes
+dag holds epoch 2** (its `keyed_epoch` or `backfilled_to` says so, while
+the secret it held was the lost side's and has been forgotten), so
+nobody seals it again. Or **dag's host was listed again after epoch 2**
+-- its HOST act on the lost side, made again at epoch 4 -- so epoch 2
+counts as before it joined, given only while the group backfills.
+
+Which one it is decides the fix: name the host again with `holds` 0
+when the log's epochs are not all held here, or treat a member's host
+re-listed after a fork as listed from its first act. So the wait line
+now carries what the log says this host was given: whether the group
+backfills, whether this host is listed, and its joined, keyed and
+backfilled-to epochs. The next failing run settles it.

@@ -14624,8 +14624,8 @@ static int line_try_again(const uint8_t group[FZN_GROUP_ID_LEN],
  * over. */
 /* A LINE WAITING FOR ITS EPOCH'S SECRET, said once per line (sec 1516): the
  * last one said, so each pass's retry of the same line is quiet. */
-static void line_wait_said(const fzn_group_t *g, const uint8_t host[FZN_PUBKEY_LEN], uint32_t seq,
-                           uint32_t epoch, int would_not_open)
+static void line_wait_said(const fzn_group_t *g, const fzn_group_host_t *me, const uint8_t host[FZN_PUBKEY_LEN],
+                           uint32_t seq, uint32_t epoch, int would_not_open)
 {
 	static uint8_t said_group[FZN_GROUP_ID_LEN], said_host[FZN_PUBKEY_LEN];
 	static uint32_t said_seq;
@@ -14638,12 +14638,19 @@ static void line_wait_said(const fzn_group_t *g, const uint8_t host[FZN_PUBKEY_L
 	said_seq = seq;
 	memcpy(said_group, g->id, sizeof(said_group));
 	memcpy(said_host, host, sizeof(said_host));
+	/* WHAT THE LOG SAYS THIS HOST WAS GIVEN, sec 1521: a wait that never
+	 * ends is either the log believing the secret held here or the epoch
+	 * counting as before this host was listed (fuzzypickles' 1302Z, dag
+	 * at epoch 4 waiting for 2 after its host act lost a fork). */
 	say(FZN_ENTRY_INFO, "node/groups",
 	    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x, its %lu, %s epoch %u's "
-	    "secret; the group stands at epoch %u here",
+	    "secret; the group stands at epoch %u here, %s; this host %s joined at epoch %u, given "
+	    "epoch %u, given back to %u",
 	    g->id[0], g->id[1], g->id[2], g->id[3], host[0], host[1], host[2], host[3], (unsigned long)seq,
 	    would_not_open ? "would not open under, and tries again each pass for," : "waits for",
-	    (unsigned)epoch, (unsigned)g->epoch);
+	    (unsigned)epoch, (unsigned)g->epoch, g->backfill ? "backfilling" : "not backfilling",
+	    me ? "listed," : "NOT LISTED;", me ? (unsigned)me->joined_epoch : 0u,
+	    me ? (unsigned)me->keyed_epoch : 0u, me ? (unsigned)me->backfilled_to : 0u);
 }
 
 static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
@@ -14700,7 +14707,7 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				 * 20261127T1007Z). Which epoch it wants, and which the group
 				 * stands at here, tell a secret not yet come from a group
 				 * log behind the writer's. */
-				line_wait_said(g, heads[i].host, s, line.epoch, 0);
+				line_wait_said(g, me, heads[i].host, s, line.epoch, 0);
 				break;
 			}
 			{
@@ -14713,7 +14720,7 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 						/* SAID ON ITS FIRST FAILURE, sec 1519, not only
 						 * after the thirtieth pass: it stopped the
 						 * conversation in silence for half an hour. */
-						line_wait_said(g, heads[i].host, s, line.epoch, 1);
+						line_wait_said(g, me, heads[i].host, s, line.epoch, 1);
 						break;
 					}
 					say(FZN_ENTRY_WARNING, "node/groups",
