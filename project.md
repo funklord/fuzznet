@@ -77956,3 +77956,25 @@ another's, ...`) is what found this, and stays at debug.
 
 Tests: `make livecheck`. Not pinned by a unit test: the timing between
 two daemons is what failed, and the live scripts run two.
+
+## 1495. Opus through FFmpeg's own encoder, the one Android carries
+
+**fuzzypickles, moving its window onto `fzn_call_bar`** (inbox
+20261127T0040Z), found `fzn_call_opus_open("opus")` -- FFmpeg's own Opus
+encoder, the only one the Android Qt kit's FFmpeg carries -- returning
+NULL, so a phone's calls would fall back to mu-law where their own call
+audio carried Opus. Measured on FFmpeg 7.1.5: it opens at a frame of
+120 samples, 2.5 ms, and has no `frame_duration` option (libopus's);
+`fzn_call_opus_open` refused any encoder whose frame was not 960.
+
+**Now the call's 20 ms frames are kept and handed on in the encoder's
+own frame size**, whatever it opened with -- refused only past 960,
+which one call frame could never fill -- and the packets it gives are
+queued as before. libopus still opens at 960 and is fed as it was.
+
+Tests: `call_audio_test` carries a 440 Hz tone half a second through
+each encoder and back -- as loud within a third, in pitch within 5 per
+cent, a cycle counted rising through +1000 from below -1000 so coding
+noise about zero is not counted as pitch (a bare sign count read libopus
+at 464 Hz). Sabotage: the old refusal and the frame size ignored, both
+caught.

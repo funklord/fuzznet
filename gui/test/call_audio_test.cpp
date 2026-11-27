@@ -7,6 +7,7 @@
  * refused.
  */
 #include "../call_audio.h"
+#include "../call_opus.h"
 
 #include <QCoreApplication>
 #include <QVector>
@@ -186,6 +187,65 @@ int main(int argc, char **argv)
 	}
 #endif
 
+	/* OPUS BOTH WAYS ROUND, sec 1495, with libopus and with FFmpeg's own
+	 * encoder -- the only one Android's Qt kit carries, which opens at 120
+	 * samples and was refused: a 440 Hz tone, half a second in the call's
+	 * 20 ms frames, decoded back as loud within a third and in pitch
+	 * within 5 per cent (fuzzypickles' test_call_opus_round_trip). */
+	{
+		struct fzn_call_opus *any = fzn_call_opus_open(nullptr);
+		const bool built = any != nullptr;
+
+		fzn_call_opus_close(any);
+		for (const char *name : { (const char *)nullptr, "opus" }) {
+			struct fzn_call_opus *o = fzn_call_opus_open(name);
+			const fzn_call_codec_t *codec = o ? fzn_call_opus_codec(o) : nullptr;
+			QVector<int16_t> back;
+			double in_sq = 0, out_sq = 0;
+			int cycles = 0, below = 0;
+
+			if (!built)
+				break;
+			CHECK(codec, name ? "FFmpeg's own Opus encoder did not open" : "Opus did not open");
+			if (!codec) {
+				fzn_call_opus_close(o);
+				continue;
+			}
+			for (int f = 0; f < 25; f++) {
+				int16_t pcm[FZN_CALL_OPUS_FRAME], out[4 * FZN_CALL_OPUS_FRAME];
+				uint8_t packet[1500];
+
+				for (int i = 0; i < (int)FZN_CALL_OPUS_FRAME; i++) {
+					pcm[i] = (int16_t)(8000.0 * sin(2.0 * M_PI * 440.0 * (f * (int)FZN_CALL_OPUS_FRAME + i) / 48000.0));
+					in_sq += (double)pcm[i] * pcm[i];
+				}
+				const int len = codec->encode(codec->ctx, pcm, FZN_CALL_OPUS_FRAME, packet, sizeof packet);
+				const int got = len > 0 ? codec->decode(codec->ctx, packet, (size_t)len, out, 4 * FZN_CALL_OPUS_FRAME) : 0;
+				for (int i = 0; i < got; i++)
+					back << out[i];
+			}
+			/* THE SECOND HALF, past the codecs' start-up; a cycle counted
+			 * rising through +1000 from below -1000, so the coding noise
+			 * about zero is not counted as pitch. */
+			for (int i = back.size() / 2; i < back.size(); i++) {
+				out_sq += (double)back[i] * back[i];
+				if (back[i] < -1000)
+					below = 1;
+				else if (below && back[i] > 1000) {
+					cycles++;
+					below = 0;
+				}
+			}
+			const double in_rms = sqrt(in_sq / (25.0 * FZN_CALL_OPUS_FRAME));
+			const double out_rms = back.size() > 1 ? sqrt(out_sq / (back.size() - back.size() / 2)) : 0;
+			const double hz = back.size() > 1 ? cycles / ((back.size() - back.size() / 2) / 48000.0) : 0;
+			CHECK(back.size() >= 12 * (int)FZN_CALL_OPUS_FRAME && fabs(out_rms - in_rms) < in_rms / 3.0
+			              && fabs(hz - 440.0) < 22.0,
+			      name ? "FFmpeg's own Opus encoder did not carry a tone both ways round"
+			           : "Opus did not carry a tone both ways round");
+			fzn_call_opus_close(o);
+		}
+	}
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

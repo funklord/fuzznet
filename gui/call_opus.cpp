@@ -27,6 +27,13 @@ struct fzn_call_opus {
 	uint8_t queued[QUEUED_MAX][FZN_RPC_FRAME_MAX];
 	size_t queued_len[QUEUED_MAX] = {};
 	size_t queued_n = 0;
+	/* THE ENCODER'S OWN FRAME, sec 1495: libopus takes the call's 20 ms,
+	 * FFmpeg's own opens at 120 samples (2.5 ms) and takes no
+	 * frame_duration. The call's frames are kept here and handed on in
+	 * the encoder's size. */
+	int16_t pending[2u * FZN_CALL_OPUS_FRAME];
+	size_t pending_n = 0;
+	size_t enc_frame = FZN_CALL_OPUS_FRAME;
 };
 
 /* The first sample format a codec takes that this converts, s16 or float,
@@ -53,32 +60,41 @@ static bool is_float(int format) { return format == AV_SAMPLE_FMT_FLT || format 
 static int encode(void *ctx, const int16_t *pcm, size_t n, uint8_t *packet, size_t cap)
 {
 	auto *o = static_cast<fzn_call_opus *>(ctx);
+	size_t at = 0;
 
-	if (n != FZN_CALL_OPUS_FRAME)
+	if (n != FZN_CALL_OPUS_FRAME || o->pending_n + n > sizeof(o->pending) / sizeof(o->pending[0]))
 		return -1;
-	av_frame_unref(o->in);
-	o->in->nb_samples = (int)n;
-	o->in->format = o->enc->sample_fmt;
-	o->in->sample_rate = (int)FZN_CALL_OPUS_RATE;
-	if (av_channel_layout_copy(&o->in->ch_layout, &o->enc->ch_layout) < 0 || av_frame_get_buffer(o->in, 0) < 0)
-		return -1;
-	for (size_t i = 0; i < n; i++) {
-		if (is_float(o->enc->sample_fmt))
-			reinterpret_cast<float *>(o->in->data[0])[i] = (float)pcm[i] / 32768.0f;
-		else
-			reinterpret_cast<int16_t *>(o->in->data[0])[i] = pcm[i];
-	}
-	if (avcodec_send_frame(o->enc, o->in) < 0)
-		return -1;
-	while (avcodec_receive_packet(o->enc, o->packet) == 0) {
-		/* A PACKET PAST ONE `add frame`, or past the queue, is dropped:
-		 * at 24 kbit/s neither happens. */
-		if ((size_t)o->packet->size <= FZN_RPC_FRAME_MAX && o->queued_n < QUEUED_MAX) {
-			memcpy(o->queued[o->queued_n], o->packet->data, (size_t)o->packet->size);
-			o->queued_len[o->queued_n++] = (size_t)o->packet->size;
+	memcpy(o->pending + o->pending_n, pcm, n * sizeof(*pcm));
+	o->pending_n += n;
+	/* EACH WHOLE FRAME OF THE ENCODER'S SIZE, the rest kept for the next. */
+	for (; o->pending_n - at >= o->enc_frame; at += o->enc_frame) {
+		av_frame_unref(o->in);
+		o->in->nb_samples = (int)o->enc_frame;
+		o->in->format = o->enc->sample_fmt;
+		o->in->sample_rate = (int)FZN_CALL_OPUS_RATE;
+		if (av_channel_layout_copy(&o->in->ch_layout, &o->enc->ch_layout) < 0
+		    || av_frame_get_buffer(o->in, 0) < 0)
+			return -1;
+		for (size_t i = 0; i < o->enc_frame; i++) {
+			if (is_float(o->enc->sample_fmt))
+				reinterpret_cast<float *>(o->in->data[0])[i] = (float)o->pending[at + i] / 32768.0f;
+			else
+				reinterpret_cast<int16_t *>(o->in->data[0])[i] = o->pending[at + i];
 		}
-		av_packet_unref(o->packet);
+		if (avcodec_send_frame(o->enc, o->in) < 0)
+			return -1;
+		while (avcodec_receive_packet(o->enc, o->packet) == 0) {
+			/* A PACKET PAST ONE `add frame`, or past the queue, is
+			 * dropped: at 24 kbit/s neither happens. */
+			if ((size_t)o->packet->size <= FZN_RPC_FRAME_MAX && o->queued_n < QUEUED_MAX) {
+				memcpy(o->queued[o->queued_n], o->packet->data, (size_t)o->packet->size);
+				o->queued_len[o->queued_n++] = (size_t)o->packet->size;
+			}
+			av_packet_unref(o->packet);
+		}
 	}
+	memmove(o->pending, o->pending + at, (o->pending_n - at) * sizeof(o->pending[0]));
+	o->pending_n -= at;
 	if (!o->queued_n)
 		return 0;
 	const size_t len = o->queued_len[0];
@@ -156,10 +172,14 @@ struct fzn_call_opus *fzn_call_opus_open(const char *encoder)
 	(void)av_channel_layout_copy(&o->dec->ch_layout, &mono);
 	if (o->enc->sample_fmt == AV_SAMPLE_FMT_NONE || avcodec_open2(o->enc, enc, nullptr) < 0
 	    || avcodec_open2(o->dec, dec, nullptr) < 0
-	    || (o->enc->frame_size > 0 && o->enc->frame_size != (int)FZN_CALL_OPUS_FRAME)) {
+	    || o->enc->frame_size > (int)FZN_CALL_OPUS_FRAME) {
 		fzn_call_opus_close(o);
 		return nullptr;
 	}
+	/* ITS OWN FRAME, whatever it opened with -- refused only past the
+	 * call's 20 ms, which one call frame could never fill (sec 1495). */
+	if (o->enc->frame_size > 0)
+		o->enc_frame = (size_t)o->enc->frame_size;
 	snprintf(o->encoder, sizeof(o->encoder), "%s", enc->name);
 	o->codec.ctx = o;
 	o->codec.rate = FZN_CALL_OPUS_RATE;
