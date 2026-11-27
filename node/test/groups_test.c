@@ -410,8 +410,28 @@ static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 	memset(wrong + 1, 0x99, 32u);
 	CHECK(mem_save(&b->store, FZN_PERSIST_GROUP_EPOCH, subject, wrong, sizeof(wrong)),
 	      "fixture: B holds a wrong secret");
+	/* READ FOR A LINE BEFORE THE DUTIES RUN (sec 1519): the lost side's
+	 * secret is not the epoch's -- ABSENT, and forgotten -- where the raw
+	 * read handed it over and every line failed to open. */
+	{
+		uint8_t got[FZN_GROUP_SECRET_LEN];
+
+		CHECK(fzn_node_groups_secret(&b->groups, id, g.epoch, got) == FZN_GROUP_LOG_OK && got[0] == 0x99,
+		      "fixture: the raw read gives the wrong secret");
+		CHECK(fzn_node_groups_secret_committed(&b->groups, &g, g.epoch, got) == FZN_GROUP_LOG_ERR_ABSENT
+		              && fzn_node_groups_secret(&b->groups, id, g.epoch, got) == FZN_GROUP_LOG_ERR_ABSENT,
+		      "a secret not the epoch's committed one was handed out for a line, or kept");
+		CHECK(fzn_node_groups_secret_committed(&b->groups, &g, g.epoch + 1000u, got) == FZN_GROUP_LOG_ERR_MOOT,
+		      "an epoch with no commitment held was not said as such");
+	}
 	(void)tend(b, id);
 	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
+	{
+		uint8_t got[FZN_GROUP_SECRET_LEN];
+
+		CHECK(fzn_node_groups_secret_committed(&b->groups, &g, g.epoch, got) == FZN_GROUP_LOG_OK,
+		      "the committed secret, once taken, was not handed out for a line");
+	}
 }
 
 /* A's ACTS A FORK DROPS, as the daemon keeps them. */

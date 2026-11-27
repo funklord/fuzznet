@@ -14467,6 +14467,18 @@ static uint32_t group_epoch_at(const fzn_group_t *g, uint64_t ms)
 	return epoch;
 }
 
+/* EPOCH `epoch`'s SECRET AS THE GROUP COMMITTED IT, sec 1519: one drawn
+ * on a fork's losing side is forgotten, not used. An epoch whose
+ * commitment is no longer kept is read as held. */
+static int epoch_secret(const fzn_group_t *g, uint32_t epoch, uint8_t out[FZN_GROUP_SECRET_LEN])
+{
+	const fzn_group_log_err_t err = fzn_node_groups_secret_committed(&node_groups, g, epoch, out);
+
+	if (err == FZN_GROUP_LOG_ERR_MOOT)
+		return fzn_node_groups_secret(&node_groups, g->id, epoch, out) == FZN_GROUP_LOG_OK;
+	return err == FZN_GROUP_LOG_OK;
+}
+
 static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *own)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
@@ -14481,7 +14493,7 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 	int more = 1;
 
 	if (!fzn_group_is_member(g, own->owner)
-	    || fzn_node_groups_secret(&node_groups, g->id, g->epoch, secret) != FZN_GROUP_LOG_OK)
+	    || !epoch_secret(g, g->epoch, secret))
 		return 0;
 	(void)fzn_messages_last_marked(&node_messages.m, g->id, self, FZN_MESSAGE_OUT, &at);
 	while (more) {
@@ -14499,8 +14511,7 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 			 * member it was kept from. */
 			epoch = group_epoch_at(g, p->stime);
 			if (epoch != g->epoch
-			    && fzn_node_groups_secret(&node_groups, g->id, epoch, earlier)
-			               != FZN_GROUP_LOG_OK)
+			    && !epoch_secret(g, epoch, earlier))
 				continue;
 			memset(&line, 0, sizeof(line));
 			memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
@@ -14614,7 +14625,7 @@ static int line_try_again(const uint8_t group[FZN_GROUP_ID_LEN],
 /* A LINE WAITING FOR ITS EPOCH'S SECRET, said once per line (sec 1516): the
  * last one said, so each pass's retry of the same line is quiet. */
 static void line_wait_said(const fzn_group_t *g, const uint8_t host[FZN_PUBKEY_LEN], uint32_t seq,
-                           uint32_t epoch)
+                           uint32_t epoch, int would_not_open)
 {
 	static uint8_t said_group[FZN_GROUP_ID_LEN], said_host[FZN_PUBKEY_LEN];
 	static uint32_t said_seq;
@@ -14628,9 +14639,10 @@ static void line_wait_said(const fzn_group_t *g, const uint8_t host[FZN_PUBKEY_L
 	memcpy(said_group, g->id, sizeof(said_group));
 	memcpy(said_host, host, sizeof(said_host));
 	say(FZN_ENTRY_INFO, "node/groups",
-	    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x, its %lu, waits for epoch %u's "
+	    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x, its %lu, %s epoch %u's "
 	    "secret; the group stands at epoch %u here",
 	    g->id[0], g->id[1], g->id[2], g->id[3], host[0], host[1], host[2], host[3], (unsigned long)seq,
+	    would_not_open ? "would not open under, and tries again each pass for," : "waits for",
 	    (unsigned)epoch, (unsigned)g->epoch);
 }
 
@@ -14681,15 +14693,14 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					break;
 				continue;
 			}
-			if (fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
-			    != FZN_GROUP_LOG_OK) {
+			if (!epoch_secret(g, line.epoch, secret)) {
 				/* SAID, ONCE A LINE, sec 1516: a line taken and never filed
 				 * waited here in silence -- fuzzypickles' two-node cluster,
 				 * "3 taken, 0 filed" and nothing after (inbox
 				 * 20261127T1007Z). Which epoch it wants, and which the group
 				 * stands at here, tell a secret not yet come from a group
 				 * log behind the writer's. */
-				line_wait_said(g, heads[i].host, s, line.epoch);
+				line_wait_said(g, heads[i].host, s, line.epoch, 0);
 				break;
 			}
 			{
@@ -14698,8 +14709,13 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				                                                contact_aead_ops, &line);
 
 				if (oerr == FZN_GROUP_LINE_ERR_OPEN) {
-					if (line_try_again(g->id, heads[i].host, s))
+					if (line_try_again(g->id, heads[i].host, s)) {
+						/* SAID ON ITS FIRST FAILURE, sec 1519, not only
+						 * after the thirtieth pass: it stopped the
+						 * conversation in silence for half an hour. */
+						line_wait_said(g, heads[i].host, s, line.epoch, 1);
 						break;
+					}
 					say(FZN_ENTRY_WARNING, "node/groups",
 					    "a line would not open under its epoch's secret after %u passes, "
 					    "and was passed over",

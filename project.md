@@ -78520,3 +78520,50 @@ items 1 and 2) found two faults in ours:
 
 Test: `conversation_view_test` (scrolled up and kept, at the end and
 kept, marks withheld and then allowed). Sabotage: two, each probed.
+
+## 1519. A line is sealed and opened only under its epoch's committed secret
+
+fuzzypickles caught the cluster again at dc2c3ea0 (inbox 20261127T1213Z)
+and showed sec 1516's line does not cover it. The window's host, n,
+logged no "waits for epoch", yet its pass at 12:04:04 took three of
+dag's lines and filed none, and no later pass filed them. Just before,
+n made a group act of its own (12:02:26), sealed a line (12:02:27), and
+lost the fork that act was on (12:02:38, "1 act(s) dropped, 0 made
+again").
+
+The cause: **`group_file` and `group_seal_own` read an epoch's secret
+raw** (`fzn_node_groups_secret`), never checking it against the
+commitment the group's log holds for that epoch. The duties
+(`take_secrets`) do check, and forget a secret a lost fork left behind
+-- but only when they next look at that epoch. Until then n opened
+dag's lines under its own lost-side secret. The open failed, and
+`line_try_again` retried in silence for 30 passes, about half an hour
+at one pass a minute, before passing the line over.
+
+Now both read through `fzn_node_groups_secret_committed`. A secret that
+is not the epoch's committed one is forgotten and reported as absent,
+so the line waits -- said, sec 1516 -- while the duties take the right
+secret from its box. An epoch whose commitment is no longer kept is
+read raw, as before. A line that will not open is now said on its first
+failure, not only after the thirtieth.
+
+**What "waits for epoch" means** (fuzzypickles' run 2 at ce3beda4): on
+joining it is ordinary. Lines arrive before their epoch's secret, and
+the next pass files them -- one second later on nlaptop, 185 lines
+twelve seconds later on nfresh. A fault shows as a wait never followed
+by a filing.
+
+**Open, taken next:** a line this host sealed under the lost side's
+secret before the fork was seen -- n's at 12:02:27 -- opens for nobody.
+Every other host retries it and passes it over; nothing seals it again.
+The writer has to issue it once more under the committed secret. Also
+open: dag (ndag) waited for epoch 2's secret while standing at 4, for a
+line from n's estate root, and never filed it. A host is sealed the
+current epoch, and earlier ones only by backfill a step per pass, so
+dag may simply not have been given epoch 2 within the test's time.
+
+Tests: `groups_test` -- the lost side's secret is not handed out for a
+line and is forgotten; an epoch with no commitment says so; the
+committed one is handed out once taken. `live_groups`,
+`live_group_backfill`, `live_group_hosts`, `live_group_skew`.
+Sabotage: one, probed.

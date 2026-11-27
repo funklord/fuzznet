@@ -495,6 +495,16 @@ static int secret_of(const fzn_node_groups_t *g, const fzn_group_t *held, uint32
 	return 0;
 }
 
+fzn_group_log_err_t fzn_node_groups_secret_committed(const fzn_node_groups_t *g, const fzn_group_t *held,
+                                                     uint32_t epoch, uint8_t out[FZN_GROUP_SECRET_LEN])
+{
+	if (!g || !held || !out)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	if (!fzn_group_commit(held, epoch))
+		return FZN_GROUP_LOG_ERR_MOOT;
+	return secret_of(g, held, epoch, out) ? FZN_GROUP_LOG_OK : FZN_GROUP_LOG_ERR_ABSENT;
+}
+
 static int secret_held(const fzn_node_groups_t *g, const fzn_group_t *held, uint32_t epoch)
 {
 	uint8_t secret[FZN_GROUP_SECRET_LEN];

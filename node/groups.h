@@ -189,6 +189,16 @@ fzn_group_log_err_t fzn_node_groups_secret(const fzn_node_groups_t *g,
                                            const uint8_t id[FZN_GROUP_ID_LEN], uint32_t epoch,
                                            uint8_t out[FZN_GROUP_SECRET_LEN]);
 
+/* THE SAME, AND THE ONE GROUP `held` COMMITTED TO for that epoch, sec 1519:
+ * a secret this host drew on the side of a fork that lost is not the
+ * epoch's, so it is forgotten here and ABSENT is returned -- the duties
+ * then take the right one from its box. Lines are sealed and opened only
+ * under this: the raw read opened the group's lines with the lost side's
+ * secret, failed, and retried in silence (fuzzypickles' inbox
+ * 20261127T1213Z). MOOT when the epoch has no commitment held. */
+fzn_group_log_err_t fzn_node_groups_secret_committed(const fzn_node_groups_t *g, const fzn_group_t *held,
+                                                     uint32_t epoch, uint8_t out[FZN_GROUP_SECRET_LEN]);
+
 /* THIS HOST'S DUTIES TO GROUP `id`, each act made counted into `*made`:
  *
  *   - a member's host not yet among the group's hosts names itself (HOST);

@@ -1452,6 +1452,13 @@ SABOTAGES = [
 		"a reader scrolled up stays where they are across a refresh -- sec 1518",
 	),
 	(
+		"groups-secret-uncommitted",
+		"node/groups.c",
+		"\treturn secret_of(g, held, epoch, out) ? FZN_GROUP_LOG_OK : FZN_GROUP_LOG_ERR_ABSENT;\n",
+		"\treturn fzn_node_groups_secret(g, held->id, epoch, out);\n",
+		"a line is sealed and opened only under the secret its epoch committed to -- sec 1519",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
