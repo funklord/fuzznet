@@ -174,10 +174,10 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	 * line; a badge the host hands in; when, on the right; and the unread
 	 * count as its own mark, where a narrow row cut it first inside the
 	 * text. */
-	m_tree->setColumnCount(4);
+	m_tree->setColumnCount(5);
 	m_tree->header()->setStretchLastSection(false);
 	m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-	for (int c = 1; c < 4; c++)
+	for (int c = 1; c < 5; c++)
 		m_tree->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
 	m_tree->setWordWrap(true);
 	m_tree->setAccessibleName(tr("Conversations"));
@@ -477,6 +477,15 @@ static QIcon initial_icon(const QString &name, const QByteArray &key)
 	return QIcon(pm);
 }
 
+/* HOW LONG A LINE HAS WAITED, in the largest unit that says it. */
+static QString waited_words(uint32_t s)
+{
+	return s < 60u      ? QObject::tr("under a minute")
+	       : s < 3600u  ? QObject::tr("%n min", nullptr, (int)(s / 60u))
+	       : s < 86400u ? QObject::tr("%n h", nullptr, (int)(s / 3600u))
+	                    : QObject::tr("%n day(s)", nullptr, (int)(s / 86400u));
+}
+
 static QIcon group_icon(const QPalette &pal)
 {
 	QPixmap pm(16, 16);
@@ -509,10 +518,12 @@ void fzn_conversations_view::lay_out()
 		/* ONE LIST ON A PHONE, NEWEST FIRST, contacts and groups together,
 		 * a group marked (fuzzypickles' 2000Z item 6). */
 		QTreeWidgetItem *item = m_flat ? new QTreeWidgetItem(m_tree, { r.text, QString(), r.when,
-		                                                                 r.unread ? QString::number(r.unread) : QString() })
+		                                                                 r.unread ? QString::number(r.unread) : QString(),
+		                                                                 r.waiting })
 		                               : new QTreeWidgetItem(is_group ? group_head : contacts,
 		                                                     { r.text, QString(), r.when,
-		                                                       r.unread ? QString::number(r.unread) : QString() });
+		                                                       r.unread ? QString::number(r.unread) : QString(),
+		                                                       r.waiting });
 		item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
 		if (m_flat && is_group) {
 			item->setIcon(0, group_icon(palette()));
@@ -653,6 +664,23 @@ bool fzn_conversations_view::refresh()
 		                  QString::fromUtf8(groups.entries[i].name, (int)groups.entries[i].name_len));
 	for (i = 0; i < n_unread; i++)
 		counts.insert(QByteArray((const char *)unread[i].key, 32), unread[i].count);
+	/* LINES NOBODY HAS YET, sec 1501: by contact, the oldest one's time --
+	 * this user's own lines to contacts not delivered. A node that cannot
+	 * say leaves the rows unmarked rather than the list unshown. */
+	QHash<QString, uint32_t> oldest;
+	{
+		auto *pending = (fzn_rpc_delivery_list_resp_t *)calloc(1, sizeof(fzn_rpc_delivery_list_resp_t));
+		if (pending && fzn_rpc_delivery_list(&m_rpc->c, pending) == FZN_RPC_OK)
+			for (i = 0; i < pending->count; i++) {
+				const fzn_rpc_delivery_entry_t *d = &pending->entries[i];
+				const QString who = QString::fromUtf8(d->peer_name, (int)d->peer_name_len);
+				if (d->delivered)
+					continue;
+				if (!oldest.contains(who) || d->first_sent < oldest.value(who))
+					oldest.insert(who, (uint32_t)d->first_sent);
+			}
+		free(pending);
+	}
 
 	/* THE ROWS AS READ, laid out for the width they are shown at (sec
 	 * 1245): under headings on a desktop, one list on a phone. */
@@ -676,6 +704,8 @@ bool fzn_conversations_view::refresh()
 		r.kind = is_group ? ROW_GROUP : contact_name.contains(key) ? ROW_CONTACT : ROW_UNNAMED;
 		r.stime_ms = e->stime_ms;
 		r.standing = standing.value(key);
+		if (r.kind == ROW_CONTACT && oldest.contains(name))
+			r.waiting = tr("not delivered, %1").arg(waited_words(now > oldest.value(name) ? now - oldest.value(name) : 0u));
 		m_rows.append(r);
 	}
 	/* NEWEST FIRST BY THE VIEW'S OWN ORDER (sec 1496), not the node's. */
@@ -730,6 +760,8 @@ QStringList fzn_conversations_view::shown() const
 			line += QStringLiteral(" -- ") + r->text(2);
 		if (!r->text(3).isEmpty())
 			line += tr(" (%1 unread)").arg(r->text(3));
+		if (!r->text(4).isEmpty())
+			line += QStringLiteral(" {") + r->text(4) + QLatin1Char('}');
 		return line;
 	};
 	QStringList out;
@@ -839,7 +871,8 @@ QStringList fzn_conversations_view::actions(int group, int row)
 	}
 	const int on = sharing(item->data(0, ROLE_OPEN).toString());
 	if (on == 0)
-		out << tr("Share my location");
+		out << tr("Share my location: exactly") << tr("Share my location: within a kilometre")
+		    << tr("Share my location: within ten kilometres");
 	else if (on == 1)
 		out << tr("Stop sharing my location");
 	read_marks_menu(item->data(0, ROLE_KEY).toByteArray(), &out);
@@ -930,6 +963,25 @@ bool fzn_conversations_view::member_act(const QString &group, const QString &act
 	}
 	if (who.isEmpty())
 		return false;
+	/* TAKING SOMEBODY OUT, OR CHANGING WHO RUNS IT, CONFIRMED by choosing it
+	 * again within FZN_CONVERSATIONS_CONFIRM_S (sec 1501), as deleting is:
+	 * the first choice says what it will do. */
+	if (what == tr("Remove") || what == tr("Make an admin") || what == tr("Stop being an admin")) {
+		const qint64 now = QDateTime::currentSecsSinceEpoch();
+		const QString key = group + QLatin1Char('\x1f') + action;
+		if (m_armed != key || now > m_armed_at + FZN_CONVERSATIONS_CONFIRM_S) {
+			m_armed = key;
+			m_armed_at = now;
+			m_status->setText(what == tr("Remove")
+			                          ? tr("Choose \"%1\" again to take %2 out of %3.").arg(action, who, group)
+			                  : what == tr("Make an admin")
+			                          ? tr("Choose \"%1\" again to make %2 an admin of %3.").arg(action, who, group)
+			                          : tr("Choose \"%1\" again to stop %2 being an admin of %3.")
+			                                    .arg(action, who, group));
+			return true;
+		}
+		m_armed.clear();
+	}
 	if (what == tr("Add a member"))
 		rc = fzn_rpc_group_add_member(&m_rpc->c, name.constData(), (size_t)name.size(), peer.constData(),
 		                              (size_t)peer.size());
@@ -1044,13 +1096,20 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 		return member_act(to.mid(1), action);
 	if (action.startsWith(tr("Read marks: ")))
 		return read_marks_act(item->data(0, ROLE_KEY).toByteArray(), to, action);
-	if (kind == ROW_CONTACT && (action == tr("Share my location") || action == tr("Stop sharing my location"))) {
-		/* SHARED AS THE LOCATION VIEW'S DEFAULT HAS IT, exactly; a coarser
-		 * share is chosen there (sec 1119). */
-		const bool on = action == tr("Share my location");
+	if (kind == ROW_CONTACT
+	    && (action == tr("Share my location") || action.startsWith(tr("Share my location: "))
+	        || action == tr("Stop sharing my location"))) {
+		/* AT THE PRECISION CHOSEN (sec 1501): exactly, within a kilometre or
+		 * within ten -- the plain action exactly, as the location view's
+		 * default has it (sec 1119). */
+		const bool on = action != tr("Stop sharing my location");
+		const int precision = action == tr("Share my location: within a kilometre") ? FZN_RPC_LOCATION_PRECISION_COARSE
+		                      : action == tr("Share my location: within ten kilometres")
+		                              ? FZN_RPC_LOCATION_PRECISION_REGION
+		                              : FZN_RPC_LOCATION_PRECISION_EXACT;
 		QByteArray who = to.toUtf8();
 		int siblings = 0;
-		if (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, 0, &siblings)
+		if (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, precision, &siblings)
 		    != FZN_RPC_OK) {
 			m_status->setText(failed_words(m_rpc));
 			return false;

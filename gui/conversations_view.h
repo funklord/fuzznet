@@ -156,6 +156,7 @@ private:
 		size_t unread;
 		uint64_t stime_ms; /* the newest line's, for the view's own order */
 		QString standing; /* why a contact no longer active cannot be sent to, sec 1499 */
+		QString waiting; /* how long its oldest line has waited undelivered, sec 1501 */
 		int kind;
 	};
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: "Read marks: ..." entries,

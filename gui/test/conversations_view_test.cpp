@@ -90,6 +90,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        ",1700005700000,in,carol,text,hi " BOB ",1700005800000,in,-,text,new\n");
 	if (twin && !strcmp(line, "list message unread"))
 		return (size_t)snprintf(reply, cap, "ok 3 0 3 " BOB ",2,0 " FAMILY ",3,0 " DAN ",1,0\n");
+	/* TWO LINES TO BOB NOT DELIVERED, sent 20 and 5 minutes before the
+	 * view's clock, and one to bob delivered (sec 1501). */
+	if (twin && !strcmp(line, "list message 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 3 0 " BOB ",bob,%032d,out,sent,1700004800000,0,0,hi " BOB
+		                        ",bob,%031d1,out,sent,1700005700000,0,0,hey " BOB
+		                        ",bob,%031d2,out,delivered,1700004000000,0,0,old\n",
+		                        0, 0, 0);
 	if (twin && !strcmp(line, "list contact 0"))
 		return (size_t)snprintf(reply, cap, "ok 2 0 bob," BOB " family," DAN ",suspended\n");
 	if (big) {
@@ -285,14 +293,20 @@ int main(int argc, char **argv)
 		what = w;
 		to = t;
 	});
-	CHECK(v.actions(0, 0).mid(0, 4) == QStringList({ "Send a file...", "Call", "Video call", "Share my location" }),
-	      "a contact's menu did not offer its calls and sharing");
+	CHECK(v.actions(0, 0).mid(0, 6)
+	              == QStringList({ "Send a file...", "Call", "Video call", "Share my location: exactly",
+	                               "Share my location: within a kilometre", "Share my location: within ten kilometres" }),
+	      "a contact's menu did not offer its calls and sharing at each precision");
 	CHECK(v.actions(0, 1).value(3) == "Stop sharing my location",
 	      "a contact who sees this user's location was not offered to stop");
 	CHECK(v.act(0, 0, "Video call") && what == "video" && to == "bob", "a video call was not handed over");
 	CHECK(v.act(0, 0, "Share my location") && !strcmp(asked, "grant stream location bob 0\n")
 	              && v.status() == "bob can see your position now.",
 	      "sharing location with a contact was not done and said");
+	/* AT A PRECISION CHOSEN, sec 1501: within a kilometre is coarse, 1. */
+	asked[0] = '\0';
+	CHECK(v.act(0, 0, "Share my location: within a kilometre") && !strcmp(asked, "grant stream location bob 1\n"),
+	      "sharing location within a kilometre was not asked at that precision");
 	CHECK(v.act(0, 1, "Stop sharing my location") && strstr(asked, "revoke stream location dan\n")
 	              && v.status() == "dan no longer sees your position.",
 	      "no longer sharing was not done and said");
@@ -318,9 +332,16 @@ int main(int argc, char **argv)
 		              && offered.contains("Delete this device's copy") && !offered.contains("Remove: you"),
 		      "an admin was not offered each member to make an admin or remove");
 		asked[0] = '\0';
+		/* ASKED INLINE FIRST, sec 1501: chosen once, said; again, done. */
+		CHECK(v.act(1, 0, "Make an admin: bob") && !strstr(asked, "add admin family bob")
+		              && v.status() == "Choose \"Make an admin: bob\" again to make bob an admin of family.",
+		      "making an admin was done at once, not asked");
 		CHECK(v.act(1, 0, "Make an admin: bob") && strstr(asked, "add admin family bob")
 		              && v.status() == "Asked. It takes effect when 1 more admin(s) ask.",
 		      "making an admin, waiting on another admin, was not said so");
+		CHECK(v.act(1, 0, "Remove: dan") && !strstr(asked, "remove member family dan")
+		              && v.status() == "Choose \"Remove: dan\" again to take dan out of family.",
+		      "removing a member was done at once, not asked");
 		CHECK(v.act(1, 0, "Remove: dan") && strstr(asked, "remove member family dan")
 		              && v.status() == "dan is no longer in family.",
 		      "a member removed was not removed, said");
@@ -446,6 +467,7 @@ int main(int argc, char **argv)
 	 * inbox 20261126T2240Z). */
 	{
 		fzn_conversations_view w(node, nullptr);
+		w.set_now(1700006000u);
 		QStringList told;
 		QString opened_here;
 		int opens = 0;
@@ -467,6 +489,10 @@ int main(int argc, char **argv)
 		CHECK(w.select("family", false) && tree->currentItem()->text(0).startsWith("family -- old")
 		              && w.select("family", true) && tree->currentItem()->text(0).startsWith("family -- carol"),
 		      "a contact and a group called family were not told apart");
+		/* LINES NOT DELIVERED, sec 1501: marked on bob's row with how long
+		 * the oldest has waited -- the delivered one older still not it. */
+		CHECK(w.shown().value(1).endsWith("{not delivered, 20 min}") && !w.shown().value(2).contains("{"),
+		      "a contact's lines not delivered were not marked with the oldest one's wait");
 		/* A CONTACT NO LONGER ACTIVE, sec 1499: listed, but sending and
 		 * calling offered disabled saying why, and refused if chosen. */
 		CHECK(w.select("family", false) && w.chosen_actions().contains("Call")

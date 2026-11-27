@@ -78091,3 +78091,27 @@ false where no listed file has it; `chosen_root` is public.
 
 Tests: `library_view_test`, the talk chosen by its root through a find
 that hid it, and a root not listed refused. Sabotage: caught.
+
+## 1501. The conversations list's delivery marks and group menu
+
+The rest of fuzzypickles' conversations list (sec 1496, items 4 and 8):
+
+- **A mark per row for lines nobody has yet**, saying how long the
+  oldest has waited -- "not delivered, 20 min" -- from
+  `fzn_rpc_delivery_list`, this user's own unsettled lines to contacts,
+  a line delivered not counted. In its own column; a node that cannot
+  say leaves the rows unmarked rather than the list unshown.
+- **Taking a member out, or making or unmaking an admin, is confirmed
+  by choosing it again** within `FZN_CONVERSATIONS_CONFIRM_S`, as
+  deleting a group already was (sec 1246): the first choice says what
+  it will do, on the status line, no dialog.
+- **Location sharing at a chosen precision** from a contact's menu:
+  exactly, within a kilometre, within ten -- the plain action still
+  exactly, as the location view's default has it (sec 1119).
+
+**Not done, asked back**: offering contacts that are only a prekey,
+disabled with why. Nothing in `fzn_rpc_peer_list` marks such a contact,
+so where fuzzypickles reads that state from is theirs to say.
+
+Tests: `conversations_view_test`, 70 checks. Sabotage: three new
+entries, two repointed, each caught.

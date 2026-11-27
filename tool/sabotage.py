@@ -1165,6 +1165,27 @@ SABOTAGES = [
 		"a file opened by its root is chosen though a find hid it -- sec 1500",
 	),
 	(
+		"conversations-view-delivered-waiting",
+		"gui/conversations_view.cpp",
+		"\t\t\t\tif (d->delivered)\n\t\t\t\t\tcontinue;\n",
+		"",
+		"a line delivered is not counted as waiting -- sec 1501",
+	),
+	(
+		"conversations-view-member-unasked",
+		"gui/conversations_view.cpp",
+		"\tif (what == tr(\"Remove\") || what == tr(\"Make an admin\") || what == tr(\"Stop being an admin\")) {\n",
+		"\tif (0) {\n",
+		"taking a member out or changing an admin is confirmed before it is done -- sec 1501",
+	),
+	(
+		"conversations-view-share-exact-only",
+		"gui/conversations_view.cpp",
+		"\tif (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, precision, &siblings)\n",
+		"\tif (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, 0 * precision, &siblings)\n",
+		"location is shared at the precision chosen -- sec 1501",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -15390,15 +15411,15 @@ SABOTAGES = [
 	(
 		"conversations-menu-sharing-unread",
 		"gui/conversations_view.cpp",
-		"\tif (on == 0)\n\t\tout << tr(\"Share my location\");\n",
-		"\tif (on >= 0)\n\t\tout << tr(\"Share my location\");\n",
+		"\tif (on == 0)\n\t\tout << tr(\"Share my location: exactly\")",
+		"\tif (on >= 0)\n\t\tout << tr(\"Share my location: exactly\")",
 		"a contact who sees this user's location is offered sharing again -- sec 1144",
 	),
 	(
 		"conversations-menu-stop-shares",
 		"gui/conversations_view.cpp",
-		"(size_t)who.size(), on ? 1 : 0, 0, &siblings)",
-		"(size_t)who.size(), 1, 0, &siblings)",
+		"(size_t)who.size(), on ? 1 : 0, precision, &siblings)",
+		"(size_t)who.size(), 1, precision, &siblings)",
 		"no longer sharing location shares it instead -- sec 1144",
 	),
 	(
