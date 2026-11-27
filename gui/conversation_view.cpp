@@ -1104,13 +1104,15 @@ bool fzn_conversation_view::send_sticker(const QString &ref)
 }
 
 /* ONE LINE SENT to the conversation open: 1, or the refusal said. */
-bool fzn_conversation_view::send_line(const QByteArray &text)
-{
-	QByteArray who = m_contact.toUtf8();
+bool fzn_conversation_view::send_line(const QByteArray &text) { return send_line_to(m_contact, text); }
 
-	if (m_contact.isEmpty() || text.trimmed().isEmpty())
+bool fzn_conversation_view::send_line_to(const QString &conversation, const QByteArray &text)
+{
+	QByteArray who = conversation.toUtf8();
+
+	if (conversation.isEmpty() || text.trimmed().isEmpty())
 		return false;
-	const bool group = m_contact.startsWith(QLatin1Char('@'));
+	const bool group = conversation.startsWith(QLatin1Char('@'));
 	if ((group ? fzn_rpc_group_send(&m_rpc->c, who.constData() + 1, (size_t)who.size() - 1,
 	                                text.constData(), (size_t)text.size())
 	           : fzn_rpc_message_send(&m_rpc->c, who.constData(), (size_t)who.size(), text.constData(),
@@ -1321,18 +1323,7 @@ bool fzn_conversation_view::open_line(int row, const QString &save_path)
 	if (where.isEmpty())
 		where = QFileDialog::getSaveFileName(this, tr("Save the file when it arrives"),
 		                                     QString::fromUtf8(ref.mid(72)));
-	if (!fetch())
-		return false;
-	if (!where.isEmpty()) {
-		bool held = false;
-		for (const pending_save &p : m_pending)
-			held = held || p.ref == ref;
-		if (!held)
-			m_pending.append({ ref, where });
-		m_notice->say(tr("Asked for the file, said to be %1. It is saved to %2 when it arrives.")
-		                      .arg(fzn_size_words(file_size(ref)), where));
-	}
-	return true;
+	return where.isEmpty() ? fetch() : save_file(ref, where);
 }
 
 int fzn_conversation_view::pending_saves() const { return m_pending.size(); }
@@ -1443,6 +1434,30 @@ bool fzn_conversation_view::save_ref(const QByteArray &ref, const QString &where
 	return true;
 }
 
+/* How far back a search hit is looked for: 256 pages of 200 lines. */
+#define FZN_SHOW_LINE_PAGES 256u
+
+bool fzn_conversation_view::show_line(const QByteArray &id)
+{
+	if (m_contact.isEmpty() || id.isEmpty())
+		return false;
+	for (unsigned page = 0;; page++) {
+		for (int i = 0; i < m_lines->count(); i++)
+			if (m_lines->item(i)->data(ROLE_ID).toByteArray() == id) {
+				m_lines->setCurrentRow(i);
+				m_lines->scrollToItem(m_lines->item(i), QAbstractItemView::PositionAtCenter);
+				/* NOT FOLLOWING THE END: a refresh keeps the line where it
+				 * is shown, the reader having been brought to it. */
+				m_follow = m_lines->verticalScrollBar()->value() >= m_lines->verticalScrollBar()->maximum();
+				return true;
+			}
+		if (!m_older->isEnabled() || page + 1u >= FZN_SHOW_LINE_PAGES || !show_older())
+			break;
+	}
+	m_notice->say(tr("That line is no longer in this conversation."), true);
+	return false;
+}
+
 bool fzn_conversation_view::show_older()
 {
 	if (m_contact.isEmpty())
@@ -1451,10 +1466,51 @@ bool fzn_conversation_view::show_older()
 	return refresh();
 }
 
-bool fzn_conversation_view::send_file(const QString &path)
+bool fzn_conversation_view::send_file(const QString &path) { return send_file_to(m_contact, path); }
+
+bool fzn_conversation_view::send_text_to(const QString &conversation, const QString &text)
+{
+	if (conversation == m_contact)
+		return send_as_reply(text.toUtf8()) && refresh();
+	return send_line_to(conversation, text.toUtf8());
+}
+
+QString fzn_conversation_view::current_conversation() const { return m_contact; }
+
+bool fzn_conversation_view::current_is_group() const { return m_contact.startsWith(QLatin1Char('@')); }
+
+bool fzn_conversation_view::save_file(const QByteArray &ref, const QString &where)
+{
+	fzn_rpc_blob_status_resp_t st;
+	fzn_rpc_blob_fetch_resp_t out;
+
+	/* ROOT, KEY AND SIZE at least: 72 bytes, then its name. */
+	if (ref.size() < 72 || where.isEmpty())
+		return false;
+	memset(&st, 0, sizeof st);
+	if (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known
+	    && st.complete)
+		return save_ref(ref, where);
+	if (fzn_rpc_blob_fetch_ref(&m_rpc->c, (const uint8_t *)ref.constData(), (const uint8_t *)ref.constData() + 32,
+	                           file_size(ref), &out)
+	    != FZN_RPC_OK) {
+		m_notice->say(failed_words(m_rpc));
+		return false;
+	}
+	bool held = false;
+	for (const pending_save &p : m_pending)
+		held = held || p.ref == ref;
+	if (!held)
+		m_pending.append({ ref, where });
+	m_notice->say(tr("Asked for the file, said to be %1. It is saved to %2 when it arrives.")
+	                      .arg(fzn_size_words(file_size(ref)), where));
+	return true;
+}
+
+bool fzn_conversation_view::send_file_to(const QString &conversation, const QString &path)
 {
 	QString from = path.isEmpty() ? QFileDialog::getOpenFileName(this, tr("Send a file")) : path;
-	if (from.isEmpty() || m_contact.isEmpty())
+	if (from.isEmpty() || conversation.isEmpty())
 		return false;
 	/* A PICKED content:// FILE, copied for the node first (sec 1524); the
 	 * copy goes when this returns, the node having stored it. */
@@ -1472,12 +1528,14 @@ bool fzn_conversation_view::send_file(const QString &path)
 	 * could be taken for a path (sec 794) -- a picked one's as its
 	 * provider names it. */
 	QByteArray name = (picked ? QFileInfo(from).fileName() : from.section(QLatin1Char('/'), -1)).toUtf8();
-	const bool group = m_contact.startsWith(QLatin1Char('@'));
-	QByteArray to = (group ? m_contact.mid(1) : m_contact).toUtf8();
+	const bool group = conversation.startsWith(QLatin1Char('@'));
+	QByteArray to = (group ? conversation.mid(1) : conversation).toUtf8();
 	fzn_rpc_blob_add_resp_t stored;
 	/* SENT IN REPLY while a reply is under way (sec 1510), as a line is:
-	 * the node writes the reply mark before the reference (sec 1395). */
-	const bool replying = m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;
+	 * the node writes the reply mark before the reference (sec 1395) --
+	 * the open conversation's reply alone. */
+	const bool open_here = conversation == m_contact;
+	const bool replying = open_here && m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;
 	if (fzn_rpc_blob_add(&m_rpc->c, at.constData(), (size_t)at.size(), FZN_RPC_BLOB_TIER_PRIVATE, &stored)
 	            != FZN_RPC_OK
 	    || (replying ? fzn_rpc_message_attach_reply(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
@@ -1491,7 +1549,8 @@ bool fzn_conversation_view::send_file(const QString &path)
 	}
 	if (replying)
 		reply_to(QByteArray());
-	refresh();
+	if (open_here)
+		refresh();
 	m_notice->say(tr("Sent %1, %2.").arg(QString::fromUtf8(name), fzn_size_words(stored.byte_len)));
 	return true;
 }

@@ -78802,3 +78802,36 @@ Two sabotage entries, `conversation-sticker-sends-text` and
 retargeted. Test: `conversation_view_test` -- the bar's words, Cancel
 ending the reply, a sticker and a suggestion each sent as the reply.
 Sabotage: three new, two retargeted, each probed.
+
+## 1528. A search hit shown in its conversation
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 7): its view can
+show the line a search found; ours could only choose a row by its index.
+`show_line(id)` finds the line by its id, choosing it and centring it.
+Not among the lines shown, it pages back a page at a time while older
+lines remain, as far as 256 pages of 200. Shown, the view no longer
+follows the end (sec 1518), so the next refresh leaves the line where
+the reader was brought. One no longer in the conversation is said so.
+The paging is bounded and goes through `show_older`; the test shows a
+hit found and one gone, not a hit 200 lines back, which would need a
+fixture a page long.
+
+## 1529. The calls a host's window makes of the conversation view
+
+The rest of that list's host calls (items 5, 6 and 15), so fuzzypickles'
+Files page and share-in need no view of their own:
+
+- `send_text_to(conversation, text)` and `send_file_to(conversation,
+  path)` send to any conversation, NAME or @GROUP, whether or not it is
+  open here; the open one's reply is used only when it is the one sent
+  to, and only the open one is refreshed.
+- `save_file(ref, where)` saves a file by its whole reference, which the
+  view need not have drawn: now when it is whole, otherwise asked for
+  and written when it lands (sec 1526). The one-tap open now goes
+  through it.
+- `current_conversation()` and `current_is_group()` say which is open.
+
+Five sabotage entries named lines this moved and were retargeted. Test:
+`conversation_view_test` -- a line to bob and a file to the family
+group while dan's stays open, the getters, a file saved by its
+reference. Sabotage: two new, five retargeted, each probed.

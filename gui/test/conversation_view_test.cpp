@@ -689,6 +689,24 @@ int main(int argc, char **argv)
 	              && !strncmp(last_add, "add message dan out ", 20) && strstr(last_add, "attach " FILE_ROOT)
 	              && strstr(last_add, "fzn-send-test.jpg") && d.status().startsWith("Sent fzn-send-test.jpg"),
 	      "a file was not put here and sent to dan as a line");
+	/* THE CALLS A HOST'S WINDOW MAKES (sec 1529): a line to bob and a file
+	 * to the family group while dan's is open, which stays open; which
+	 * conversation is open; and a file the view did not draw saved by its
+	 * whole reference. */
+	last_add[0] = '\0';
+	CHECK(d.send_text_to("bob", "from the files page") && strstr(last_add, "message bob")
+	              && strstr(last_add, "files") && d.current_conversation() == "dan" && !d.current_is_group(),
+	      "a line was not sent to another conversation, or the open one changed");
+	last_add[0] = '\0';
+	CHECK(d.send_file_to("@family", "/tmp/fzn-send-test.jpg") && strstr(last_add, "family")
+	              && strstr(last_add, "attach " FILE_ROOT) && d.current_conversation() == "dan",
+	      "a file was not sent to a group not open here");
+	file_partial = 0;
+	last_file[0] = '\0';
+	CHECK(d.save_file(QByteArray::fromHex(FILE_ROOT FILE_KEY "00000000002625a0") + "holiday.jpg",
+	                  "/tmp/holiday-files.jpg")
+	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday-files.jpg"),
+	      "a file the view did not draw was not saved by its whole reference");
 	/* A PHONE'S content:// FILES, sec 1524: a picked one copied to a
 	 * private cache file for the node, sent under its own name, the copy
 	 * gone after; a save to one exported to such a file and copied out.
@@ -789,6 +807,17 @@ int main(int argc, char **argv)
 		CHECK(e.send_file("/tmp/fzn-send-test.jpg") && strstr(last_add, "attach " FILE_ROOT)
 		              && strstr(last_add, " reply " ID1) && e.replying().isEmpty(),
 		      "a file sent while replying did not name the line it answers, or the reply did not end");
+		/* A SEARCH HIT SHOWN (sec 1528): found by its id and chosen; one
+		 * not in the conversation said so. */
+		{
+			QListWidget *list = e.findChild<QListWidget *>();
+			CHECK(e.show_line(QByteArray::fromHex(ID1)) && list && list->currentItem()
+			              && list->currentItem()->text().endsWith("gil: where shall we eat"),
+			      "a search hit was not shown and chosen by its id");
+			CHECK(!e.show_line(QByteArray::fromHex(ID5)) && e.status() == "That line is no longer in this conversation.",
+			      "a hit no longer in the conversation was not said so");
+			e.select_line(-1);
+		}
 		/* REPLYING TO WHOM, SAID, WITH A WAY OUT (sec 1527); and a sticker
 		 * or a suggestion sent while replying goes as the reply. */
 		e.reply_to(QByteArray::fromHex(ID1));

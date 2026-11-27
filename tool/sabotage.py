@@ -1265,7 +1265,7 @@ SABOTAGES = [
 	(
 		"conversation-view-file-reply-plain",
 		"gui/conversation_view.cpp",
-		"\tconst bool replying = m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;\n",
+		"\tconst bool replying = open_here && m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN;\n",
 		"\tconst bool replying = false;\n",
 		"a file sent while replying names the line it answers -- sec 1510",
 	),
@@ -1531,7 +1531,7 @@ SABOTAGES = [
 	(
 		"conversation-view-pending-forgotten",
 		"gui/conversation_view.cpp",
-		"\t\t\tm_pending.append({ ref, where });\n",
+		"\t\tm_pending.append({ ref, where });\n",
 		"",
 		"a file asked for by opening it is kept to be saved when it lands -- sec 1526",
 	),
@@ -1562,6 +1562,20 @@ SABOTAGES = [
 		"\t\tm_reply_row->setVisible(!m_reply_to.isEmpty());\n",
 		"",
 		"the reply under way is said, with a Cancel -- sec 1527",
+	),
+	(
+		"conversation-view-show-line-blind",
+		"gui/conversation_view.cpp",
+		"\t\t\tif (m_lines->item(i)->data(ROLE_ID).toByteArray() == id) {\n",
+		"\t\t\tif (0) {\n",
+		"a search hit is shown and chosen by its id -- sec 1528",
+	),
+	(
+		"conversation-view-send-to-open-only",
+		"gui/conversation_view.cpp",
+		"\tQByteArray who = conversation.toUtf8();\n",
+		"\tQByteArray who = m_contact.toUtf8();\n",
+		"a line a host sends to another conversation reaches that one -- sec 1529",
 	),
 	(
 		"clock-words-no-hours",
@@ -15922,8 +15936,8 @@ SABOTAGES = [
 	(
 		"conversation-view-refused-line-lost",
 		"gui/conversation_view.cpp",
-		"\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
-		"\tm_text->clear();\n\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
+		"\tconst bool group = conversation.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
+		"\tm_text->clear();\n\tconst bool group = conversation.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
 		"a line the node refused is lost from the line being written -- sec 1126",
 	),
 	(
@@ -18530,8 +18544,8 @@ SABOTAGES = [
 	(
 		"conversation-open-saves-partial",
 		"gui/conversation_view.cpp",
-		"\tif (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known\n\t    && st.complete)\n",
-		"\tif (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known)\n",
+		"\tif (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known\n\t    && st.complete)\n\t\treturn save_to(save_path);\n",
+		"\tif (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known)\n\t\treturn save_to(save_path);\n",
 		"a file line opened before the file is whole is saved half, not asked for -- sec 1242",
 	),
 	(

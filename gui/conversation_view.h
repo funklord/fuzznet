@@ -74,7 +74,22 @@ public:
 	 * here, private, and sent as a line, which grants it to the
 	 * conversation. `send_file` with no path asks which. */
 	bool show_older();
+	/* LINE `id` SHOWN AND CHOSEN, sec 1528 -- a search hit's: paged back a
+	 * page at a time while older lines remain, as far as
+	 * FZN_SHOW_LINE_PAGES pages; centred, and the place kept there. False,
+	 * and said, when it is not in the conversation. */
+	bool show_line(const QByteArray &id);
 	bool send_file(const QString &path);
+	/* THE CALLS A HOST'S WINDOW MAKES, sec 1529 (fuzzypickles' Files page
+	 * and share-in): a line or a file sent to any conversation, NAME or
+	 * @GROUP, open here or not -- in reply only to the open one's reply;
+	 * a file the view did not draw, by its whole reference, saved to
+	 * `where` now or when it lands; and which conversation is open. */
+	bool send_text_to(const QString &conversation, const QString &text);
+	bool send_file_to(const QString &conversation, const QString &path);
+	bool save_file(const QByteArray &ref, const QString &where);
+	QString current_conversation() const;
+	bool current_is_group() const;
 	/* A LINE OPENED WHERE IT IS, sec 1242 -- tapped, or activated: a file
 	 * fetched if it is not here whole, saved if it is (where `save_path`
 	 * says, or where the person chooses). Whether anything was done. */
@@ -211,6 +226,7 @@ private:
 	/* `text` as the reply when one is under way (sec 1527): one send for
 	 * typed words, a sticker and a suggestion alike. */
 	bool send_as_reply(const QByteArray &text);
+	bool send_line_to(const QString &conversation, const QByteArray &text);
 	struct pending_save {
 		QByteArray ref;
 		QString where;
