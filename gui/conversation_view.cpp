@@ -21,6 +21,11 @@ extern "C" {
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QTemporaryFile>
+#include <QStandardPaths>
+#include <QFileInfo>
+#include <QFile>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QTemporaryDir>
 #include <QFileDialog>
@@ -1267,6 +1272,31 @@ bool fzn_conversation_view::open_line(int row, const QString &save_path)
 	return fetch();
 }
 
+/* A PHONE'S PICKER GIVES content://, which only this app can open and the
+ * node cannot (sec 1524, as the library does, sec 1493): a picked file is
+ * copied to a private file in this app's cache for the node to read, and a
+ * save goes to such a file and is copied out. */
+static bool picked_uri(const QString &path) { return path.startsWith(QLatin1String("content:")); }
+
+static QString staged_name(const char *what)
+{
+	const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+
+	QDir().mkpath(dir);
+	return dir + QLatin1Char('/') + QLatin1String(what) + QStringLiteral("-XXXXXX");
+}
+
+/* Every byte of `from` into `to`. */
+static bool copy_whole(QIODevice &from, QIODevice &to)
+{
+	while (!from.atEnd()) {
+		const QByteArray chunk = from.read(1 << 16);
+		if (chunk.isEmpty() || to.write(chunk) != chunk.size())
+			return false;
+	}
+	return true;
+}
+
 bool fzn_conversation_view::save_to(const QString &path)
 {
 	QListWidgetItem *item = m_lines->currentItem();
@@ -1281,13 +1311,33 @@ bool fzn_conversation_view::save_to(const QString &path)
 		                                     QString::fromUtf8(ref.mid(72)));
 	if (where.isEmpty())
 		return false;
-	QByteArray at = where.toUtf8();
+	const bool picked = picked_uri(where);
+	QTemporaryFile staged(staged_name("save"));
+	if (picked) {
+		/* A NAME THE NODE WRITES, the file made and let go so the export
+		 * finds none there. */
+		if (!staged.open()) {
+			m_notice->say(tr("%1 could not be written: %2").arg(where, staged.errorString()), true);
+			return false;
+		}
+		staged.close();
+		QFile::remove(staged.fileName());
+	}
+	QByteArray at = (picked ? staged.fileName() : where).toUtf8();
 	if (fzn_rpc_blob_export(&m_rpc->c, (const uint8_t *)ref.constData(),
 	                        (const uint8_t *)ref.constData() + 32, at.constData(), (size_t)at.size(),
 	                        &out)
 	    != FZN_RPC_OK) {
 		m_notice->say(failed_words(m_rpc));
 		return false;
+	}
+	if (picked) {
+		QFile in(staged.fileName()), to(where);
+		if (!in.open(QIODevice::ReadOnly) || !to.open(QIODevice::WriteOnly | QIODevice::Truncate)
+		    || !copy_whole(in, to)) {
+			m_notice->say(tr("%1 could not be written: %2").arg(where, to.errorString()), true);
+			return false;
+		}
 	}
 	m_notice->say(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), where));
 	return true;
@@ -1306,10 +1356,22 @@ bool fzn_conversation_view::send_file(const QString &path)
 	QString from = path.isEmpty() ? QFileDialog::getOpenFileName(this, tr("Send a file")) : path;
 	if (from.isEmpty() || m_contact.isEmpty())
 		return false;
-	QByteArray at = from.toUtf8();
+	/* A PICKED content:// FILE, copied for the node first (sec 1524); the
+	 * copy goes when this returns, the node having stored it. */
+	const bool picked = picked_uri(from);
+	QTemporaryFile staged(staged_name("send"));
+	if (picked) {
+		QFile in(from);
+		if (!in.open(QIODevice::ReadOnly) || !staged.open() || !copy_whole(in, staged) || !staged.flush()) {
+			m_notice->say(tr("%1 could not be read.").arg(QFileInfo(from).fileName()), true);
+			return false;
+		}
+	}
+	QByteArray at = (picked ? staged.fileName() : from).toUtf8();
 	/* THE NAME SENT is the file's own, which the reference refuses if it
-	 * could be taken for a path (sec 794). */
-	QByteArray name = from.section(QLatin1Char('/'), -1).toUtf8();
+	 * could be taken for a path (sec 794) -- a picked one's as its
+	 * provider names it. */
+	QByteArray name = (picked ? QFileInfo(from).fileName() : from.section(QLatin1Char('/'), -1)).toUtf8();
 	const bool group = m_contact.startsWith(QLatin1Char('@'));
 	QByteArray to = (group ? m_contact.mid(1) : m_contact).toUtf8();
 	fzn_rpc_blob_add_resp_t stored;

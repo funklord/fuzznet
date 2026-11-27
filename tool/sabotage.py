@@ -1508,6 +1508,20 @@ SABOTAGES = [
 		"the next epoch a backfill gives steps over one never keyed -- sec 1523",
 	),
 	(
+		"conversation-view-pick-unstaged",
+		"gui/conversation_view.cpp",
+		"\tconst bool picked = picked_uri(from);\n",
+		"\tconst bool picked = false;\n",
+		"a picked content:// file is copied for the node before it is sent -- sec 1524",
+	),
+	(
+		"conversation-view-save-unstaged",
+		"gui/conversation_view.cpp",
+		"\tconst bool picked = picked_uri(where);\n",
+		"\tconst bool picked = false;\n",
+		"a save to a content:// target goes through a staged file -- sec 1524",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

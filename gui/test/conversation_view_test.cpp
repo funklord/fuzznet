@@ -14,6 +14,8 @@
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QScrollBar>
 #include <QListWidget>
@@ -50,6 +52,8 @@ static int checks, failures;
 #define NOW 1700005600u
 
 static int silent, refuse_send;
+/* What a staged pick held when the node read it (sec 1524). */
+static char staged_read[64];
 /* Bob has written again (sec 1522). */
 static int bob_more;
 static char last_set[200], last_add[200], last_file[600];
@@ -301,7 +305,29 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                                                 : "ok 10 10 2500000 whole private 0\n");
 	if (!strncmp(line, "fetch file ", 11) || !strncmp(line, "get file ", 9)) {
 		snprintf(last_file, sizeof last_file, "%s", line);
+		/* A SAVE STAGED for a content:// target (sec 1524): the node's
+		 * export, written where it was told. */
+		const char *to = strrchr(line, ' ');
+		if (to && strstr(to, "/save-")) {
+			FILE *f = fopen(to + 1, "wb");
+			if (f) {
+				fputs("exported bytes", f);
+				fclose(f);
+			}
+		}
 		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	/* A PICKED FILE STAGED (sec 1524): what the node was given to read. */
+	if (!strncmp(line, "put file ", 9) && strstr(line, "/send-")) {
+		FILE *f = fopen(line + 9, "rb");
+		snprintf(last_file, sizeof last_file, "%s", line);
+		staged_read[0] = '\0';
+		if (f) {
+			size_t n = fread(staged_read, 1, sizeof staged_read - 1, f);
+			staged_read[n] = '\0';
+			fclose(f);
+		}
+		return (size_t)snprintf(reply, cap, "ok " FILE_ROOT FILE_KEY "0000000000001000 private\n");
 	}
 	/* A FILE PUT HERE, PRIVATE, AND SENT AS A LINE, sec 1140. */
 	if (!strcmp(line, "put file /tmp/fzn-send-test.jpg")) {
@@ -649,6 +675,47 @@ int main(int argc, char **argv)
 	              && !strncmp(last_add, "add message dan out ", 20) && strstr(last_add, "attach " FILE_ROOT)
 	              && strstr(last_add, "fzn-send-test.jpg") && d.status().startsWith("Sent fzn-send-test.jpg"),
 	      "a file was not put here and sent to dan as a line");
+	/* A PHONE'S content:// FILES, sec 1524: a picked one copied to a
+	 * private cache file for the node, sent under its own name, the copy
+	 * gone after; a save to one exported to such a file and copied out.
+	 * A path beginning content: is a plain name on this desktop. */
+	{
+		QTemporaryDir here, cache;
+		const QString was = QDir::currentPath();
+		const QByteArray cache_was = qgetenv("XDG_CACHE_HOME");
+		QString put_path;
+
+		qputenv("XDG_CACHE_HOME", cache.path().toUtf8());
+		QDir::setCurrent(here.path());
+		{
+			QFile pick(QStringLiteral("content:pick-me.txt"));
+			(void)pick.open(QIODevice::WriteOnly);
+			(void)pick.write("picked bytes");
+		}
+		last_add[0] = '\0';
+		CHECK(d.send_file(QStringLiteral("content:pick-me.txt")) && !strcmp(staged_read, "picked bytes")
+		              && !strstr(last_file, "content:") && strstr(last_add, "pick-me.txt"),
+		      "a picked content:// file was not staged for the node and sent under its name");
+		put_path = QString::fromUtf8(last_file + 9);
+		CHECK(!put_path.isEmpty() && !QFile::exists(put_path), "a staged pick was left in the cache");
+		d.select_line(0);
+		(void)d.refresh();
+		for (int r = 0; r < d.lines().size(); r++)
+			if (d.lines().value(r).contains("holiday"))
+				d.select_line(r);
+		{
+			bool saved = d.save_to(QStringLiteral("content:saved.jpg"));
+			QFile out(QStringLiteral("content:saved.jpg"));
+			const bool read = out.open(QIODevice::ReadOnly);
+			CHECK(saved && read && out.readAll() == "exported bytes" && !strstr(last_file, "content:"),
+			      "a save to a content:// target was not exported to a staged file and copied out");
+		}
+		QDir::setCurrent(was);
+		if (cache_was.isNull())
+			qunsetenv("XDG_CACHE_HOME");
+		else
+			qputenv("XDG_CACHE_HOME", cache_was);
+	}
 
 	/* A GROUP, sec 1126: members named, this user's own as You, the read
 	 * position kept by the group's id, a line sent to the group. */

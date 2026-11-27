@@ -78704,3 +78704,25 @@ reaches the state that needs it.
 Test: `groups_test` -- epoch 3 left unkeyed, C added at 5 given 4, 2
 and 1, and its backfill finished. Sabotage: two, each probed. The live
 group scripts.
+
+## 1524. A phone's content:// files sent and saved from a conversation
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 3): on Android a
+file picker hands back a `content://` URI, which this app can open and
+the node cannot. The conversation view passed the path straight to the
+node, so on a phone a file could be neither sent nor saved. The library
+view already staged them (sec 1493).
+
+Now the conversation view does the same. A picked file is copied to a
+private file in this app's cache, the node stores it from there, and the
+copy goes when the send returns. The file is sent under the name its
+provider gives it, not the URI's last segment. A save to a `content://`
+target is exported by the node to a fresh private name in the cache,
+then copied out through the URI, and the staged copy goes. Neither
+path touches a plain file path, which still goes to the node as it is.
+
+Test: `conversation_view_test`, on the desktop, where a path beginning
+`content:` is a plain name: a picked file reaches the node as a staged
+copy with the same bytes, is sent under its name and leaves nothing in
+the cache; a save to one ends with the node's bytes in it. Sabotage:
+two, each probed.
