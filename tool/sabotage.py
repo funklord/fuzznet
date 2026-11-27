@@ -1158,6 +1158,13 @@ SABOTAGES = [
 		"a contact no longer active is not offered sending as if ordinary -- sec 1499",
 	),
 	(
+		"library-view-root-hidden",
+		"gui/library_view.cpp",
+		"\t\tif (m_table->isRowHidden(r)) {\n\t\t\tset_find(QString());\n",
+		"\t\tif (0) {\n\t\t\tset_find(QString());\n",
+		"a file opened by its root is chosen though a find hid it -- sec 1500",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

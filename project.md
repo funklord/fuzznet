@@ -78078,3 +78078,16 @@ not offered, and `act` refuses them saying the same; read marks stay.
 
 Tests: `conversations_view_test`, the twin contact suspended. Sabotage:
 caught.
+
+## 1500. The library view chosen by a file's root
+
+fuzzypickles opens a search hit from the "files" store on its Library
+page with that file chosen (its e10baa6f), the hit's key being the
+file's root (inbox 20261127T0341Z). The view could be chosen only by
+row, and `chosen_root` was private. Now `select_root(root)` chooses the
+file with that root, scrolls to it and reads its detail -- clearing a
+find or kind that hid it, since the host asked for that file -- and is
+false where no listed file has it; `chosen_root` is public.
+
+Tests: `library_view_test`, the talk chosen by its root through a find
+that hid it, and a root not listed refused. Sabotage: caught.

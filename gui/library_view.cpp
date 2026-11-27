@@ -471,6 +471,22 @@ void fzn_library_view::on_play(std::function<void(const QByteArray &, const QStr
 	select(m_table->currentRow());
 }
 
+bool fzn_library_view::select_root(const QByteArray &root)
+{
+	for (int r = 0; root.size() == 32 && r < m_table->rowCount(); r++) {
+		if (m_table->item(r, 0)->data(ROLE_ROOT).toByteArray() != root)
+			continue;
+		if (m_table->isRowHidden(r)) {
+			set_find(QString());
+			set_kind(QString());
+		}
+		select(r);
+		m_table->scrollToItem(m_table->item(r, 0));
+		return m_table->currentRow() == r;
+	}
+	return false;
+}
+
 QByteArray fzn_library_view::chosen_root() const
 {
 	const int row = m_table->currentRow();

@@ -231,6 +231,16 @@ int main(int argc, char **argv)
 		played = root;
 		played_name = name;
 	});
+	/* A FILE CHOSEN BY ITS ROOT, sec 1500, as a host opens a search hit
+	 * -- a find hiding it cleared first; a root not listed, refused. */
+	{
+		const QByteArray talk = QByteArray::fromHex(TALK);
+		v.set_find("song");
+		CHECK(v.select_root(talk) && v.chosen_root() == talk && v.rows().size() == 3,
+		      "a file was not chosen by its root, with the find hiding it cleared");
+		CHECK(!v.select_root(QByteArray(32, '\x01')) && v.chosen_root() == talk,
+		      "a root not listed was chosen, or moved the choice");
+	}
 	/* HELD ONLY ELSEWHERE: shared and removed never; played, it is asked
 	 * for and handed on at once (sec 1493). */
 	v.select(2);

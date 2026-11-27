@@ -56,6 +56,13 @@ public:
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	void select(int row);
+	/* THE FILE WITH `root` CHOSEN, sec 1500, as a host opens a search hit:
+	 * scrolled to and its detail read. A find or kind hiding it is
+	 * cleared first -- the host asked for that file. False where no file
+	 * listed has it. */
+	bool select_root(const QByteArray &root);
+	/* The chosen file's root, 32 bytes, or empty with none chosen. */
+	QByteArray chosen_root() const;
 	bool fetch();
 	bool play();
 	/* `to` a contact's name, `@NAME` a group, or empty for every contact. */
@@ -115,7 +122,6 @@ private:
 	void say(const QString &line);
 	bool save_slices(const QByteArray &root, const QString &path);
 	void read_detail();
-	QByteArray chosen_root() const;
 	QString chosen_name() const;
 	void read_shares();
 	void apply_filter();
