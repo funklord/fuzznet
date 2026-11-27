@@ -103,6 +103,10 @@ public:
 	 * name is asked on a line under the list. */
 	void on_new_group(std::function<void()> told) { m_new_group_told = told; }
 	void set_layout(int flat);
+	/* WHETHER THE OPEN ONE STAYS CHOSEN (sec 1512): 1 as on a desktop, 0 as
+	 * on a phone, where opening leaves the list; -1, the default, by the
+	 * flat layout -- a host whose phone keeps headings says 0. */
+	void set_keep_chosen(int keep);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose the `row`th conversation under contacts (`group` 0) or groups
@@ -198,9 +202,9 @@ private:
 	QLineEdit *m_group_name;
 	QPushButton *m_make_group;
 	QWidget *m_group_row;
-	QString m_chosen, m_last_open;
+	QString m_chosen, m_last_open, m_restored;
 	qint64 m_last_open_at = 0;
-	int m_layout_pin = -1;
+	int m_layout_pin = -1, m_keep_chosen = -1;
 	std::function<void(const QString &, bool)> m_chosen_told;
 	std::function<void(const QString &)> m_notice_told, m_members_told;
 	std::function<void()> m_new_group_told;

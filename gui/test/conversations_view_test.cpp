@@ -532,6 +532,13 @@ int main(int argc, char **argv)
 		      "one click did not open bob once, keep it chosen and tell the host");
 		CHECK(w.refresh() && tree->currentItem() && tree->currentItem()->text(0).startsWith("bob"),
 		      "a refresh did not keep the open conversation chosen");
+		/* A RESTORE IS NO CHOICE, sec 1512: refreshes, their queued events
+		 * run, open nothing again. */
+		for (int k = 0; k < 3; k++) {
+			w.refresh();
+			QApplication::processEvents();
+		}
+		CHECK(opens == 1, "a refresh restoring the open conversation opened it again");
 		twin = 0;
 		w.refresh();
 		CHECK(told.size() == 1 && w.chosen() == "bob", "fixture: bob still listed");
@@ -601,10 +608,18 @@ int main(int argc, char **argv)
 		w.set_controls_shown(false);
 		CHECK(!make->isVisibleTo(&w) && !w.findChild<QLabel *>()->isVisibleTo(&w),
 		      "the host could not hide the view's own controls");
+		/* A PHONE KEEPING HEADINGS, by the host's word (sec 1512): opened,
+		 * the list is left, nothing chosen. */
+		w.set_layout(0);
+		w.set_keep_chosen(0);
+		tree->itemClicked(tree->topLevelItem(0)->child(0), 0);
+		CHECK(!w.flat() && !tree->currentItem() && tree->selectedItems().isEmpty(),
+		      "a host's phone with headings kept the conversation chosen after it was opened");
+		w.set_keep_chosen(-1);
 		/* ON A PHONE, opened, the list is left with nothing highlighted. */
 		w.set_layout(1);
 		tree->itemClicked(tree->topLevelItem(0), 0);
-		CHECK(w.flat() && opens == 2 && !tree->currentItem() && tree->selectedItems().isEmpty(),
+		CHECK(w.flat() && opens == 3 && !tree->currentItem() && tree->selectedItems().isEmpty(),
 		      "a conversation opened on a phone was left highlighted");
 		/* COLOURS BY KEY: two contacts with one name differ. */
 		CHECK(fzn_conversations_view::key_colour(QByteArray(32, '\x10'))

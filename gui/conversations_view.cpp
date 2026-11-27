@@ -230,7 +230,16 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	fzn_select_rows_through_cells(m_tree);
 	fzn_choose_on_accessible_select(m_tree, [this](const QModelIndex &) {
 		QTreeWidgetItem *item = m_tree->currentItem();
-		opened(item ? item->data(0, ROLE_OPEN).toString() : QString());
+		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
+		/* THE OPEN ONE RESTORED IS NO CHOICE (sec 1512): a refresh choosing
+		 * it again looked to this path like a screen reader's tap, and
+		 * every poll told the host it was opened -- on a phone dragging the
+		 * reader back in after Back (fuzzypickles, inbox 20261127T0746Z). */
+		if (!to.isEmpty() && to == m_restored) {
+			m_restored.clear();
+			return;
+		}
+		opened(to);
 	});
 	/* ONE CLICK OR TAP OPENS IT (sec 1496), and Enter: activation alone
 	 * wanted a double click in most desktop styles. */
@@ -317,7 +326,10 @@ void fzn_conversations_view::opened(const QString &to)
 		return;
 	m_last_open.clear();
 	m_open(to);
-	if (m_flat) {
+	/* LEAVING THE LIST ON A PHONE: by the host's word where it gave one
+	 * (sec 1512), a phone keeping headings being no less a phone; by the
+	 * flat layout otherwise. */
+	if (m_keep_chosen == 0 || (m_keep_chosen < 0 && m_flat)) {
 		/* NOTHING LEFT HIGHLIGHTED once it is open on a phone, sec 1232. */
 		m_tree->clearSelection();
 		m_tree->setCurrentItem(nullptr);
@@ -412,6 +424,8 @@ void fzn_conversations_view::set_layout(int flat)
 		lay_out();
 	}
 }
+
+void fzn_conversations_view::set_keep_chosen(int keep) { m_keep_chosen = keep < 0 ? -1 : keep ? 1 : 0; }
 
 void fzn_conversations_view::ask_group_name()
 {
@@ -579,7 +593,12 @@ void fzn_conversations_view::lay_out()
 	place.restore();
 	/* THE OPEN ONE STAYS CHOSEN on a desktop, whatever was under the
 	 * pointer before the refill. */
-	if (!m_flat && !m_chosen.isEmpty())
+	/* MARKED AS RESTORED, so the select the restore causes -- queued to
+	 * the accessible path -- is not taken for a tap (sec 1512). */
+	const bool keep = (m_keep_chosen == 1 || (m_keep_chosen < 0 && !m_flat)) && !m_chosen.isEmpty();
+	if (keep)
+		m_restored = m_chosen;
+	if (keep)
 		(void)select(m_chosen.startsWith(QLatin1Char('@')) ? m_chosen.mid(1) : m_chosen, m_chosen.startsWith(QLatin1Char('@')));
 }
 

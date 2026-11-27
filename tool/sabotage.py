@@ -1111,8 +1111,8 @@ SABOTAGES = [
 	(
 		"conversations-view-choice-dropped",
 		"gui/conversations_view.cpp",
-		"\tif (!m_flat && !m_chosen.isEmpty())\n",
-		"\tif (0)\n",
+		"\tif (keep)\n\t\t(void)select(",
+		"\tif (0)\n\t\t(void)select(",
 		"the open conversation stays chosen on a desktop across a refresh -- sec 1496",
 	),
 	(
@@ -1289,6 +1289,20 @@ SABOTAGES = [
 		"\t\tQAction *a = fzn_menu_exec(&menu, m_share, m_share->mapToGlobal(QPoint(0, m_share->height())));\n",
 		"\t\tQAction *a = menu.exec(m_share->mapToGlobal(QPoint(0, m_share->height())));\n",
 		"Share's menu goes through the host's hook, no popup of Qt's under TalkBack -- sec 1511",
+	),
+	(
+		"conversations-view-restore-reopens",
+		"gui/conversations_view.cpp",
+		"\t\tif (!to.isEmpty() && to == m_restored) {\n",
+		"\t\tif (0) {\n",
+		"a refresh restoring the open conversation does not open it again -- sec 1512",
+	),
+	(
+		"conversations-view-phone-by-layout",
+		"gui/conversations_view.cpp",
+		"\tif (m_keep_chosen == 0 || (m_keep_chosen < 0 && m_flat)) {\n",
+		"\tif (m_flat) {\n",
+		"a host's phone keeping headings leaves the list on opening -- sec 1512",
 	),
 	(
 		"clock-words-no-hours",

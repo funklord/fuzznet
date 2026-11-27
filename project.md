@@ -78317,3 +78317,26 @@ after 200 ms, so a sabotage that brings one back fails rather than hangs
 -- the first probe hung on a modal `exec` offscreen for its whole 600 s.
 Sabotage: both caught.
 
+## 1512. The conversations list: a restore is no choice; a phone by the host's word
+
+Two from fuzzypickles' window suite hosting the list (inbox
+20261127T0746Z), both holding its swap:
+
+- **A refresh re-opened the chosen conversation.** On a desktop the open
+  one stays chosen (sec 1496), and restoring it after a refresh looked
+  to the accessible-select path (`choose_accessible.h`) like a screen
+  reader's tap: every poll told the host "opened" again, and on a phone
+  that dragged the reader back in after Back. Now the refresh marks the
+  row it restores, and the select that restore causes is passed over,
+  once; a person's tap goes on opening. If a restore causes no select,
+  the mark waits for the next tap on that row and passes over that
+  one tap instead.
+- **A phone is not always flat.** The list left nothing chosen on
+  opening only when flat, but fuzzypickles' full window keeps two
+  headings on a phone (its holder's 2026-11-17). `set_keep_chosen`:
+  1 as on a desktop, 0 as on a phone whatever the layout, -1 by the
+  flat layout as before.
+
+Tests: `conversations_view_test` -- three refreshes, their events run,
+open nothing again; a phone keeping headings left with nothing chosen.
+Sabotage: two new, one repointed, each caught.
