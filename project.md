@@ -78367,3 +78367,25 @@ Tests: `conversations_view_test` (each share told; a group named bob
 refused), `new_group_view_test` (the same), `call_bar_test` (a node
 listing no calls, no buttons). Sabotage: four, each caught.
 
+## 1514. The smallest host on a board hull runs
+
+**Sec 1100's step 2**, the board's ELF through hull rather than qemu
+started by hand, now that hull holds a board's consoles for a program
+(its answer, inbox 20261126T2005Z): UART0 by `hull exec ID -- console`
+on pipes, 8-bit clean, and UART1 by `console 2`. `tool/live_board_hull.py`
+runs `live_board.py`'s two phases with the board a hull machine --
+`(machine (source "image:fz0.elf") (backend pc) (tuning (pc (machine
+mps2-an385))))` -- the seed line typed on the console and let go, then
+`fuzznet-bridge` with no `--serial`, its stdin and stdout the console's,
+and the answer read from `console 2`: **(a) the board asks R's `events`
+over 51-byte units and is answered; (b) a board of another estate is
+answered nothing.** Both pass.
+
+What it met: hull says nothing of a board's readiness, so the script
+waits for the board's own `device: ready` on `console 2`; and
+`../hull/build/hull` predated `console 2` until hull rebuilt it at this
+run's asking (its 6b14de3), qemu having been given one serial port.
+
+**`make livecheck-board-hull HULL=PATH`**, not in `livecheck`: hull is
+another project's tool, there where the host has built it; without one
+the script says so and exits 77, taken as a skip.

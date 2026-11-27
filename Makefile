@@ -8507,7 +8507,7 @@ BOARD_CFLAGS = --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -std=c11 -Os 
                -nostdinc -isystem $(shell $(BOARD_CC) -print-file-name=include) -Itool/freestanding \
                -I$(MONOCYPHER_DIR)/src -Iwire/generated -I. -ffunction-sections -fdata-sections \
                -Wall -Wextra -MMD -MP
-.PHONY: device-board livecheck-board
+.PHONY: device-board livecheck-board livecheck-board-hull
 device-board: $(BOARD_DIR)/mps2.elf
 $(BOARD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -8521,6 +8521,16 @@ $(BOARD_DIR)/mps2.elf: $(BOARD_OBJS) device/board/mps2.ld
 # fuzznet-bridge holds its UART0, and tool/live_board.py is the bench.
 livecheck-board: device-board $(BRIDGE) $(FUZZNETD)
 	@timeout 300 python3 tool/live_board.py $(FUZZNETD) $(BRIDGE) $(BOARD_DIR)/mps2.elf
+# THE SAME BOARD RUN BY HULL, sec 1514 (sec 1100 step 2): its UART0 held by
+# `hull exec ID -- console` on pipes as the bridge's stdin and stdout, its
+# UART1 read as `console 2`. HULL names a hull with console 2 (hull c60f6cb
+# or later); without one the script says so and exits 77, taken as a skip.
+# Not in livecheck: hull is another project's tool, there where the host
+# has built it.
+HULL ?= hull
+livecheck-board-hull: device-board $(BRIDGE) $(FUZZNETD)
+	@timeout 330 python3 tool/live_board_hull.py --hull=$$(command -v $(HULL) || echo $(HULL)) \
+	         $(FUZZNETD) $(BRIDGE) $(BOARD_DIR)/mps2.elf; rc=$$?; [ $$rc -eq 77 ] && exit 0; exit $$rc
 
 livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@bss=$$(size $(BUILD_DIR)/embedded/fuzznetd | awk 'NR==2{print $$3}'); \
