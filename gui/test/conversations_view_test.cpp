@@ -325,6 +325,11 @@ int main(int argc, char **argv)
 	 * change waiting on other admins said so; the deletion asked once and
 	 * done the second time; and one who is not an admin refused, saying
 	 * why. */
+	/* THE HOST TOLD, sec 1508: every result or refusal, and a group whose
+	 * members changed. */
+	QStringList noticed, changed;
+	v.on_notice([&noticed](const QString &line) { noticed << line; });
+	v.on_members_changed([&changed](const QString &group) { changed << group; });
 	{
 		const QStringList offered = v.actions(1, 0);
 		/* A CONTACT ADDED FROM A PREKEY, sec 1502: no root key, so offered
@@ -353,6 +358,9 @@ int main(int argc, char **argv)
 		CHECK(v.act(1, 0, "Remove: dan") && strstr(asked, "remove member family dan")
 		              && v.status() == "dan is no longer in family.",
 		      "a member removed was not removed, said");
+		CHECK(changed == QStringList({ "family", "family" }) && noticed.contains("dan is no longer in family.")
+		              && noticed.contains("Choose \"Remove: dan\" again to take dan out of family."),
+		      "the host was not told the members changed, or the lines said");
 		CHECK(v.act(1, 0, "Delete this device's copy") && !strstr(asked, "remove group family")
 		              && v.status().startsWith("Choose \"Delete this device's copy\" again"),
 		      "deleting this device's copy was done at once, not asked");
@@ -541,6 +549,22 @@ int main(int argc, char **argv)
 		}
 		CHECK(name && !name->isVisibleTo(&w) && w.status().startsWith("Made the group gardeners"),
 		      "the group named inline was not made");
+		/* NEW GROUP HANDED TO THE HOST, sec 1508, when it has a form. */
+		{
+			int asked_new = 0;
+			w.on_new_group([&asked_new]() { asked_new++; });
+			make = nullptr;
+			for (QPushButton *b : w.findChildren<QPushButton *>())
+				if (b->text() == "New group")
+					make = b;
+			if (make)
+				make->click();
+			CHECK(asked_new == 1, "New group was not handed to the host that has a form");
+			make = nullptr;
+			for (QPushButton *b : w.findChildren<QPushButton *>())
+				if (b->text() == "Make the group")
+					make = b;
+		}
 		/* THE HOST'S OWN CONTROLS: ours hidden. */
 		w.set_controls_shown(false);
 		CHECK(!make->isVisibleTo(&w) && !w.findChild<QLabel *>()->isVisibleTo(&w),

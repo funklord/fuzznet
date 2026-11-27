@@ -249,7 +249,14 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 		m_last_open_at = QDateTime::currentMSecsSinceEpoch();
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
-	connect(m_new_group, &QPushButton::clicked, [this]() { ask_group_name(); });
+	/* A HOST WITH ITS OWN NEW-GROUP FORM -- fzn_new_group_view, several at
+	 * once -- is told; otherwise the name is asked inline (sec 1508). */
+	connect(m_new_group, &QPushButton::clicked, [this]() {
+		if (m_new_group_told)
+			m_new_group_told();
+		else
+			ask_group_name();
+	});
 	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_tree, &QTreeWidget::customContextMenuRequested, [this](const QPoint &at) {
 		show_menu(m_tree->itemAt(at), m_tree->viewport()->mapToGlobal(at));
@@ -258,6 +265,15 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 }
 
 fzn_conversations_view::~fzn_conversations_view() { delete m_rpc; }
+
+/* WHAT AN ACT CAME TO, said and told the host (sec 1508): a host with
+ * its own controls hides this status line and still hears it. */
+void fzn_conversations_view::say(const QString &line)
+{
+	m_status->setText(line);
+	if (m_notice_told && !line.isEmpty())
+		m_notice_told(line);
+}
 
 /* A ROW'S MENU at `at`, global. */
 void fzn_conversations_view::show_menu(QTreeWidgetItem *item, const QPoint &at)
@@ -584,15 +600,15 @@ bool fzn_conversations_view::create_group(const QString &name)
 	fzn_rpc_group_create_resp_t out;
 
 	if (n.isEmpty()) {
-		m_status->setText(tr("Name the group."));
+		say(tr("Name the group."));
 		return false;
 	}
 	if (fzn_rpc_group_create(&m_rpc->c, n.constData(), (size_t)n.size(), &out) != FZN_RPC_OK) {
-		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		say(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;
 	}
 	refresh();
-	m_status->setText(tr("Made the group %1; add its members from its menu.").arg(name.trimmed()));
+	say(tr("Made the group %1; add its members from its menu.").arg(name.trimmed()));
 	return true;
 }
 
@@ -812,7 +828,7 @@ int fzn_conversations_view::sharing(const QString &contact)
 			if (QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len) == contact)
 				on = peers.entries[i].share_location ? 1 : 0;
 	} else {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 	}
 	free(peers.entries);
 	return on;
@@ -825,7 +841,7 @@ bool fzn_conversations_view::callable(const QString &group, QStringList *who)
 	memset(&members, 0, sizeof members);
 	who->clear();
 	if (fzn_rpc_group_members(&m_rpc->c, name.constData(), (size_t)name.size(), &members) != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		free(members.members);
 		return false;
 	}
@@ -956,18 +972,18 @@ bool fzn_conversations_view::member_act(const QString &group, const QString &act
 		if (m_armed != group || now > m_armed_at + FZN_CONVERSATIONS_CONFIRM_S) {
 			m_armed = group;
 			m_armed_at = now;
-			m_status->setText(tr("Choose \"Delete this device's copy\" again to delete %1 here; the other members keep it.")
+			say(tr("Choose \"Delete this device's copy\" again to delete %1 here; the other members keep it.")
 			                          .arg(group));
 			return true;
 		}
 		m_armed.clear();
 		if (fzn_rpc_group_delete(&m_rpc->c, name.constData(), (size_t)name.size()) != FZN_RPC_OK) {
-			m_status->setText(failed_words(m_rpc));
+			say(failed_words(m_rpc));
 			return false;
 		}
 		/* THE LIST WITHOUT IT, and then said: a refresh says its own. */
 		refresh();
-		m_status->setText(tr("Deleted %1 from this device.").arg(group));
+		say(tr("Deleted %1 from this device.").arg(group));
 		return true;
 	}
 	if (who.isEmpty())
@@ -981,7 +997,7 @@ bool fzn_conversations_view::member_act(const QString &group, const QString &act
 		if (m_armed != key || now > m_armed_at + FZN_CONVERSATIONS_CONFIRM_S) {
 			m_armed = key;
 			m_armed_at = now;
-			m_status->setText(what == tr("Remove")
+			say(what == tr("Remove")
 			                          ? tr("Choose \"%1\" again to take %2 out of %3.").arg(action, who, group)
 			                  : what == tr("Make an admin")
 			                          ? tr("Choose \"%1\" again to make %2 an admin of %3.").arg(action, who, group)
@@ -1003,18 +1019,21 @@ bool fzn_conversations_view::member_act(const QString &group, const QString &act
 	else
 		return false;
 	if (rc != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
+	/* THE HOST TOLD, so a roster it shows follows at once (sec 1508). */
+	if (m_members_told)
+		m_members_told(group);
 	/* THE K OF N SAID, sec 1012: a change waiting on other admins is not done. */
 	if (needed > approvals)
-		m_status->setText(tr("Asked. It takes effect when %n more admin(s) ask.", nullptr, (int)(needed - approvals)));
+		say(tr("Asked. It takes effect when %n more admin(s) ask.", nullptr, (int)(needed - approvals)));
 	else if (what == tr("Add a member"))
-		m_status->setText(tr("%1 is in %2 now.").arg(who, group));
+		say(tr("%1 is in %2 now.").arg(who, group));
 	else if (what == tr("Remove"))
-		m_status->setText(tr("%1 is no longer in %2.").arg(who, group));
+		say(tr("%1 is no longer in %2.").arg(who, group));
 	else
-		m_status->setText(what == tr("Make an admin") ? tr("%1 is an admin of %2 now.").arg(who, group)
+		say(what == tr("Make an admin") ? tr("%1 is an admin of %2 now.").arg(who, group)
 		                                              : tr("%1 is no longer an admin of %2.").arg(who, group));
 	return true;
 }
@@ -1068,10 +1087,10 @@ bool fzn_conversations_view::read_marks_act(const QByteArray &key, const QString
 	else
 		return false;
 	if (rc != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		say(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(what.startsWith(tr("Read marks: As everywhere"))
+	say(what.startsWith(tr("Read marks: As everywhere"))
 	                          ? tr("%1 follows your choice for every conversation.").arg(name)
 	                  : what == tr("Read marks: Don't tell them") ? tr("%1 is not told when you read.").arg(name)
 	                                                             : tr("%1 is told when you read.").arg(name));
@@ -1089,19 +1108,19 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	if (kind == ROW_CONTACT && !item->data(0, ROLE_STANDING).toString().isEmpty()
 	    && (action == tr("Send a file...") || action == tr("Call") || action == tr("Video call")
 	        || action == tr("Share my location"))) {
-		m_status->setText(tr("%1 is %2.").arg(to, item->data(0, ROLE_STANDING).toString()));
+		say(tr("%1 is %2.").arg(to, item->data(0, ROLE_STANDING).toString()));
 		return false;
 	}
 	/* REFUSED TO ONE WHO IS NOT AN ADMIN, saying why, as offered. */
 	if (kind == ROW_GROUP && (action == tr("Add a member") || action == tr("Remove a member"))) {
 		if (!m_refused.value(action).isEmpty())
-			m_status->setText(m_refused.value(action));
+			say(m_refused.value(action));
 		return false;
 	}
 	/* A MEMBER OFFERED DISABLED, REFUSED SAYING WHY if chosen anyway (sec
 	 * 1502). */
 	if (kind == ROW_GROUP && action.startsWith(tr("Add a member: ")) && !m_refused.value(action).isEmpty()) {
-		m_status->setText(tr("%1: %2.").arg(action, m_refused.value(action)));
+		say(tr("%1: %2.").arg(action, m_refused.value(action)));
 		return false;
 	}
 	if (kind == ROW_GROUP
@@ -1126,10 +1145,10 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 		int siblings = 0;
 		if (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, precision, &siblings)
 		    != FZN_RPC_OK) {
-			m_status->setText(failed_words(m_rpc));
+			say(failed_words(m_rpc));
 			return false;
 		}
-		m_status->setText(on ? tr("%1 can see your position now.").arg(to)
+		say(on ? tr("%1 can see your position now.").arg(to)
 		                     : tr("%1 no longer sees your position.").arg(to));
 		return true;
 	}
@@ -1153,11 +1172,11 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 		if (!callable(to.mid(1), &who))
 			return false;
 		if (who.isEmpty()) {
-			m_status->setText(tr("Nobody else in %1 to call.").arg(to.mid(1)));
+			say(tr("Nobody else in %1 to call.").arg(to.mid(1)));
 			return false;
 		}
 		if (who.size() > FZN_RPC_RING_WHO_MAX) {
-			m_status->setText(tr("Too many in %1 to ring at once, %2 at most.").arg(to.mid(1)).arg(FZN_RPC_RING_WHO_MAX));
+			say(tr("Too many in %1 to ring at once, %2 at most.").arg(to.mid(1)).arg(FZN_RPC_RING_WHO_MAX));
 			return false;
 		}
 		m_act(QStringLiteral("call"), who.join(QLatin1Char(',')));

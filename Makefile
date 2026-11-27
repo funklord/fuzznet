@@ -1451,7 +1451,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
             gui/share_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
-            gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp gui/clock_notice.cpp \
+            gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp gui/clock_notice.cpp gui/new_group_view.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1491,7 +1491,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/clock_notice.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/clock_notice.h gui/new_group_view.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1503,7 +1503,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
             gui/test/share_view_test.cpp \
-            gui/test/call_bar_test.cpp gui/test/clock_notice_test.cpp \
+            gui/test/call_bar_test.cpp gui/test/clock_notice_test.cpp gui/test/new_group_view_test.cpp \
             gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
@@ -1627,6 +1627,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/call_video_test \
               $(BUILD_DIR)/gui/test/call_bar_test \
               $(BUILD_DIR)/gui/test/clock_notice_test \
+              $(BUILD_DIR)/gui/test/new_group_view_test \
               $(BUILD_DIR)/gui/test/group_view_test \
               $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
@@ -4119,6 +4120,11 @@ $(BUILD_DIR)/gui/test/devices_view_test: $(BUILD_DIR)/gui/test/devices_view_test
                                       $(BUILD_DIR)/qr/qr.o $(QR_DECODE_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
+# A NEW GROUP WITH ITS MEMBERS, sec 1508.
+$(BUILD_DIR)/gui/test/new_group_view_test: $(BUILD_DIR)/gui/test/new_group_view_test.o \
+                                         $(BUILD_DIR)/gui/new_group_view.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # WHAT A PERSON IS TOLD OF CLOCKS THAT DISAGREE, sec 1507.
 $(BUILD_DIR)/gui/test/clock_notice_test: $(BUILD_DIR)/gui/test/clock_notice_test.o \
                                        $(BUILD_DIR)/gui/clock_notice.o $(RPC_LINK_OBJS)
@@ -8872,7 +8878,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
 	       gui/library_view.cpp gui/music_view.cpp gui/photo_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp gui/search_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp gui/share_view.cpp \
-	       gui/call_bar.cpp gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
+	       gui/call_bar.cpp gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp gui/new_group_view.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
 	       gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
 	       gui/location_view.cpp \

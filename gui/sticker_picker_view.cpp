@@ -546,7 +546,7 @@ bool fzn_sticker_picker_view::keep_files(const QStringList &paths)
 {
 	QStringList files = paths.isEmpty()
 	                            ? QFileDialog::getOpenFileNames(this, tr("Add sticker packs"), QString(),
-	                                                            tr("Sticker packs (*.fzs)"))
+	                                                            tr("Sticker packs and their specs (*.fzs *.spec)"))
 	                            : paths;
 	QStringList why;
 	int kept = 0;

@@ -104,6 +104,7 @@
 /gui/test/call_audio_test
 /gui/test/call_bar_test
 /gui/test/clock_notice_test
+/gui/test/new_group_view_test
 /gui/test/call_video_test
 /gui/test/call_view_test
 /gui/test/share_view_test

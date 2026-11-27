@@ -72,6 +72,7 @@ extern "C" {
 #include "../call_view.h"
 #include "../share_view.h"
 #include "../call_bar.h"
+#include "../new_group_view.h"
 #include "../group_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
@@ -457,6 +458,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_call_view call_v(empty_node, nullptr);
 	fzn_share_view share_v(empty_node, nullptr);
 	fzn_call_bar bar_v(ringing_node, nullptr);
+	fzn_new_group_view new_group_v(empty_node, nullptr);
 	fzn_group_view group_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
@@ -788,6 +790,7 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "share_view", &share_v, "Nothing has been shared." },
 			/* A CALL RINGING HERE IS SAID, with who (sec 1238). */
 			{ "call_bar", &bar_v, "bob is calling you" },
+			{ "new_group", &new_group_v, "Name the group" },
 			/* NO GROUP CHOSEN IS SAID (sec 1143). */
 			{ "group_view", &group_v, "No group chosen." },
 			/* NOBODY SHARING IS SAID, sec 1109. */

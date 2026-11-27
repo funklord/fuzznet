@@ -92,6 +92,16 @@ public:
 	 * and the status line hidden where the host has its own; the layout
 	 * pinned flat (1) or under headings (0), or by width (-1). */
 	void set_controls_shown(bool shown);
+	/* EVERY ACT'S RESULT OR REFUSAL, said on the status line and told here
+	 * (sec 1508), for a host whose own controls hide that line. */
+	void on_notice(std::function<void(const QString &line)> told) { m_notice_told = told; }
+	/* A GROUP'S MEMBERS OR ADMINS CHANGED from its menu: the group named,
+	 * so a roster the host shows follows at once (sec 1508). */
+	void on_members_changed(std::function<void(const QString &group)> told) { m_members_told = told; }
+	/* NEW GROUP HANDED TO THE HOST, which opens a `fzn_new_group_view`
+	 * of its own -- several at once if it likes (sec 1508); unset, the
+	 * name is asked on a line under the list. */
+	void on_new_group(std::function<void()> told) { m_new_group_told = told; }
 	void set_layout(int flat);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
@@ -192,6 +202,9 @@ private:
 	qint64 m_last_open_at = 0;
 	int m_layout_pin = -1;
 	std::function<void(const QString &, bool)> m_chosen_told;
+	std::function<void(const QString &)> m_notice_told, m_members_told;
+	std::function<void()> m_new_group_told;
+	void say(const QString &line);
 	void opened(const QString &to);
 	void show_menu(QTreeWidgetItem *item, const QPoint &at);
 };

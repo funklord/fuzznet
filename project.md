@@ -78231,3 +78231,38 @@ notice rather than a page, as the calls' own comments ask.
 Tests: `clock_notice_test` -- fuzzypickles' test of the words, moved
 with them, and the whole notice read from a node naming a sibling.
 Sabotage: the rounding and the sibling's name, both caught.
+
+## 1508. A new group with its members, and the conversations list's host told
+
+fuzzypickles' three requests for hosting the conversations list (inbox
+20261127T0627Z), two of them holding its swap:
+
+- **`fzn_new_group_view`, a new group with its members**, from its form
+  (its sec 210, the holder's ask of 2026-10-08): the name and Create --
+  the group exists from then -- then this user's active contacts ticked
+  and added in one go, or skipped, a contact added from a bare prekey
+  shown but not tickable, saying why (sec 1502); then Ready: who is in
+  it, who could not be added and the node's reason, and Open the group.
+  Not modal, and nothing stops a host opening several at once -- a
+  window each on a desktop, a page each on a phone -- `title` naming
+  each for a host listing them. Every line is told through `on_notice`.
+- **The conversations list's New group is handed to the host** that
+  says it has such a form (`on_new_group`); without one it asks the name
+  on a line under the list, as before.
+- **`on_notice`**: every act's result or refusal, said on the status
+  line, is told the host -- one hiding our controls (sec 1496) heard
+  none of them.
+- **`on_members_changed(group)`** after a member is added or removed or
+  an admin changed from the menu, so a roster the host shows follows at
+  once rather than at its next poll.
+
+And from the desktop sweep: the sticker picker's "Add sticker packs"
+dialog offered `*.fzs` alone, though `put sticker PATH` builds a pack
+from its spec as well (sec 1278) -- `fzn_rpc_sticker_put`, which no
+view reached, is the same request. The dialog now offers `*.spec` too.
+
+Tests: `new_group_view_test` (13 checks: the name, the contacts offered,
+a prekey contact refused, two ticked and one refused by the node, ready
+and opened, skipping, notices, 320 px); `conversations_view_test` (the
+three hooks). `qtty_render_test` renders the new form. Sabotage: five
+entries, each caught.
