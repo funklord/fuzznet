@@ -78933,3 +78933,28 @@ fuzzypickles' comparison (inbox 20261127T0950Z, item 13):
 Test: `conversation_view_test` (a saved file's outcome told the log once),
 `sticker_picker_view_test` (the button calls the host's hook and opens
 no dialog). Sabotage: two, each probed.
+
+## 1534. Stickers: art drawn when its pack lands; a kept pack said so
+
+fuzzypickles' comparison (inbox 20261127T0950Z, items 12, 16 and 17):
+
+- **Art drawn when its pack lands.** A sticker whose pack had not come
+  was left undrawn until the next refresh, and the watch (sec 1522)
+  refreshes only for a new line, so it could stay blank. Now each watch
+  tick, while the view is shown and nothing new arrived, looks again for
+  the stickers still undrawn (`redraw_waiting`). After 30 looks -- a
+  minute -- a sticker is left as its words, so a pack that never comes
+  is not asked for forever. A look with nothing waiting asks nothing.
+- **"Already in your picker."** Keeping a pack already kept was answered
+  as though it were new. The view now lists the kept packs first, and
+  one already kept is said so with nothing asked of the node; a listing
+  that cannot be read keeps it as before.
+- **The tier read back** (item 17) was there already, one layer down:
+  `fzn_rpc_blob_add` fails, "the node stored it under the other tier",
+  when the node answers a tier other than the one asked, and the view
+  says that refusal. Nothing to add.
+
+Test: `conversation_view_test` -- a fresh view on dan with the art away
+draws nothing, then draws it once it is here; a look with nothing
+waiting asks for no art; a kept pack said kept with no request. Sabotage:
+two, each probed.

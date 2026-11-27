@@ -54,6 +54,10 @@ static int checks, failures;
 static int silent, refuse_send;
 /* What a staged pick held when the node read it (sec 1524). */
 static char staged_read[64];
+/* Dan's pack's art not here yet (sec 1534). */
+static int art_away;
+/* Dan's pack is among those kept (sec 1534). */
+static int dan_pack_kept;
 /* Bob has written again (sec 1522). */
 static int bob_more;
 static char last_set[200], last_add[200], last_file[600];
@@ -81,6 +85,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strncmp(line, DRAW, sizeof DRAW - 1)) {
 		QImage one(1, 1, QImage::Format_ARGB32);
 		art_asked++;
+		/* THE PACK NOT COME YET (sec 1534). */
+		if (art_away)
+			return (size_t)snprintf(reply, cap, "error not here\n");
 		one.fill(Qt::red);
 		if (!one.save(QString::fromUtf8(line + sizeof DRAW - 1), "PNG"))
 			return (size_t)snprintf(reply, cap, "error could not write\n");
@@ -233,6 +240,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 			               : (size_t)snprintf(reply, cap, "error could not write\n");
 		}
 	}
+	/* THE PACKS KEPT: dan's, when it is (sec 1534). */
+	if (!strcmp(line, "list sticker 0"))
+		return dan_pack_kept ? (size_t)snprintf(reply, cap, "ok 1 0 %064d,1000,dan%%27s,1,estate\n", 1)
+		                     : (size_t)snprintf(reply, cap, "ok 0 0\n");
 	if (!strcmp(line, "add sticker " DAN_PACK)) {
 		snprintf(last_keep, sizeof last_keep, "%s", line);
 		return (size_t)snprintf(reply, cap, "ok %064d\n", 5);
@@ -647,6 +658,31 @@ int main(int argc, char **argv)
 	CHECK(d.keep_pack() && !strcmp(last_keep, "add sticker " DAN_PACK)
 	              && d.status() == "Kept the pack with your stickers.",
 	      "a sticker that came in did not keep its pack by its whole reference");
+	/* ART DRAWN WHEN ITS PACK LANDS (sec 1534): a fresh view on dan, the
+	 * art away, draws nothing; once it is here, a look draws it; a look
+	 * with nothing waiting asks nothing. */
+	{
+		fzn_conversation_view late(node, nullptr);
+		int sticker_row = -1;
+
+		art_away = 1;
+		(void)late.open("dan");
+		for (int r = 0; r < late.lines().size(); r++)
+			if (late.lines().value(r).contains("waving") || late.lines().value(r).contains("sticker"))
+				sticker_row = r;
+		const bool blank = sticker_row >= 0 && !late.drawn(sticker_row);
+		art_away = 0;
+		CHECK(blank && late.redraw_waiting() == 1 && late.drawn(sticker_row),
+		      "a sticker whose pack landed later was not drawn");
+		const int asked = art_asked;
+		CHECK(late.redraw_waiting() == 0 && art_asked == asked, "a look with nothing waiting asked for art");
+	}
+	/* KEPT ALREADY (sec 1534): said so, nothing asked of the node. */
+	dan_pack_kept = 1;
+	last_keep[0] = '\0';
+	CHECK(d.keep_pack() && !last_keep[0] && d.status() == "Already in your picker.",
+	      "a pack kept already was kept again, or not said so");
+	dan_pack_kept = 0;
 
 	/* ONE NOTICE, ITS ONE ACTION, sec 1253: the file's line offers what fits
 	 * it -- got while not here whole, saved once it is -- and the sticker's

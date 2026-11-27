@@ -1627,6 +1627,20 @@ SABOTAGES = [
 		"adding sticker packs is handed to a host that asks for it -- sec 1533",
 	),
 	(
+		"conversation-view-keeps-kept-again",
+		"gui/conversation_view.cpp",
+		"\t\t\t\theld = root.size() == 32 && !memcmp(packs.entries[i].root, root.constData(), 32);\n",
+		"\t\t\t\theld = false;\n",
+		"a pack kept already is said so, not kept again -- sec 1534",
+	),
+	(
+		"conversation-view-art-never-redrawn",
+		"gui/conversation_view.cpp",
+		"\tif (!waiting)\n\t\treturn 0;\n\tdraw_stickers();\n",
+		"\tif (!waiting)\n\t\treturn 0;\n",
+		"a sticker whose pack lands later is drawn then -- sec 1534",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

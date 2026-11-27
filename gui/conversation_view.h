@@ -31,6 +31,7 @@
 #include "notebook_view.h"
 
 #include <QByteArray>
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -181,6 +182,11 @@ public:
 	 * many are waiting, and a look now: how many were written. */
 	int pending_saves() const;
 	int land_pending();
+	/* A STICKER WHOSE PACK HAS NOT COME, drawn when it lands (sec 1534):
+	 * looked for again on the watch's tick while shown, as many as
+	 * FZN_ART_TRIES times a sticker, then left as its words. How many
+	 * were drawn by this look. */
+	int redraw_waiting();
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -248,6 +254,8 @@ private:
 	/* The open conversation's newest line, as last shown: its id and
 	 * state, and for a group who read it. Empty until a refresh. */
 	QByteArray m_newest_seen;
+	/* Looks for each undrawn sticker's art, by sticker and words. */
+	QHash<QByteArray, int> m_art_tries;
 	QByteArray newest_now();
 	/* Whose lines the list holds, so a newly opened one starts at its end. */
 	QString m_place_for;

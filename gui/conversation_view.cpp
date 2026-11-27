@@ -240,6 +240,9 @@ static uint64_t file_size(const QByteArray &ref)
 
 /* LINES ASKED FOR, a page at a time: the newest first, older on demand. */
 #define LINES_PAGE 200u
+/* Looks for a sticker's art before it is left as its words: a minute of
+ * the watch's two-second ticks (sec 1534). */
+#define FZN_ART_TRIES 30
 
 /* The most lines shown: the newest, as many as a conversation's screen
  * holds and a few pages more. */
@@ -495,8 +498,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_watch->setInterval(2000);
 	connect(m_watch, &QTimer::timeout, [this]() {
 		(void)land_pending();
-		if (isVisible())
-			(void)watch_now();
+		if (isVisible() && !watch_now())
+			(void)redraw_waiting();
 	});
 	m_watch->start();
 	m_suggest_soon = new QTimer(this);
@@ -1904,6 +1907,10 @@ void fzn_conversation_view::draw_stickers()
 			                          &len, &format)
 			      == FZN_RPC_OK;
 		}
+		/* NOT HERE YET: looked for again (sec 1534), and after
+		 * FZN_ART_TRIES looks left as its words, drawn as nothing. */
+		if (!got && ++m_art_tries[key] >= FZN_ART_TRIES)
+			m_art->drawn.insert(key, QIcon());
 		if (got) {
 			QIcon icon;
 			/* WHAT MOVES IS KEPT TO PLAY, sec 1300 and 1322: a Lottie, and a
@@ -1934,6 +1941,28 @@ void fzn_conversation_view::draw_stickers()
 	}
 }
 
+int fzn_conversation_view::redraw_waiting()
+{
+	int waiting = 0, drawn_now = 0;
+
+	for (int i = 0; i < m_lines->count(); i++) {
+		QListWidgetItem *item = m_lines->item(i);
+		const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+		const QByteArray key = sticker + '\n' + item->data(ROLE_STICKER_TEXT).toString().toUtf8();
+		if (sticker.size() > 145 && item->icon().isNull() && !m_art->drawn.contains(key))
+			waiting++;
+	}
+	if (!waiting)
+		return 0;
+	draw_stickers();
+	for (int i = 0; i < m_lines->count(); i++) {
+		QListWidgetItem *item = m_lines->item(i);
+		if (item->data(ROLE_STICKER).toByteArray().size() > 145 && !item->icon().isNull())
+			drawn_now++;
+	}
+	return drawn_now;
+}
+
 bool fzn_conversation_view::keep_pack()
 {
 	QListWidgetItem *item = m_lines->currentItem();
@@ -1943,6 +1972,24 @@ bool fzn_conversation_view::keep_pack()
 
 	if (sticker.size() <= 145 || !item->data(ROLE_IN).toBool())
 		return false;
+	/* KEPT ALREADY, said so and asked no more (sec 1534): keeping it again
+	 * answered as if it were new. A listing that cannot be read keeps it
+	 * as before. */
+	{
+		fzn_rpc_sticker_packs_t packs;
+		const QByteArray root = QByteArray::fromHex(sticker.left(64));
+		bool held = false;
+
+		memset(&packs, 0, sizeof packs);
+		if (fzn_rpc_sticker_list(&m_rpc->c, &packs) == FZN_RPC_OK)
+			for (size_t i = 0; i < packs.count && !held; i++)
+				held = root.size() == 32 && !memcmp(packs.entries[i].root, root.constData(), 32);
+		fzn_rpc_sticker_packs_release(&packs);
+		if (held) {
+			m_notice->say(tr("Already in your picker."));
+			return true;
+		}
+	}
 	if (fzn_rpc_sticker_keep(&m_rpc->c, sticker.constData(), 144, root, &host_only) != FZN_RPC_OK) {
 		m_notice->say(failed_words(m_rpc));
 		return false;
