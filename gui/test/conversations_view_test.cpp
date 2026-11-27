@@ -9,9 +9,11 @@
  */
 
 #include "../conversations_view.h"
+#include "../menu_exec.h"
 
 #include <QAccessible>
 #include <QApplication>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QLabel>
 #include <QLineEdit>
@@ -535,6 +537,36 @@ int main(int argc, char **argv)
 		CHECK(told.size() == 1 && w.chosen() == "bob", "fixture: bob still listed");
 		/* THE CHOSEN ONE'S MENU, for a phone's More. */
 		CHECK(w.chosen_actions().contains("Send a file..."), "the chosen conversation's menu was not offered");
+		/* THE MENU THROUGH THE HOST'S HOOK, sec 1511: no popup of Qt's,
+		 * which aborts an Android app under TalkBack; the hook's choice
+		 * acted on as a click in the menu would be. */
+		{
+			QStringList seen;
+			fzn_menu_set_exec([&seen](QMenu *menu, QWidget *, const QPoint &) -> QAction * {
+				QAction *pick = nullptr;
+				for (QAction *a : menu->actions()) {
+					seen << a->text();
+					if (a->data().toString() == "Video call")
+						pick = a;
+				}
+				return pick;
+			});
+			QString what, to;
+			w.on_action([&what, &to](const QString &x, const QString &y) {
+				what = x;
+				to = y;
+			});
+			/* A POPUP OF QT'S, were one opened, closed rather than waited
+			 * on: the test fails on it, it does not hang. */
+			QTimer::singleShot(200, []() {
+				if (QApplication::activePopupWidget())
+					QApplication::activePopupWidget()->close();
+			});
+			w.show_chosen_menu(QPoint(0, 0));
+			fzn_menu_set_exec(nullptr);
+			CHECK(seen.contains("Send a file...") && what == "video" && to == "bob",
+			      "the row's menu was not opened through the host's hook, or its choice not acted on");
+		}
 		/* A NEW GROUP NAMED INLINE, no dialog. */
 		w.ask_group_name();
 		auto *name = w.findChild<QLineEdit *>();

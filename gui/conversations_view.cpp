@@ -1,6 +1,7 @@
 /* Every conversation, as a list: gui/conversations_view.h, sec 1138. */
 #include "conversations_view.h"
 #include "plain_label.h"
+#include "menu_exec.h"
 #include "choose_accessible.h"
 #include "phone_layout.h"
 #include "keep_place.h"
@@ -302,7 +303,7 @@ void fzn_conversations_view::show_menu(QTreeWidgetItem *item, const QPoint &at)
 			offered->setText(tr("%1 -- %2").arg(a, refused(a)));
 		}
 	}
-	QAction *chosen = menu.exec(at);
+	QAction *chosen = fzn_menu_exec(&menu, m_tree, at);
 	if (chosen)
 		act(group, row, chosen->data().toString());
 }

@@ -1,6 +1,7 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
 #include "plain_label.h"
+#include "menu_exec.h"
 #include "clock_words.h"
 #include "choose_accessible.h"
 #include "combo.h"
@@ -178,7 +179,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 			for (const QString &s : m_shares)
 				menu.addAction(tr("No longer with %1").arg(s))->setData(QStringLiteral("-") + s);
 		}
-		QAction *a = menu.exec(m_share->mapToGlobal(QPoint(0, m_share->height())));
+		QAction *a = fzn_menu_exec(&menu, m_share, m_share->mapToGlobal(QPoint(0, m_share->height())));
 		if (!a)
 			return;
 		const QString to = a->data().toString();

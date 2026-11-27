@@ -10,14 +10,17 @@
  */
 
 #include "../library_view.h"
+#include "../menu_exec.h"
 #include "../rpc_ask.h"
 
 #include <QAccessible>
 #include <QApplication>
+#include <QTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QLabel>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
@@ -271,6 +274,32 @@ int main(int argc, char **argv)
 	/* THE CHOSEN FILE'S DETAIL: who holds it, and how much plays here. */
 	CHECK(v.detail() == "Held by this host, laptop. Whole here, 4.0 MB.",
 	      "the chosen file's holders by name, and how much plays here, were not said");
+	/* SHARE'S MENU THROUGH THE HOST'S HOOK, sec 1511: the Share button
+	 * opens no popup of Qt's when a host has its own, and the choice made
+	 * there is asked inline as a click in the menu would be. */
+	{
+		bool hooked = false;
+		fzn_menu_set_exec([&hooked](QMenu *menu, QWidget *, const QPoint &) -> QAction * {
+			hooked = true;
+			return menu->actions().value(0);
+		});
+		QPushButton *share = nullptr;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Share...")
+				share = b;
+		/* A POPUP OF QT'S, were one opened, closed rather than waited
+		 * on: the test fails on it, it does not hang. */
+		QTimer::singleShot(200, []() {
+			if (QApplication::activePopupWidget())
+				QApplication::activePopupWidget()->close();
+		});
+		if (share)
+			share->click();
+		fzn_menu_set_exec(nullptr);
+		CHECK(share && hooked && v.offered().startsWith("Share song.ogg with every contact?"),
+		      "Share's menu was not opened through the host's hook, or its choice not asked");
+		v.select(1);
+	}
 	/* REMOVE ASKED INLINE FIRST, sec 1493: nothing done until confirmed. */
 	QStringList notices;
 	v.on_notice([&notices](const QString &line) { notices << line; });

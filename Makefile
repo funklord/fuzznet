@@ -1491,7 +1491,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/clock_notice.h gui/new_group_view.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/music_view.h gui/photo_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/clock_words.h gui/plain_label.h gui/clock_notice.h gui/new_group_view.h gui/menu_exec.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h gui/combo.h gui/choose_accessible.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -7618,6 +7618,26 @@ style: $(OBJS)
 	@# complains. sec 158 found a defect of exactly that shape by rendering
 	@# rather than by reading, and this is the half that needs no qtty
 	@# installed to run.
+	@# AND EVERY MENU THROUGH ONE HOOK, sec 1511: a QMenu is a popup, and
+	@# Qt's Android plugin aborts an app making one under TalkBack. A view
+	@# opens a menu with fzn_menu_exec (gui/menu_exec.h), which a host may
+	@# point at its own in-window sheet; a menu's own exec( or popup(
+	@# anywhere else in gui/ is refused.
+	@n=0; bare=; \
+	for f in $(wildcard gui/*.cpp gui/*.h); do \
+		n=$$((n + 1)); \
+		if grep -inE '[a-z_]*menu[a-z_]*(\.|->)(exec|popup)\(' "$$f" | grep -v 'menu-exec-allow:' | grep -q .; then \
+			bare="$$bare $$f"; \
+		fi; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no gui sources to check for menus"; exit 1; \
+	elif [ -n "$$bare" ]; then \
+		echo "style: a menu opened past fzn_menu_exec, which aborts an Android app under TalkBack, in:$$bare"; \
+		exit 1; \
+	else \
+		echo "style: $$n gui source(s) open every menu through fzn_menu_exec"; \
+	fi
 	@# AND EVERY LABEL PLAIN, sec 1506: a QLabel on Qt::AutoText turns to
 	@# rich text when its text looks like markup, so whoever named a file
 	@# restyled the line quoting it. gui/plain_label.h makes them plain;

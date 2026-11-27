@@ -78290,3 +78290,30 @@ settled in this run (secs 1502-1508). Two were a person's:
 Tests: `conversation_view_test` (a file in reply names its line and
 ends the reply); `group_view_test` (bob holding all, dan unheard).
 Sabotage: both caught.
+
+## 1511. Every view's menu through one hook, for TalkBack
+
+**On Android a QMenu is a popup, a second top-level window, and Qt
+6.12's Android plugin aborts a Widgets app that makes one while an
+accessibility service runs** -- the finding `gui/combo.h` records, and
+answers for combos with a host's hook. QMenu had none. fuzzypickles
+hosts the library view since its 3028a301, so **its Share button
+aborted the app for a TalkBack user**, live in its master; the
+conversations list's row menu does the same and held its swap (inbox
+20261127T0735Z, marked urgent).
+
+**`gui/menu_exec.h`**: a view opens a menu with `fzn_menu_exec(menu,
+context, at)`, which calls a host's hook where one is set -- fuzzypickles
+runs the menu as a sheet inside its window with a nested loop, keeping
+exec's shape -- and `QMenu::exec` otherwise. The hook lives in an inline
+function's static, one object across every translation unit, where a
+`static` free function would give each its own. Both menus go through
+it, and **`make style` refuses a menu's own `exec(` or `popup(` anywhere
+else in `gui/`**, shown failing on one planted.
+
+Tests: `conversations_view_test` and `library_view_test` open each menu
+through a hook and act on its choice. Each closes any popup of Qt's
+after 200 ms, so a sabotage that brings one back fails rather than hangs
+-- the first probe hung on a modal `exec` offscreen for its whole 600 s.
+Sabotage: both caught.
+

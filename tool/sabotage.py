@@ -1277,6 +1277,20 @@ SABOTAGES = [
 		"the roster says what each member holds of this host's lines -- sec 1510",
 	),
 	(
+		"conversations-view-menu-popup",
+		"gui/conversations_view.cpp",
+		"\tQAction *chosen = fzn_menu_exec(&menu, m_tree, at);\n",
+		"\tQAction *chosen = menu.exec(at);\n",
+		"a row's menu goes through the host's hook, no popup of Qt's under TalkBack -- sec 1511",
+	),
+	(
+		"library-view-share-popup",
+		"gui/library_view.cpp",
+		"\t\tQAction *a = fzn_menu_exec(&menu, m_share, m_share->mapToGlobal(QPoint(0, m_share->height())));\n",
+		"\t\tQAction *a = menu.exec(m_share->mapToGlobal(QPoint(0, m_share->height())));\n",
+		"Share's menu goes through the host's hook, no popup of Qt's under TalkBack -- sec 1511",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
