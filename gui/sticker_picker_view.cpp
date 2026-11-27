@@ -1,5 +1,6 @@
 /* Choosing a sticker, and keeping packs: gui/sticker_picker_view.h, sec 1141. */
 #include "sticker_picker_view.h"
+#include "staged_file.h"
 #include "plain_label.h"
 #include "choose_accessible.h"
 
@@ -610,14 +611,18 @@ bool fzn_sticker_picker_view::keep_files(const QStringList &paths)
 	if (files.isEmpty())
 		return false;
 	for (const QString &f : files) {
-		QByteArray at = f.toUtf8();
+		/* A PHONE'S PICKED PACK, staged for the node (sec 1532). */
+		QTemporaryFile staged(fzn_staged_template("pack"));
+		const QByteArray at = fzn_stage_in(f, staged).toUtf8();
 		uint8_t root[32];
 		int host_only = 0;
-		if (fzn_rpc_sticker_file_keep(&m_rpc->c, at.constData(), (size_t)at.size(), root, &host_only)
-		    == FZN_RPC_OK)
+		if (at.isEmpty())
+			why << tr("%1: it could not be read").arg(fzn_picked_name(f));
+		else if (fzn_rpc_sticker_file_keep(&m_rpc->c, at.constData(), (size_t)at.size(), root, &host_only)
+		         == FZN_RPC_OK)
 			kept++;
 		else
-			why << QStringLiteral("%1: %2").arg(f.section(QLatin1Char('/'), -1), failed_words(m_rpc));
+			why << QStringLiteral("%1: %2").arg(fzn_picked_name(f), failed_words(m_rpc));
 	}
 	refresh();
 	QString words = tr("Kept %1 of %2.").arg(kept).arg(files.size());

@@ -1510,15 +1510,15 @@ SABOTAGES = [
 	(
 		"conversation-view-pick-unstaged",
 		"gui/conversation_view.cpp",
-		"\tconst bool picked = picked_uri(from);\n",
-		"\tconst bool picked = false;\n",
+		"\tconst QString node_path = fzn_stage_in(from, staged);\n",
+		"\tconst QString node_path = from;\n",
 		"a picked content:// file is copied for the node before it is sent -- sec 1524",
 	),
 	(
 		"conversation-view-save-unstaged",
 		"gui/conversation_view.cpp",
-		"\tconst bool picked = picked_uri(where);\n",
-		"\tconst bool picked = false;\n",
+		"\tconst QString node_path = fzn_stage_out(where, staged);\n",
+		"\tconst QString node_path = where;\n",
 		"a save to a content:// target goes through a staged file -- sec 1524",
 	),
 	(
@@ -1590,6 +1590,27 @@ SABOTAGES = [
 		"\t\t\t(void)line_act(row, chosen->data().toString());\n",
 		"\t\t\t(void)row;\n",
 		"a choice from a line's menu is done for the line under the press -- sec 1530",
+	),
+	(
+		"sticker-picker-pick-unstaged",
+		"gui/sticker_picker_view.cpp",
+		"\t\tconst QByteArray at = fzn_stage_in(f, staged).toUtf8();\n",
+		"\t\tconst QByteArray at = f.toUtf8();\n",
+		"a picked content:// pack is staged for the node -- sec 1532",
+	),
+	(
+		"notebook-attach-unstaged",
+		"gui/notebook_view.cpp",
+		"\t/* A PHONE'S PICKED FILE, staged for the node (sec 1532). */\n\tconst QString node_path = fzn_stage_in(path, staged);\n",
+		"\t/* A PHONE'S PICKED FILE, staged for the node (sec 1532). */\n\tconst QString node_path = path;\n",
+		"a picked content:// file is staged before it is attached -- sec 1532",
+	),
+	(
+		"staged-file-passes-uri",
+		"gui/staged_file.h",
+		"\tif (!fzn_picked_uri(picked))\n\t\treturn picked;\n",
+		"\tif (1)\n\t\treturn picked;\n",
+		"a content:// path is copied for the node, not handed to it -- sec 1532",
 	),
 	(
 		"clock-words-no-hours",
@@ -6935,8 +6956,8 @@ SABOTAGES = [
 	(
 		"notebook-view-imports-into-the-open-folder",
 		"gui/notebook_view.cpp",
-		"QStringLiteral(\"add import %1 %2\").arg(parent_id(), path)",
-		"QStringLiteral(\"add import %1 %2\").arg(QStringLiteral(\"top\"), path)",
+		"QStringLiteral(\"add import %1 %2\").arg(parent_id(), node_path)",
+		"QStringLiteral(\"add import %1 %2\").arg(QStringLiteral(\"top\"), node_path)",
 		"an export imported while a folder is open lands at the top -- sec 440",
 	),
 	(
@@ -15880,7 +15901,7 @@ SABOTAGES = [
 	(
 		"sticker-picker-refusal-unsaid",
 		"gui/sticker_picker_view.cpp",
-		"\t\t\twhy << QStringLiteral(\"%1: %2\").arg(f.section(QLatin1Char('/'), -1), failed_words(m_rpc));\n",
+		"\t\t\twhy << QStringLiteral(\"%1: %2\").arg(fzn_picked_name(f), failed_words(m_rpc));\n",
 		"\t\t\t;\n",
 		"a pack not kept is not said with why -- sec 1141",
 	),

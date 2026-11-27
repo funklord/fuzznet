@@ -31,6 +31,9 @@ extern "C" {
 
 #include <QAccessible>
 #include <QApplication>
+#include <QTemporaryDir>
+#include <QFile>
+#include <QDir>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
@@ -362,6 +365,22 @@ static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply
 
 static int get_note_asked, items_asked, history_asked, writes_asked;
 
+/* What a staged pick held when the node read it (sec 1532). */
+static char staged_read[64];
+
+static void read_staged(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	size_t n = 0;
+
+	staged_read[0] = '\0';
+	if (f) {
+		n = fread(staged_read, 1, sizeof staged_read - 1, f);
+		staged_read[n] = '\0';
+		fclose(f);
+	}
+}
+
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
 	fzn_request_t request;
@@ -391,6 +410,11 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "%s\n", imported);
 	if (canned_line && !strcmp(line, canned_line))
 		return (size_t)snprintf(reply, cap, "%s\n", canned_reply);
+	/* A PHONE'S PICKED FILE, staged (sec 1532): the copy read, put. */
+	if (!strncmp(line, "put file ", 9) && strstr(line, "/attach-") && canned_reply) {
+		read_staged(line + 9);
+		return (size_t)snprintf(reply, cap, "%s\n", canned_reply);
+	}
 	if (!strcmp(line, "list received"))
 		return (size_t)snprintf(reply, cap, "%s\n", received ? received : "ok 0");
 	/* BARE OR FROM THE FIRST PAGE: the view's own asks gave no FROM, the
@@ -1181,6 +1205,29 @@ static void test_a_file_is_attached_fetched_and_saved(void)
 	      "a file put was not attached in the folder by its name");
 	CHECK(w.status().contains(QStringLiteral("not here")),
 	      "an attachment whose file is not here did not say so");
+	/* A PHONE'S PICKED FILE (sec 1532), attached from a staged copy under
+	 * its name; content:... is a plain name here. */
+	{
+		QTemporaryDir here, cache;
+		const QString was = QDir::currentPath();
+		const QByteArray cache_was = qgetenv("XDG_CACHE_HOME");
+
+		qputenv("XDG_CACHE_HOME", cache.path().toUtf8());
+		QDir::setCurrent(here.path());
+		{
+			QFile pick(QStringLiteral("content:clip.mkv"));
+			(void)pick.open(QIODevice::WriteOnly);
+			(void)pick.write("clip bytes");
+		}
+		CHECK(w.attach_file(QStringLiteral("content:clip.mkv")) && !strcmp(staged_read, "clip bytes")
+		              && w.listed_texts().contains(QStringLiteral("content:clip.mkv")),
+		      "a picked content:// file was not staged for the node and attached under its name");
+		QDir::setCurrent(was);
+		if (cache_was.isNull())
+			qunsetenv("XDG_CACHE_HOME");
+		else
+			qputenv("XDG_CACHE_HOME", cache_was);
+	}
 	/* WHERE IT STANDS, through the typed client, sec 1203: by the verb
 	 * here, as this suite's node reads no files in binary. */
 	{

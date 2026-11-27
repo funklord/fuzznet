@@ -78888,3 +78888,29 @@ no sabotage entry can stand for it, and the sanitized suite
 got there: the test's own settings fixture copied from a NULL value
 with length 0 for an unset setting, which UBSan refuses. The copy is
 now made only for a set value.
+
+## 1532. Every picked file staged, through one header
+
+Sec 1524's shape, found again: a path from a file dialog handed straight
+to the node, which on Android is a `content://` URI the node cannot
+open. Following it through `gui/`, three more did so:
+
+- the sticker picker's "Add sticker packs" (`put sticker PATH`);
+- the notebook's attach (`put file PATH`), import (`add import ...
+  PATH`, every page reading the same file) and save (`get file REF
+  PATH`).
+
+The devices view reads its picture of a code itself, through Qt, which
+opens a `content://` URI, so it was right as it was. The library view
+stages already (sec 1493) and is left as it is.
+
+The staging now lives once, in `gui/staged_file.h`: a path the node reads
+staged in, a path the node writes staged out and copied back, and the
+name a picked file goes under (its provider's). The conversation view
+moved onto it, and the picker and the notebook use it. Five sabotage
+entries named lines this moved and were retargeted.
+
+Test: `sticker_picker_view_test` (a picked pack kept from a staged copy,
+nothing left in the cache), `notebook_view_test` (a picked file attached
+from a staged copy under its name), `conversation_view_test` as before.
+Sabotage: three new, four retargeted, each probed.

@@ -1,6 +1,7 @@
 /* See notebook_view.h. */
 
 #include "notebook_view.h"
+#include "staged_file.h"
 #include "plain_label.h"
 #include "choose_accessible.h"
 #include "combo.h"
@@ -1761,9 +1762,17 @@ bool fzn_notebook_view::import_file(const QString &path)
 	QStringList refused;
 	qulonglong from = 0;
 	int page;
+	QTemporaryFile staged(fzn_staged_template("import"));
 
 	if (shared() || path.isEmpty())
 		return false;
+	/* A PHONE'S PICKED EXPORT, staged for the node, every page reading the
+	 * same copy (sec 1532). */
+	const QString node_path = fzn_stage_in(path, staged);
+	if (node_path.isEmpty()) {
+		fail(QStringLiteral("Nothing was imported: %1 could not be read.").arg(fzn_picked_name(path)));
+		return false;
+	}
 	/* A PAGE AT A TIME, sec 991: `... ATTACHED NEXT REASON,NAME ...`, NEXT
 	 * the FROM to ask again with, 0 when done -- so the node answers its
 	 * other callers between pages of a large export. */
@@ -1772,8 +1781,8 @@ bool fzn_notebook_view::import_file(const QString &path)
 		QStringList f;
 		int i;
 
-		if (ask(from ? QStringLiteral("add import %1 %2 %3").arg(parent_id()).arg(from).arg(path)
-		             : QStringLiteral("add import %1 %2").arg(parent_id(), path),
+		if (ask(from ? QStringLiteral("add import %1 %2 %3").arg(parent_id()).arg(from).arg(node_path)
+		             : QStringLiteral("add import %1 %2").arg(parent_id(), node_path),
 		        &detail)
 		    != 1) {
 			fail(QStringLiteral("Nothing %1was imported: %2")
@@ -1832,12 +1841,19 @@ bool fzn_notebook_view::attach_file(const QString &path)
 {
 	QString put, made;
 	QStringList w;
+	QTemporaryFile staged(fzn_staged_template("attach"));
 
 	if (shared() || path.isEmpty())
 		return false;
+	/* A PHONE'S PICKED FILE, staged for the node (sec 1532). */
+	const QString node_path = fzn_stage_in(path, staged);
+	if (node_path.isEmpty()) {
+		fail(QStringLiteral("The file could not be read: %1").arg(fzn_picked_name(path)));
+		return false;
+	}
 	/* `ok REF private|public`, then the attachment under the folder open,
 	 * titled by the file's name. */
-	if (ask(QStringLiteral("put file %1").arg(path), &put) != 1
+	if (ask(QStringLiteral("put file %1").arg(node_path), &put) != 1
 	    || (w = put.split(QLatin1Char(' '))).value(0).length() != 144) {
 		fail(QStringLiteral("The file was not taken: %1").arg(put));
 		return false;
@@ -1846,7 +1862,7 @@ bool fzn_notebook_view::attach_file(const QString &path)
 	{
 		const QByteArray ref = QByteArray::fromHex(w.value(0).toLatin1());
 		const QByteArray parent = QByteArray::fromHex(parent_id().toLatin1());
-		const QByteArray title = QFileInfo(path).fileName().toUtf8();
+		const QByteArray title = fzn_picked_name(path).toUtf8();
 		uint8_t id[32];
 
 		if (ref.size() != 72
@@ -1884,10 +1900,19 @@ bool fzn_notebook_view::save_attachment(const QString &path)
 {
 	QString why;
 
+	QTemporaryFile staged(fzn_staged_template("save"));
+
 	if (m_ref.isEmpty() || path.isEmpty())
 		return false;
-	if (ask(QStringLiteral("get file %1 %2").arg(m_ref, path), &why) != 1) {
+	/* A PHONE'S PICKED PLACE: the node writes a staged file, copied out
+	 * (sec 1532). */
+	const QString node_path = fzn_stage_out(path, staged);
+	if (node_path.isEmpty() || ask(QStringLiteral("get file %1 %2").arg(m_ref, node_path), &why) != 1) {
 		fail(QStringLiteral("The file was not saved: %1").arg(why));
+		return false;
+	}
+	if (!fzn_stage_out_done(path, staged)) {
+		fail(QStringLiteral("The file was not saved: %1 could not be written.").arg(path));
 		return false;
 	}
 	say(QStringLiteral("Saved %1.").arg(path));

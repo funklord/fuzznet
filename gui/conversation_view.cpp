@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "staged_file.h"
 #include "plain_label.h"
 #include "menu_exec.h"
 #include "choose_accessible.h"
@@ -1442,31 +1443,6 @@ int fzn_conversation_view::land_pending()
 	return landed;
 }
 
-/* A PHONE'S PICKER GIVES content://, which only this app can open and the
- * node cannot (sec 1524, as the library does, sec 1493): a picked file is
- * copied to a private file in this app's cache for the node to read, and a
- * save goes to such a file and is copied out. */
-static bool picked_uri(const QString &path) { return path.startsWith(QLatin1String("content:")); }
-
-static QString staged_name(const char *what)
-{
-	const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-
-	QDir().mkpath(dir);
-	return dir + QLatin1Char('/') + QLatin1String(what) + QStringLiteral("-XXXXXX");
-}
-
-/* Every byte of `from` into `to`. */
-static bool copy_whole(QIODevice &from, QIODevice &to)
-{
-	while (!from.atEnd()) {
-		const QByteArray chunk = from.read(1 << 16);
-		if (chunk.isEmpty() || to.write(chunk) != chunk.size())
-			return false;
-	}
-	return true;
-}
-
 bool fzn_conversation_view::save_to(const QString &path)
 {
 	QListWidgetItem *item = m_lines->currentItem();
@@ -1490,19 +1466,13 @@ bool fzn_conversation_view::save_to(const QString &path)
 bool fzn_conversation_view::save_ref(const QByteArray &ref, const QString &where)
 {
 	fzn_rpc_blob_export_resp_t out;
-	const bool picked = picked_uri(where);
-	QTemporaryFile staged(staged_name("save"));
-	if (picked) {
-		/* A NAME THE NODE WRITES, the file made and let go so the export
-		 * finds none there. */
-		if (!staged.open()) {
-			m_notice->say(tr("%1 could not be written: %2").arg(where, staged.errorString()), true);
-			return false;
-		}
-		staged.close();
-		QFile::remove(staged.fileName());
+	QTemporaryFile staged(fzn_staged_template("save"));
+	const QString node_path = fzn_stage_out(where, staged);
+	if (node_path.isEmpty()) {
+		m_notice->say(tr("%1 could not be written: %2").arg(where, staged.errorString()), true);
+		return false;
 	}
-	QByteArray at = (picked ? staged.fileName() : where).toUtf8();
+	QByteArray at = node_path.toUtf8();
 	if (fzn_rpc_blob_export(&m_rpc->c, (const uint8_t *)ref.constData(),
 	                        (const uint8_t *)ref.constData() + 32, at.constData(), (size_t)at.size(),
 	                        &out)
@@ -1510,13 +1480,9 @@ bool fzn_conversation_view::save_ref(const QByteArray &ref, const QString &where
 		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
-	if (picked) {
-		QFile in(staged.fileName()), to(where);
-		if (!in.open(QIODevice::ReadOnly) || !to.open(QIODevice::WriteOnly | QIODevice::Truncate)
-		    || !copy_whole(in, to)) {
-			m_notice->say(tr("%1 could not be written: %2").arg(where, to.errorString()), true);
-			return false;
-		}
+	if (!fzn_stage_out_done(where, staged)) {
+		m_notice->say(tr("%1 could not be written.").arg(where), true);
+		return false;
 	}
 	m_notice->say(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), where));
 	return true;
@@ -1602,20 +1568,17 @@ bool fzn_conversation_view::send_file_to(const QString &conversation, const QStr
 		return false;
 	/* A PICKED content:// FILE, copied for the node first (sec 1524); the
 	 * copy goes when this returns, the node having stored it. */
-	const bool picked = picked_uri(from);
-	QTemporaryFile staged(staged_name("send"));
-	if (picked) {
-		QFile in(from);
-		if (!in.open(QIODevice::ReadOnly) || !staged.open() || !copy_whole(in, staged) || !staged.flush()) {
-			m_notice->say(tr("%1 could not be read.").arg(QFileInfo(from).fileName()), true);
-			return false;
-		}
+	QTemporaryFile staged(fzn_staged_template("send"));
+	const QString node_path = fzn_stage_in(from, staged);
+	if (node_path.isEmpty()) {
+		m_notice->say(tr("%1 could not be read.").arg(fzn_picked_name(from)), true);
+		return false;
 	}
-	QByteArray at = (picked ? staged.fileName() : from).toUtf8();
+	QByteArray at = node_path.toUtf8();
 	/* THE NAME SENT is the file's own, which the reference refuses if it
 	 * could be taken for a path (sec 794) -- a picked one's as its
 	 * provider names it. */
-	QByteArray name = (picked ? QFileInfo(from).fileName() : from.section(QLatin1Char('/'), -1)).toUtf8();
+	QByteArray name = fzn_picked_name(from).toUtf8();
 	const bool group = conversation.startsWith(QLatin1Char('@'));
 	QByteArray to = (group ? conversation.mid(1) : conversation).toUtf8();
 	fzn_rpc_blob_add_resp_t stored;

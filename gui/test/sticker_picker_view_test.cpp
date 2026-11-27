@@ -15,6 +15,7 @@
 #include "../sticker_render.h"
 
 #include <QApplication>
+#include <QTemporaryDir>
 #include <QTabWidget>
 #include <QPushButton>
 #include <QTimer>
@@ -56,6 +57,22 @@ static const char LOTTIE[] =
         "\"shapes\":[{\"ty\":\"rc\",\"d\":1,\"s\":{\"a\":0,\"k\":[80,80]},\"p\":{\"a\":0,\"k\":[0,0]},"
         "\"r\":{\"a\":0,\"k\":0},\"nm\":\"rect\"},{\"ty\":\"fl\",\"c\":{\"a\":0,\"k\":[1,0,0,1]},"
         "\"o\":{\"a\":0,\"k\":100},\"r\":1,\"nm\":\"fill\"}],\"ip\":0,\"op\":30,\"st\":0,\"bm\":0}]}";
+
+/* What a staged pick held when the node read it (sec 1532). */
+static char staged_read[64];
+
+static void read_staged(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	size_t n = 0;
+
+	staged_read[0] = '\0';
+	if (f) {
+		n = fread(staged_read, 1, sizeof staged_read - 1, f);
+		staged_read[n] = '\0';
+		fclose(f);
+	}
+}
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -131,6 +148,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "remove sticker " PACK)) {
 		let_go++;
 		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	/* A PHONE'S PICKED PACK, staged (sec 1532): the copy read. */
+	if (!strncmp(line, "put sticker ", 12) && strstr(line, "/pack-")) {
+		read_staged(line + 12);
+		return (size_t)snprintf(reply, cap, "ok " PACK "\n");
 	}
 	if (!strcmp(line, "put sticker /tmp/fzn-good.fzs"))
 		return (size_t)snprintf(reply, cap, "ok " PACK "\n");
@@ -517,6 +539,29 @@ int main(int argc, char **argv)
 	CHECK(!v.playing(), "a sticker played on after its tab was built again");
 #endif
 
+	/* A PHONE'S PICKED PACK (sec 1532): content:... is a plain name here. */
+	{
+		QTemporaryDir here, cache;
+		const QString was = QDir::currentPath();
+		const QByteArray cache_was = qgetenv("XDG_CACHE_HOME");
+
+		qputenv("XDG_CACHE_HOME", cache.path().toUtf8());
+		QDir::setCurrent(here.path());
+		{
+			QFile pick(QStringLiteral("content:mine.fzs"));
+			(void)pick.open(QIODevice::WriteOnly);
+			(void)pick.write("pack bytes");
+		}
+		CHECK(v.keep_files({ "content:mine.fzs" }) && !strcmp(staged_read, "pack bytes")
+		              && v.status().startsWith("Kept 1 of 1."),
+		      "a picked content:// pack was not staged for the node and kept");
+		CHECK(QDir(cache.path()).entryList(QDir::Files).isEmpty(), "a staged pack was left in the cache");
+		QDir::setCurrent(was);
+		if (cache_was.isNull())
+			qunsetenv("XDG_CACHE_HOME");
+		else
+			qputenv("XDG_CACHE_HOME", cache_was);
+	}
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
 	              && v.status().startsWith("Kept 1 of 2.") && v.status().contains("fzn-bad.fzs: not a sticker pack"),
 	      "keeping two packs, one refused, was not said with why");
