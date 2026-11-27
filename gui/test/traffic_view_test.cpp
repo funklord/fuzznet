@@ -69,12 +69,13 @@ int main(int argc, char **argv)
 	fzn_traffic_view view(node, nullptr);
 	QTreeWidgetItem *files, *reconcile, *near_host;
 
+	/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
+	CHECK(view.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
+
 	{
 		int before = failures;
 
-		/* NO WIDER THAN A 320 px SCREEN, sec 1503: a phone's cover screen. */
-	CHECK(view.minimumSizeHint().width() <= 320, "the view is wider than a 320 px cover screen");
-	CHECK(0, "deliberate");
+		CHECK(0, "deliberate");
 		CHECK(failures == before + 1, "a failure counts");
 		failures = before;
 		checks -= 1;
