@@ -132,6 +132,10 @@ public:
 	/* THE HOST'S PLAYER FOR A STICKER'S SOUND (sec 1301), given the file it
 	 * was written to; unset, no sound is fetched. */
 	void on_sound(std::function<void(const QString &path)> play);
+	/* WHETHER THE LINES SHOWN MAY BE MARKED READ NOW, sec 1518: asked at
+	 * each refresh, so a host marks read only what a person can see -- its
+	 * window in front, this view showing. Unset, every refresh marks. */
+	void mark_read_when(std::function<bool()> may);
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -179,6 +183,13 @@ private:
 	class QLabel *m_popup = nullptr;
 	QTimer *m_pop = nullptr;
 	std::function<void(const QString &)> m_sound;
+	std::function<bool()> m_may_mark;
+	/* Whose lines the list holds, so a newly opened one starts at its end. */
+	QString m_place_for;
+	/* FOLLOWING THE END until the reader scrolls away from it; the moves a
+	 * refill makes itself are not the reader's. */
+	bool m_follow = true, m_filling = false;
+	bool fill_lines();
 	QTimer *m_play = nullptr;
 	QListWidgetItem *m_playing = nullptr;
 	QByteArray m_playing_key;

@@ -14,6 +14,8 @@
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QScrollBar>
+#include <QListWidget>
 #include <QTimer>
 #include <QFile>
 #include <QImage>
@@ -333,6 +335,40 @@ int main(int argc, char **argv)
 	v.show();
 	v.resize(320, 600);
 	app.processEvents();
+	/* THE READER'S PLACE KEPT (sec 1518): scrolled up, a refresh leaves
+	 * the top line at the top; at the end, the end again. And read marks
+	 * the host's to allow. */
+	{
+		QListWidget *list = v.findChild<QListWidget *>();
+		QScrollBar *bar = list ? list->verticalScrollBar() : nullptr;
+		v.resize(320, 260);
+		app.processEvents();
+		v.refresh();
+		app.processEvents();
+		const bool scrolls = bar && bar->maximum() > 0;
+		CHECK(scrolls && bar->value() == bar->maximum(), "a short window did not scroll, or did not open at the end");
+		if (bar)
+			bar->setValue(0);
+		app.processEvents();
+		v.refresh();
+		app.processEvents();
+		CHECK(bar && bar->value() == 0, "a refresh pulled a reader scrolled up down to the newest line");
+		if (bar)
+			bar->setValue(bar->maximum());
+		v.refresh();
+		app.processEvents();
+		CHECK(bar && bar->value() == bar->maximum(), "a reader at the end was not kept at the end");
+		v.mark_read_when([]() { return false; });
+		last_set[0] = '\0';
+		v.refresh();
+		CHECK(!last_set[0], "lines were marked read when the host said nobody could see them");
+		v.mark_read_when([]() { return true; });
+		v.refresh();
+		CHECK(!strcmp(last_set, "set message bob read " ID3), "lines were not marked read when the host allowed it");
+		v.mark_read_when(nullptr);
+		v.resize(320, 600);
+		app.processEvents();
+	}
 	{
 		const QRect his = v.bubble_rect(0), mine = v.bubble_rect(1);
 

@@ -37,6 +37,7 @@ extern "C" {
 #include <QListWidget>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QResizeEvent>
 #include <QStyledItemDelegate>
 #include <QTimer>
@@ -397,6 +398,19 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_title = fzn_plain_label(this);
 	m_title->setWordWrap(true);
 	m_lines = new QListWidget(this);
+	{
+		QScrollBar *bar = m_lines->verticalScrollBar();
+		connect(bar, &QScrollBar::valueChanged, [this, bar](int v) {
+			if (!m_filling)
+				m_follow = v >= bar->maximum();
+		});
+		/* A WINDOW GROWN, or lines laid out late, keeps a reader at the end
+		 * there. */
+		connect(bar, &QScrollBar::rangeChanged, [this, bar](int, int max) {
+			if (m_follow && !m_filling)
+				bar->setValue(max);
+		});
+	}
 	m_lines->setWordWrap(true);
 	m_lines->setIconSize(QSize(STICKER_PX, STICKER_PX));
 	m_play = new QTimer(this);
@@ -557,7 +571,7 @@ static void refresh_quiet(fzn_notice_line *notice, const QString &text)
 /* A GROUP'S LINES, newest first as a contact's are, each with who wrote it;
  * the read position at the newest that came in, kept by the group's id. */
 static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *list, fzn_notice_line *status,
-                        uint32_t now, size_t max, bool *answered)
+                        uint32_t now, size_t max, bool *answered, bool mark)
 {
 	QByteArray name = group.mid(1).toUtf8();
 	auto *lines = (fzn_rpc_group_line_t *)calloc(max, sizeof(fzn_rpc_group_line_t));
@@ -612,7 +626,7 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 	/* EMPTY, SAID KINDLY, as fuzzypickles' does (its sec 286): a blank
 	 * page read as one still loading. */
 	refresh_quiet(status, count ? QString() : QObject::tr("No messages in %1 yet.").arg(group.mid(1)));
-	if (newest_in) {
+	if (newest_in && mark) {
 		static fzn_rpc_group_list_resp_t groups;
 		QByteArray by_id;
 		if (fzn_rpc_group_list(&rpc->c, &groups) == FZN_RPC_OK)
@@ -627,8 +641,6 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 			status->say(QObject::tr("Shown, but not marked read: %1").arg(failed_words(rpc)), true);
 	}
 	free(lines);
-	if (count)
-		list->scrollToBottom();
 	return true;
 }
 
@@ -722,14 +734,62 @@ void fzn_conversation_view::merge_calls(bool full, uint32_t now)
 	}
 }
 
+void fzn_conversation_view::mark_read_when(std::function<bool()> may) { m_may_mark = std::move(may); }
+
+/* THE READER'S PLACE KEPT across a refill, sec 1518: at the end, the end
+ * again, as new lines arrive; scrolled up into the history, the line at
+ * the top stays at the top. Every poll pulled a reader down to the newest
+ * line (fuzzypickles' 0950Z item 1). A conversation newly opened starts
+ * at its end. */
 bool fzn_conversation_view::refresh_lines()
 {
+	QScrollBar *bar = m_lines->verticalScrollBar();
+	const int was = bar->value();
+	QByteArray top_id;
+	QString top_text;
+
+	if (m_place_for != m_contact || m_lines->count() == 0)
+		m_follow = true;
+	const bool at_end = m_follow;
+	if (!at_end) {
+		if (QListWidgetItem *top = m_lines->itemAt(4, 4)) {
+			top_id = top->data(ROLE_ID).toByteArray();
+			top_text = top->text();
+		}
+	}
+	m_filling = true;
+	const bool r = fill_lines();
+	m_place_for = m_contact;
+	if (at_end) {
+		m_lines->scrollToBottom();
+	} else {
+		int at = -1;
+		for (int i = 0; i < m_lines->count() && at < 0; i++) {
+			QListWidgetItem *it = m_lines->item(i);
+			if (top_id.isEmpty() ? it->text() == top_text : it->data(ROLE_ID).toByteArray() == top_id)
+				at = i;
+		}
+		/* THE TOP LINE GONE -- unsent, or past the page -- the scroll as
+		 * it was. */
+		if (at >= 0)
+			m_lines->scrollToItem(m_lines->item(at), QAbstractItemView::PositionAtTop);
+		else
+			bar->setValue(was);
+	}
+	m_filling = false;
+	return r;
+}
+
+bool fzn_conversation_view::fill_lines()
+{
+	const bool mark = !m_may_mark || m_may_mark();
+
 	if (m_contact.isEmpty())
 		return false;
 	if (m_contact.startsWith(QLatin1Char('@'))) {
 		bool answered = true;
 		const uint32_t at = m_now ? m_now : (uint32_t)time(NULL);
-		if (!group_lines(m_rpc, m_contact, m_lines, m_notice, at, m_max, &answered))
+		if (!group_lines(m_rpc, m_contact, m_lines, m_notice, at, m_max, &answered, mark))
 			return answered;
 		m_older->setEnabled((size_t)m_lines->count() >= m_max);
 		draw_stickers();
@@ -785,7 +845,7 @@ bool fzn_conversation_view::refresh_lines()
 	/* READ HERE IS READ EVERYWHERE: the node keeps the position and syncs
 	 * it to this user's other devices (sec 528). Said, not failed, when the
 	 * node will not take it -- the lines are shown either way. */
-	if (newest_in
+	if (newest_in && mark
 	    && fzn_rpc_message_read(&m_rpc->c, who.constData(), (size_t)who.size(), newest_in->commitment)
 	               != FZN_RPC_OK) {
 		m_notice->say(tr("Shown, but not marked read: %1").arg(failed_words(m_rpc)), true);
@@ -798,8 +858,6 @@ bool fzn_conversation_view::refresh_lines()
 	m_older->setEnabled(count >= m_max);
 	free(lines);
 	draw_stickers();
-	if (count)
-		m_lines->scrollToBottom();
 	return true;
 }
 

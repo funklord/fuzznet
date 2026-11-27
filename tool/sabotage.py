@@ -1438,6 +1438,20 @@ SABOTAGES = [
 		"the name column is given the widest name's room before the other columns -- sec 1517",
 	),
 	(
+		"conversation-view-marks-unasked",
+		"gui/conversation_view.cpp",
+		"\tconst bool mark = !m_may_mark || m_may_mark();\n",
+		"\tconst bool mark = true;\n",
+		"lines are marked read only when the host allows -- sec 1518",
+	),
+	(
+		"conversation-view-place-pulled-down",
+		"gui/conversation_view.cpp",
+		"\t\t\t\tm_follow = v >= bar->maximum();\n",
+		"\t\t\t\tm_follow = true;\n",
+		"a reader scrolled up stays where they are across a refresh -- sec 1518",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

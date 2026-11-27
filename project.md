@@ -78496,3 +78496,27 @@ share what is left, in the order a person needs them: the unread count,
 when, the host's badge, and last the waiting text, each cut if it must
 be. It runs again whenever the list's width changes. The test grabs a
 230 px pane holding a waiting text, and sabotage probes the rule.
+
+## 1518. The reader's place kept, and read marks the host's to allow
+
+fuzzypickles' comparison of conversation views (inbox 20261127T0950Z,
+items 1 and 2) found two faults in ours:
+
+- **Every refill pulled the reader down to the newest line**, so a
+  reader scrolled up into the history was moved at every poll. Now the
+  view follows the end until the reader scrolls away from it. The moves
+  a refill makes itself are not counted as the reader's. Scrolled up, the
+  line at the top stays at the top (by its id, by its text for a call);
+  if that line is gone, the scroll stays as it was. A conversation newly
+  opened starts at its end, and a window grown keeps a reader at the
+  end there. The list scrolls a line at a time, which is why "at the
+  end" is a remembered state rather than a slack of pixels: four pixels
+  of slack were four lines.
+- **The newest line was marked read at every refill**, hidden view and
+  backgrounded app included, so lines nobody saw were marked read on
+  every device (sec 528). `mark_read_when(predicate)` lets a host decide
+  -- its window in front, the view showing. It is asked at each
+  refresh; left unset, the view marks as before.
+
+Test: `conversation_view_test` (scrolled up and kept, at the end and
+kept, marks withheld and then allowed). Sabotage: two, each probed.
