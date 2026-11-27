@@ -46,6 +46,7 @@ struct fzn_camera_feed::impl {
 	QString why;
 	bool asking; /* the person is being asked for the camera */
 	bool gray;   /* the luma plane is enough */
+	bool front;  /* the camera opened faces the person */
 #ifdef FZN_CAMERA_ON
 	QCamera *camera;
 	QMediaCaptureSession *session;
@@ -62,6 +63,7 @@ fzn_camera_feed::fzn_camera_feed(QObject *owner, each_t each, stopped_t stopped)
 	m->stopped = std::move(stopped);
 	m->asking = false;
 	m->gray = false;
+	m->front = false;
 #ifdef FZN_CAMERA_ON
 	m->camera = nullptr;
 	m->session = nullptr;
@@ -130,6 +132,7 @@ bool fzn_camera_feed::open()
 		m->why = QObject::tr("No camera was found on this device.");
 		return false;
 	}
+	m->front = device.position() == QCameraDevice::FrontFace;
 	m->camera = new QCamera(device, m->owner);
 	m->session = new QMediaCaptureSession(m->owner);
 	m->sink = new QVideoSink(m->owner);
@@ -258,6 +261,8 @@ bool fzn_camera_feed::running() const
 }
 
 QString fzn_camera_feed::why() const { return m->why; }
+
+bool fzn_camera_feed::front() const { return m->front; }
 
 void fzn_camera_feed::frame(const QImage &picture)
 {

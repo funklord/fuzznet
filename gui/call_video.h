@@ -23,6 +23,7 @@
 #define FZN_GUI_CALL_VIDEO_H
 
 #include <QByteArray>
+#include <QtGlobal>
 #include <QImage>
 #include <QString>
 
@@ -65,8 +66,19 @@ public:
 
 	/* Each picture from the other end, as it arrives. */
 	void on_picture(std::function<void(const QImage &)> told) { m_told = told; }
+	/* EACH PICTURE THIS END SENDS, as its person sees it -- mirrored for a
+	 * front camera, as a mirror is; what is sent is as the camera saw it
+	 * (sec 1491, fuzzypickles' call_video). */
+	void on_own_picture(std::function<void(const QImage &)> told) { m_own_told = told; }
+	/* HOW LONG SINCE THE OTHER END'S LAST PICTURE, in ms, or -1 for none
+	 * on this channel: a picture that stopped is not left standing. */
+	qint64 picture_age_ms() const;
+	/* A CHANNEL THE NODE CLOSED for a call is not opened again for it
+	 * (sec 1491): `start` refuses that call until another is started. */
+	QString closed_id() const { return m_closed_id; }
 	/* The camera: asked for (a permission on a phone), and said in
-	 * `trouble` when it cannot be had. */
+	 * `trouble` when it cannot be had. Wanted, it comes back with the
+	 * next channel opened, as `stop` closes it with the channel. */
 	void set_camera(bool on);
 	bool camera_on() const;
 	/* Send a picture now, as the camera would. False with no channel open
@@ -80,13 +92,16 @@ public:
 private:
 	bool opened(const QString &id);
 
-	QString m_node_socket, m_trouble;
+	QString m_node_socket, m_trouble, m_id;
 	QObject *m_owner;
 	struct fzn_rpc_media *m_media;
 	bool m_open = false;
 	QSocketNotifier *m_notifier = nullptr;
 	fzn_camera_feed *m_camera = nullptr;
-	std::function<void(const QImage &)> m_told;
+	std::function<void(const QImage &)> m_told, m_own_told;
+	QString m_closed_id;
+	bool m_camera_wanted = false;
+	qint64 m_picture_at_ms = -1;
 	uint32_t m_sent = 0, m_received = 0;
 	qint64 m_started_ms = 0;
 };

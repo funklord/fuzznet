@@ -52,6 +52,10 @@ public:
 	void stop();
 	bool running() const;
 	QString why() const;
+	/* WHETHER IT FACES THE PERSON, as of the last start: a front camera's
+	 * picture is shown to its own person mirrored, as a mirror is (sec
+	 * 1491). False where none opened or the platform does not say. */
+	bool front() const;
 
 	/* GREY IS ENOUGH -- a code to read, not a face to show: a phone camera's
 	 * frame is then handed on as its luma plane, copied, rather than

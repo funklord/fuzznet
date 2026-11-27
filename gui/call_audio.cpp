@@ -30,11 +30,13 @@ fzn_call_audio::fzn_call_audio(fzn_notebook_view_ask_t ask, void *ask_ctx)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 	fzn_call_sound_start(m_sound, "0000000000000000", 0);
+	m_life = new QObject;
 }
 
 fzn_call_audio::~fzn_call_audio()
 {
 	stop();
+	delete m_life;
 	fzn_call_opus_close(m_opus);
 	delete m_sound;
 	delete m_rpc;
@@ -61,8 +63,29 @@ bool fzn_call_audio::start(const QString &id)
 	const bool test = m_test_source || m_test_sink;
 	if (m_opus && (!test || m_test_rate == (int)FZN_CALL_OPUS_RATE))
 		(void)fzn_call_sound_codec(m_sound, fzn_call_opus_codec(m_opus));
-	if (!test)
+	/* THE MICROPHONE IS A RUNTIME PERMISSION on a phone (sec 1491): asked
+	 * for when a call comes up, never at start-up, where nothing has asked
+	 * it yet; a refusal said. Only checked, a phone that never asked
+	 * opened no microphone and said nothing. */
+	if (!test) {
+#if defined(FZN_CAMERA_ON) && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+		QMicrophonePermission permission;
+		const Qt::PermissionStatus status = qApp ? qApp->checkPermission(permission) : Qt::PermissionStatus::Granted;
+		if (status == Qt::PermissionStatus::Undetermined) {
+			qApp->requestPermission(permission, m_life, [this, id](const QPermission &p) {
+				if (m_id != id)
+					return; /* that call is over */
+				if (p.status() == Qt::PermissionStatus::Granted) {
+					close_devices();
+					open_devices();
+				} else
+					m_trouble = QObject::tr("The microphone was not allowed, so they cannot hear you.");
+			});
+		} else if (status == Qt::PermissionStatus::Denied)
+			m_trouble = QObject::tr("The microphone is off for this app -- allow it in its settings.");
+#endif
 		open_devices();
+	}
 	m_timer = new QTimer;
 	m_timer->setInterval(20);
 	QObject::connect(m_timer, &QTimer::timeout,

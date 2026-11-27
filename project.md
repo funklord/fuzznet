@@ -77805,3 +77805,49 @@ holds before swapping; taken one at a time in the sections after this.
 Tests: `library_view_test` lists a talk 1:27:03 long. Sabotage:
 `clock-words-no-hours`, caught; `library-view-broken-unsaid` follows the
 summed count.
+
+## 1491. The call bar takes what fuzzypickles' did better
+
+**fuzzypickles is to host `fzn_call_bar`** in place of its own call bar,
+call audio and call video -- the holder's word that the call UI is
+fuzznet's -- under "the more capable one wins", and compared the two
+(inbox 20261126T2236Z): theirs was ahead in eight respects. Ours keeps
+what they take as it is -- the rung-out endings, the test API, the
+accessible names, `codec()`. The eight, now ours:
+
+1. **`ring(who, kinds)`**, and where the node gives the call no user,
+   the bar names whom this window rang.
+2. **Reasons, to a log**: `on_log` is told each call rung or refused and
+   each ending with the node's reason -- "Missed call from bob: not
+   answered." -- where the bar says it as a person would.
+3. **The kind in every line**: "(audio)", "(video)", "(audio and
+   video)", up and ringing out as well as ringing in.
+4. **Quality in the up line**: how this end is heard, and what is wrong
+   (the sound's trouble, else the picture's) -- computed before and
+   never shown.
+5. **The pictures**: a video call starts with the camera on, once --
+   turned off it stays off for the call, and no call up turns it off;
+   this end's picture small in the corner, mirrored for a front camera
+   (`fzn_camera_feed::front`); the other end's shown on any call up once
+   one comes, a call rung as sound included; blanked after
+   `FZN_CALL_BAR_STILL_MS`, 1.5 s, without another; and a channel the
+   node closed for a call is not opened again for it -- `call_video`
+   keeps the closed id, where it reopened at every refresh. The camera
+   asked for before a channel opens comes with the channel.
+6. **The microphone permission** is asked for when a call comes up and
+   it is undecided -- only checked before, so a phone that had never
+   asked opened no microphone and said nothing -- and a refusal is said.
+7. **The ringing screen**: Decline red on the left, Answer green on the
+   right, side by side in the bar too; the caller's name scaled in
+   pixels where the font is set in pixels (Android), as theirs
+   8de7f48e found.
+8. **Buttons say what they do next** -- Unmute, Stop camera -- and every
+   widget carries an object name (`call_bar_answer`, ...), theirs.
+
+Tests: `call_bar_test`, 29 checks -- the lines with their kinds, the
+log's reasons, a ring named and one refused, Unmute, the names, the
+screen's sides and colours, a picture on a sound call, blanked when it
+stops, and a closed channel not reopened. **Not driven headless**: this
+end's picture (it comes only from a camera) and the permission request
+(only a platform that asks); both are fuzzypickles' to see on the
+emulator.

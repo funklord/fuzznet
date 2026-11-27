@@ -25,6 +25,7 @@
 #include "notebook_view.h"
 
 #include <QHash>
+#include <QImage>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -41,6 +42,9 @@ struct fzn_gui_rpc;
 
 /* How long a call's ending stays said before the bar goes. */
 #define FZN_CALL_BAR_ENDED_S 5u
+/* A PICTURE THAT STOPPED is blanked after this long without another, not
+ * left standing as though live (fuzzypickles, seen on two emulators). */
+#define FZN_CALL_BAR_STILL_MS 1500
 
 class fzn_call_bar : public QWidget {
 public:
@@ -53,6 +57,12 @@ public:
 	/* Ask which calls live, show the one that matters, carry its media
 	 * once up, and say an ending. Whether the node answered. */
 	bool refresh();
+
+	/* RING `who` -- a contact's name, or several joined by commas -- with
+	 * `kinds`, FZN_RPC_AUDIO and FZN_RPC_VIDEO (sec 1491): the bar names
+	 * whom it rang where the node gives the call no user. Whether the
+	 * node took it; the log is told either way. */
+	bool ring(const QString &who, unsigned kinds);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	bool answer();
@@ -92,14 +102,21 @@ public:
 	bool is_video() const { return (m_kinds & 2) != 0; }
 	void on_missed(std::function<void(const QString &who, bool video)> told) { m_missed_told = told; }
 
+	/* A LINE FOR THE HOST'S LOG (sec 1491): a call rung or not, and how
+	 * each call ended with the node's reason -- "Missed call from bob:
+	 * hung up." -- where the bar itself says it as a person would. */
+	void on_log(std::function<void(const QString &line)> told) { m_log_told = told; }
+
 	/* THE TIME UP, said each second, not each refresh (sec 1262): the bar
 	 * ticks itself while a call is up; `tick` is that tick, public for a
 	 * test. */
 	void tick();
 
-	/* THE OTHER END'S PICTURE, sec 1262: shown in the bar while a video
-	 * call is up and a picture has come. Whether one shows. */
+	/* THE PICTURES, sec 1262 and 1491: the other end's, on any call up
+	 * once one comes, and left blank after FZN_CALL_BAR_STILL_MS without
+	 * another; this end's small in its corner while the camera sends. */
 	bool picture_shown() const;
+	bool own_picture_shown() const;
 
 private:
 	uint32_t now() const;
@@ -120,6 +137,14 @@ private:
 		int kinds;
 	};
 	QHash<QString, seen> m_seen;
+	/* Whom this window rang, by call; the calls whose camera was turned
+	 * on once already, as video calls start with it. */
+	QHash<QString, QString> m_rung;
+	QHash<QString, bool> m_camera_begun;
+	std::function<void(const QString &)> m_log_told;
+	QImage m_remote, m_own;
+	void show_pictures();
+	void log(const QString &line);
 	int m_kinds = 0;
 	std::function<void(const QString &, bool)> m_missed_told;
 	class QTimer *m_ticker;

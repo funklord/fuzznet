@@ -83,6 +83,9 @@ private:
 	struct fzn_call_sound *m_sound;
 	QString m_id, m_trouble, m_quality;
 	QTimer *m_timer = nullptr;
+	/* WHAT A PERMISSION'S ANSWER IS TOLD THROUGH, gone with this: an
+	 * answer arriving after it is not delivered to it. */
+	QObject *m_life;
 	source_fn m_test_source;
 	sink_fn m_test_sink;
 	int m_test_rate = 8000;

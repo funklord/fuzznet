@@ -64,6 +64,9 @@ bool fzn_call_video::start(const QString &id)
 	const QByteArray hex = id.toLatin1(), path = m_node_socket.toUtf8();
 
 	stop();
+	if (!m_closed_id.isEmpty() && id == m_closed_id)
+		return false;
+	m_closed_id.clear();
 	fzn_rpc_init(&c);
 	if ((size_t)path.size() >= sizeof(c.node_socket)) {
 		m_trouble = QObject::tr("The node's socket path is too long.");
@@ -73,6 +76,9 @@ bool fzn_call_video::start(const QString &id)
 	c.node_socket[path.size()] = '\0';
 	if (fzn_rpc_media_open(&c, hex.constData(), m_media) != FZN_RPC_OK) {
 		m_trouble = QString::fromUtf8(c.error[0] ? c.error : "the node would not open the call's picture");
+		/* SAID ONCE, not tried at every refresh: a node from before sec
+		 * 1113 has no channel, and the call is sound only. */
+		m_closed_id = id;
 		return false;
 	}
 	return opened(id);
@@ -98,8 +104,11 @@ bool fzn_call_video::attach(int fd, const QString &id)
 
 bool fzn_call_video::opened(const QString &id)
 {
-	(void)id;
+	m_id = id;
 	m_open = true;
+	m_picture_at_ms = -1;
+	/* A CHANNEL OPEN FOR IT, by `start` or `attach`: no longer closed. */
+	m_closed_id.clear();
 	m_trouble.clear();
 	m_sent = m_received = 0;
 	m_started_ms = QDateTime::currentMSecsSinceEpoch();
@@ -107,6 +116,8 @@ bool fzn_call_video::opened(const QString &id)
 	 * a channel nobody reads rather than keeping it (sec 1113). */
 	m_notifier = new QSocketNotifier(fzn_rpc_media_fd(m_media), QSocketNotifier::Read, m_owner);
 	QObject::connect(m_notifier, &QSocketNotifier::activated, [this]() { poll(); });
+	if (m_camera_wanted)
+		set_camera(true);
 	return true;
 }
 
@@ -119,6 +130,7 @@ void fzn_call_video::stop()
 	if (m_open)
 		fzn_rpc_media_close(m_media);
 	m_open = false;
+	m_picture_at_ms = -1;
 }
 
 void fzn_call_video::poll()
@@ -128,8 +140,10 @@ void fzn_call_video::poll()
 
 	while (m_open && (r = fzn_rpc_media_recv(m_media, &f)) != 0) {
 		if (r < 0) {
-			/* THE CHANNEL CLOSED: the call ended, or the node let it go. */
+			/* THE CHANNEL CLOSED: the call ended, or the node let it go --
+			 * not opened again for this call (sec 1491). */
 			m_trouble = QObject::tr("The call's picture stopped.");
+			m_closed_id = m_id;
 			stop();
 			return;
 		}
@@ -139,6 +153,7 @@ void fzn_call_video::poll()
 		if (picture.isNull())
 			continue;
 		m_received++;
+		m_picture_at_ms = QDateTime::currentMSecsSinceEpoch();
 		if (m_told)
 			m_told(picture);
 	}
@@ -160,17 +175,30 @@ bool fzn_call_video::send_picture(const QImage &image)
 	return true;
 }
 
+qint64 fzn_call_video::picture_age_ms() const
+{
+	return m_picture_at_ms < 0 ? -1 : QDateTime::currentMSecsSinceEpoch() - m_picture_at_ms;
+}
+
 void fzn_call_video::set_camera(bool on)
 {
+	m_camera_wanted = on;
 	if (!on) {
 		if (m_camera)
 			m_camera->stop();
 		return;
 	}
+	/* EACH FRAME SENT, and shown to its own person as a mirror shows. */
+	auto each = [this](const QImage &frame) {
+		(void)send_picture(frame);
+		if (m_own_told)
+			m_own_told(m_camera->front() ? frame.mirrored(true, false) : frame);
+	};
 	if (!m_camera)
-		m_camera = new fzn_camera_feed(
-		        m_owner, [this](const QImage &frame) { (void)send_picture(frame); },
-		        [this]() { m_trouble = m_camera->why(); });
+		m_camera = new fzn_camera_feed(m_owner, each, [this]() { m_trouble = m_camera->why(); });
+	/* NO CHANNEL YET: started with the next one (`opened`). */
+	if (!m_open)
+		return;
 	if (!m_camera->start())
 		m_trouble = m_camera->why();
 }
