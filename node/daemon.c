@@ -1822,7 +1822,14 @@ struct peer_asking {
 	 * marks it silent for the rest of the round, as a conversation's does,
 	 * and one already silent is not asked again (sec 726). */
 	struct pull_target *pt;
+	/* ASKS IT LEFT UNANSWERED in this pass, an answer between them or not
+	 * (sec 1492): a peer answering one ask in two kept the silence count
+	 * at zero, and each miss cost a 3 s wait. Past FZND_PASS_MISSES the
+	 * rest of the pass is not asked of it. */
+	unsigned missed;
 };
+/* A PEER'S PASS GIVES UP after this many unanswered asks, sec 1492. */
+#define FZND_PASS_MISSES 2u
 static int silent_peer(const struct pull_target *pt);
 static void silent_mark(const struct pull_target *pt);
 static void silent_heard(const struct pull_target *pt);
@@ -2563,6 +2570,8 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 
 	if (asking->pt && silent_peer(asking->pt))
 		return 0;
+	if (asking->missed >= FZND_PASS_MISSES)
+		return 0;
 	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
 	leg_asked(leg, request_len);
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
@@ -2573,6 +2582,13 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 		leg_answered(leg, began, 0, 1);
 		if (asking->pt)
 			silent_mark(asking->pt);
+		asking->missed++;
+		/* WHICH ASK, AND HOW LONG, sec 1492: a round step held 19 s with
+		 * nothing said of what it waited on. */
+		say(FZN_ENTRY_DEBUG, "node", "%s did not answer a %zu-byte ask, command %u, in %llu ms%s",
+		    asking->host ? asking->host : "a peer", request_len, request_len ? (unsigned)request[0] : 0u,
+		    (unsigned long long)(mono_ms() - began),
+		    asking->missed >= FZND_PASS_MISSES ? "; not asked again this pass" : "");
 		return 0;
 	}
 	leg_answered(leg, began, *reply_len, 0);
@@ -4372,7 +4388,7 @@ static uint32_t pieces_kept(struct pull_target *pulls, size_t npulls, uint64_t n
 			continue;
 		{
 			struct pull_target *pt = keeper_target(pulls, npulls, keepers[i]);
-			struct peer_asking asking = { pt ? &pt->caller : NULL, now, pt ? pt->host : NULL, pt };
+			struct peer_asking asking = { pt ? &pt->caller : NULL, now, pt ? pt->host : NULL, pt, 0 };
 			int has = 0;
 
 			if (pt
@@ -4430,7 +4446,7 @@ static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
 			continue;
 		asked++;
 		{
-			struct peer_asking asking = { &pt->caller, now, pt->host, pt };
+			struct peer_asking asking = { &pt->caller, now, pt->host, pt, 0 };
 
 			ok = fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, dlog.hash, bytes,
 			                             (size_t)size, &len, peer_ask, &asking, reply,
@@ -4518,7 +4534,7 @@ static size_t repair_pieces(struct pull_target *pulls, size_t npulls, uint64_t n
 		               != FZN_BUCKETS_LARGE)
 			continue;
 		{
-			struct peer_asking asking = { &pt->caller, now, pt->host, pt };
+			struct peer_asking asking = { &pt->caller, now, pt->host, pt, 0 };
 
 			if (fzn_reconcile_push_one(&logs_store, FZN_BUCKETS_PIECES, subject, month,
 			                           piece_id, &pieces_filer, peer_ask, &asking, reply,
@@ -4626,7 +4642,7 @@ static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
 		if (!(pt = keeper_target(pulls, npulls, cut_for[i])))
 			continue;
 		{
-			struct peer_asking asking = { &pt->caller, now, pt->host, pt };
+			struct peer_asking asking = { &pt->caller, now, pt->host, pt, 0 };
 
 			(void)fzn_reconcile_push_one(&logs_store, FZN_BUCKETS_PIECES, subject, month,
 			                             piece_id, &pieces_filer, peer_ask, &asking, reply,
@@ -4769,7 +4785,7 @@ static void weigh(struct pull_target *pulls, size_t npulls, uint64_t now, const 
 				continue;
 			}
 			for (t = 0; t < npulls && holders < want; t++) {
-				struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t] };
+				struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t], 0 };
 				int has = 0;
 
 				if (silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t]))
@@ -5395,7 +5411,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 #endif
 	}
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t] };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t], 0 };
 		fzn_reconcile_tally_t tally;
 
 		if (silent_peer(&pulls[t]))
@@ -5599,7 +5615,7 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	static struct peer_asking others[FZND_ROUND_TARGETS_MAX];
 	static fzn_reconcile_witness_t witnesses[FZND_ROUND_TARGETS_MAX];
-	struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t] };
+	struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t], 0 };
 	size_t i, k, moved = 0, n_witnesses = 0;
 
 	/* EVERY OTHER PULL PEER OF THIS ESTATE WITNESSES THE BRIDGE, sec 557. */
@@ -5661,7 +5677,7 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
 static void push_one(struct pull_target *pt, uint64_t now)
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	struct peer_asking asking = { &pt->caller, now, pt->host, pt };
+	struct peer_asking asking = { &pt->caller, now, pt->host, pt, 0 };
 	fzn_exchange_push_tally_t pushed;
 	fzn_exchange_err_t perr = fzn_node_journal_push(&node_journal, peer_ask, &asking, reply,
 	                                                sizeof(reply), &pushed);
@@ -8131,7 +8147,7 @@ static void shares_settle(void)
 		    && fzn_notes_view_load(&st->tree, node_notes.author.view) == FZN_NOTES_OK) {
 			const fzn_notes_view_t *v = node_notes.author.view;
 			struct peer_asking asking = { &target->pt->caller, wall_clock(), target->host,
-			                               target->pt };
+			                               target->pt, 0 };
 			size_t k = want_texts(v, 0), count = v->count, got;
 
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
@@ -25976,7 +25992,7 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		return;
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t] };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, &pulls[t], 0 };
 		size_t got;
 
 		if (silent_peer(&pulls[t]))
@@ -26057,7 +26073,7 @@ static void texts_more(void)
 		count = v->count;
 		{
 			struct peer_asking asking = { &target.pt->caller, wall_clock(), target.host,
-			                              target.pt };
+			                              target.pt, 0 };
 
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 		}
@@ -28268,7 +28284,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			caller.reasm = &table;
 			caller.hops = 1u;
 			{
-				struct peer_asking asking = { &caller, wall_clock(), host, NULL };
+				struct peer_asking asking = { &caller, wall_clock(), host, NULL, 0 };
 
 				g.host = host;
 				if (gather_ring) {

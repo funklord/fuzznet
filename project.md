@@ -77851,3 +77851,33 @@ stops, and a closed channel not reopened. **Not driven headless**: this
 end's picture (it comes only from a camera) and the permission request
 (only a platform that asks); both are fuzzypickles' to see on the
 emulator.
+
+## 1492. A peer's reconcile pass gives up after two unanswered asks
+
+**fuzzypickles saw its node's loop held 8 to 19 s at round step 4,
+`ROUND_RECONCILE`, nine times in one run** (inbox 20261126T2259Z), with a
+single sibling -- the fixture's laptop, which re-executes itself on
+joining -- and an intermittent two-node failure cluster in about one run
+in three. The pass moved three objects.
+
+**What the code allowed**: a peer's pass asks a dozen times in turn --
+the classes, then messages, records, logs and pieces, each pulled and
+pushed -- and each ask can wait 3 s with its resends. The silence rule
+(sec 742) calls a peer heard lately silent after two misses in a row,
+and any answer resets the count: so a peer answering one ask in two, or
+going and coming back mid-pass, never went silent and cost a 3 s wait at
+every ask it missed. Nineteen seconds is about six of them.
+
+**Now `peer_asking` counts the asks a peer left unanswered in the pass,
+answers between them or not, and after `FZND_PASS_MISSES`, two, the rest
+of the pass is not asked of it** -- six seconds at most where nineteen
+were spent, and the next round asks again. Each unanswered in-turn ask
+is said at debug -- the host, the request's size and command, the wait
+-- so a held loop says what it waited on.
+
+**Not confirmed as fuzzypickles' cause**: no fault knob here drops a
+peer's answers part-way, and pausing a sibling stops it answering
+everything, which sec 742's rule already handled. The debug line is for
+their next failing run to show which asks timed out. Not pinned by a
+test for that reason; `live_siblings`, `live_trim`, `live_rejoin` and
+`live_logs` pass with it.
