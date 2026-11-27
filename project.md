@@ -79029,3 +79029,26 @@ Test: `conversation_view_test` -- a plain file staged with staging
 forced; this user's recent line may be taken back and hal's may not;
 one sticker waiting while its art is away and none after. Sabotage:
 two, each probed.
+
+## 1538. The address pass says whom it asked
+
+fuzzypickles' end-to-end run at 72f00af3 (inbox 20261127T1343Z) failed
+`test_connection_advertise_follows_the_chosen_address` once: n's
+`fetch address` ended "0 peer(s) have said where they see this host",
+just after its asks of the same peers for files and shared notes had
+gone unanswered. That line could not tell a peer never asked from one
+asked and silent. It now ends "this pass asked N, M answered, silent:
+HOST:PORT, ..." (the first four), from the pass's own talks.
+
+What was measured, and is not yet a cause: dag was answering n busily
+at 13:42:11-14; at 13:42:29 n was itself sending 68 KB replies, 67
+pieces each, to a sibling every ~10 ms. This machine's kernel counts
+1,372,383 UDP datagrams dropped for a full receive buffer
+(`RcvbufErrors`) in 76 days, with `rmem_default` and `rmem_max` both
+212992, which an unprivileged node cannot raise. A contact host is
+asked once (`silences` 0) where an estate peer gets a second try. Open:
+whether that ask should be retried as the estate's is -- the next
+failing run's line says whether dag was asked at all.
+
+Seen in `live_pairing`, which passes: "1 peer(s) have said where they
+see this host; this pass asked 1, 1 answered".

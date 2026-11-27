@@ -16176,10 +16176,40 @@ static void address_start(struct pull_target *pulls, size_t npulls, uint64_t now
 	host_talks_begin();
 }
 
+/* SAID WITH WHO WAS ASKED, sec 1538: "0 peer(s) have said" could not tell
+ * a peer never asked from one asked and silent (fuzzypickles' 1343Z, its
+ * test of the address followed failing once). How many were asked this
+ * pass, how many answered it, and the first few silent, by address. */
 static void address_settle(void)
 {
-	say(FZN_ENTRY_INFO, "net/address", "%zu peer(s) have said where they see this host",
-	    n_observed);
+	char quiet[160];
+	size_t asked = 0, heard = 0, i, k, at = 0;
+	unsigned named = 0;
+
+	quiet[0] = '\0';
+	for (i = 0; i < n_host_talks; i++) {
+		const struct host_talk *ht = &host_talks[i];
+		int answered = 0;
+
+		if (ht->kind != HOST_ADDRESS)
+			continue;
+		asked++;
+		for (k = 0; k < n_observed && !answered; k++)
+			answered = observed[k].at == ht->now
+			           && memcmp(observed[k].reporter, ht->pt->pairing.node, FZN_PUBKEY_LEN) == 0;
+		if (answered)
+			heard++;
+		else if (named < 4u && at < sizeof(quiet)) {
+			int n = snprintf(quiet + at, sizeof(quiet) - at, "%s%s:%ld", named ? ", " : "",
+			                 ht->pt->host ? ht->pt->host : "?", ht->pt->port);
+			if (n > 0)
+				at += (size_t)n < sizeof(quiet) - at ? (size_t)n : sizeof(quiet) - at - 1u;
+			named++;
+		}
+	}
+	say(FZN_ENTRY_INFO, "net/address",
+	    "%zu peer(s) have said where they see this host; this pass asked %zu, %zu answered%s%s",
+	    n_observed, asked, heard, named ? ", silent: " : "", quiet);
 }
 
 /* POSITIONS FOLLOWED, sec 1240, fuzzypickles' walk: a friend's fix was
