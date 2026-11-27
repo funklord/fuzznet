@@ -78340,3 +78340,30 @@ Two from fuzzypickles' window suite hosting the list (inbox
 Tests: `conversations_view_test` -- three refreshes, their events run,
 open nothing again; a phone keeping headings left with nothing chosen.
 Sabotage: two new, one repointed, each caught.
+
+## 1513. The last of the conversations list's swap, and a call bar quiet until read
+
+fuzzypickles' remaining items before its list swap (inbox
+20261127T0723Z, and T0746Z's third):
+
+- **`on_location_shared(contact, on)`** after the node takes a share or
+  its end from a contact's menu, so the host says what is true of the
+  device -- location switched off here (with a way to turn it on), or a
+  platform permission still to be asked -- which a grant alone does not
+  make true.
+- **No name is both a contact's and a group's**, fuzzypickles' rule:
+  the conversations list's New group and `fzn_new_group_view` refuse a
+  group named as a contact is -- "A contact is already called bob; name
+  the group otherwise." -- asked of the node, so a contact another host
+  named counts. **Done in the views, not the node**: fuzznet lets two
+  contacts share a name (sec 893) and keeps groups apart by `@`, so
+  whether a group may share a contact's name is presentation; a node
+  refusing it would change that design, which is the holder's to say.
+- **The call bar offers nothing until a call is read**: its buttons
+  showed from construction until the first successful refresh, so a
+  node that could not list calls left all five over an empty window.
+
+Tests: `conversations_view_test` (each share told; a group named bob
+refused), `new_group_view_test` (the same), `call_bar_test` (a node
+listing no calls, no buttons). Sabotage: four, each caught.
+

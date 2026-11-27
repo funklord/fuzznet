@@ -101,6 +101,10 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	m_ticker = new QTimer(this);
 	m_ticker->setInterval(1000);
 	QObject::connect(m_ticker, &QTimer::timeout, [this]() { tick(); });
+	/* NOTHING OFFERED until a call is read (sec 1513): a node that cannot
+	 * list calls left every button showing over an empty window. */
+	for (QPushButton *b : { m_answer, m_decline, m_mute, m_camera, m_hang_up })
+		b->hide();
 	refresh();
 }
 

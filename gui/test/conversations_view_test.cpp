@@ -302,6 +302,9 @@ int main(int argc, char **argv)
 	CHECK(v.actions(0, 1).value(3) == "Stop sharing my location",
 	      "a contact who sees this user's location was not offered to stop");
 	CHECK(v.act(0, 0, "Video call") && what == "video" && to == "bob", "a video call was not handed over");
+	/* THE HOST TOLD A SHARE (sec 1513), to say what is true of the device. */
+	QStringList located;
+	v.on_location_shared([&located](const QString &who, bool on) { located << who + (on ? " on" : " off"); });
 	CHECK(v.act(0, 0, "Share my location") && !strcmp(asked, "grant stream location bob 0\n")
 	              && v.status() == "bob can see your position now.",
 	      "sharing location with a contact was not done and said");
@@ -381,6 +384,12 @@ int main(int argc, char **argv)
 		asked[0] = '\0';
 		CHECK(!v.create_group("   ") && !asked[0] && v.status() == "Name the group.",
 		      "a group of no name was asked for");
+		/* NO NAME IS BOTH (sec 1513): a group named as a contact refused. */
+		CHECK(!v.create_group("bob") && !strstr(asked, "add group bob")
+		              && v.status() == "A contact is already called bob; name the group otherwise.",
+		      "a group was made with a contact's name");
+		CHECK(located == QStringList({ "bob on", "bob on", "dan off" }),
+		      "the host was not told each share as the node took it");
 		CHECK(v.create_group("gardeners") && strstr(asked, "add group gardeners")
 		              && v.status() == "Made the group gardeners; add its members from its menu.",
 		      "a new group was not made by its name, or not said");

@@ -110,6 +110,21 @@ bool fzn_new_group_view::create(const QString &name)
 		say(tr("Name the group."));
 		return false;
 	}
+	/* NO NAME IS BOTH, sec 1513: a contact's name refused, asked of the
+	 * node so one another host named counts. */
+	{
+		fzn_rpc_peer_list_resp_t peers;
+		bool taken = false;
+		memset(&peers, 0, sizeof(peers));
+		if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK)
+			for (size_t i = 0; i < peers.count && !taken; i++)
+				taken = QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len) == name.trimmed();
+		free(peers.entries);
+		if (taken) {
+			say(tr("A contact is already called %1; name the group otherwise.").arg(name.trimmed()));
+			return false;
+		}
+	}
 	if (fzn_rpc_group_create(&m_rpc->c, n.constData(), (size_t)n.size(), &out) != FZN_RPC_OK) {
 		say(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;

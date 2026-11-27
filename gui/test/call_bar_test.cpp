@@ -84,6 +84,13 @@ int main(int argc, char **argv)
 {
 	qputenv("QT_QPA_PLATFORM", "offscreen");
 	QApplication app(argc, argv);
+	/* A NODE THAT CANNOT LIST CALLS (sec 1513): nothing offered. */
+	{
+		fzn_call_bar dumb([](void *, const char *, char *reply, size_t cap) -> size_t {
+			return (size_t)snprintf(reply, cap, "error no such thing\n");
+		}, nullptr);
+		CHECK(dumb.buttons().isEmpty(), "a bar over a node that lists no calls offered its buttons");
+	}
 	fzn_call_bar bar(node, nullptr);
 
 	bar.audio()->set_test_io([](int16_t *, size_t) { return (size_t)0; }, [](const int16_t *, size_t) {});

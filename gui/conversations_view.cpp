@@ -614,6 +614,22 @@ void fzn_conversations_view::resizeEvent(QResizeEvent *event)
 
 bool fzn_conversations_view::flat() const { return m_flat; }
 
+/* NO NAME IS BOTH A CONTACT'S AND A GROUP'S, as this list shows them (sec
+ * 1513, fuzzypickles' rule "No name is both"): a group named as a contact
+ * is refused, asked of the node so a contact another host named counts. */
+static bool contact_called(struct fzn_gui_rpc *rpc, const QString &name)
+{
+	fzn_rpc_peer_list_resp_t peers;
+	bool taken = false;
+
+	memset(&peers, 0, sizeof(peers));
+	if (fzn_rpc_peer_list(&rpc->c, &peers) == FZN_RPC_OK)
+		for (size_t i = 0; i < peers.count && !taken; i++)
+			taken = QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len) == name;
+	free(peers.entries);
+	return taken;
+}
+
 bool fzn_conversations_view::create_group(const QString &name)
 {
 	const QByteArray n = name.trimmed().toUtf8();
@@ -621,6 +637,10 @@ bool fzn_conversations_view::create_group(const QString &name)
 
 	if (n.isEmpty()) {
 		say(tr("Name the group."));
+		return false;
+	}
+	if (contact_called(m_rpc, name.trimmed())) {
+		say(tr("A contact is already called %1; name the group otherwise.").arg(name.trimmed()));
 		return false;
 	}
 	if (fzn_rpc_group_create(&m_rpc->c, n.constData(), (size_t)n.size(), &out) != FZN_RPC_OK) {
@@ -1170,6 +1190,11 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 		}
 		say(on ? tr("%1 can see your position now.").arg(to)
 		                     : tr("%1 no longer sees your position.").arg(to));
+		/* THE HOST TOLD (sec 1513), so it can say what is true of this
+		 * device -- location switched off here, a permission not yet
+		 * given -- which a grant alone does not. */
+		if (m_location_told)
+			m_location_told(to, on);
 		return true;
 	}
 	if (!m_act)

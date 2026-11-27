@@ -102,6 +102,10 @@ public:
 	 * of its own -- several at once if it likes (sec 1508); unset, the
 	 * name is asked on a line under the list. */
 	void on_new_group(std::function<void()> told) { m_new_group_told = told; }
+	/* LOCATION SHARED OR NO LONGER, from a contact's menu, once the node
+	 * took it (sec 1513): the contact and which, so the host says what is
+	 * true of this device -- location off here, a permission to ask. */
+	void on_location_shared(std::function<void(const QString &contact, bool on)> told) { m_location_told = told; }
 	void set_layout(int flat);
 	/* WHETHER THE OPEN ONE STAYS CHOSEN (sec 1512): 1 as on a desktop, 0 as
 	 * on a phone, where opening leaves the list; -1, the default, by the
@@ -208,6 +212,7 @@ private:
 	std::function<void(const QString &, bool)> m_chosen_told;
 	std::function<void(const QString &)> m_notice_told, m_members_told;
 	std::function<void()> m_new_group_told;
+	std::function<void(const QString &, bool)> m_location_told;
 	void say(const QString &line);
 	void opened(const QString &to);
 	void show_menu(QTreeWidgetItem *item, const QPoint &at);

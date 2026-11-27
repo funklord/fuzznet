@@ -62,6 +62,9 @@ int main(int argc, char **argv)
 		v.on_open([&opened](const QString &to) { opened = to; });
 		CHECK(v.step() == 1 && v.title() == "New group", "a new form did not start at the name");
 		CHECK(!v.create("  ") && !asked[0] && v.status() == "Name the group.", "a group of no name was asked for");
+		/* NO NAME IS BOTH, sec 1513. */
+		CHECK(!v.create("bob") && !asked[0] && v.status() == "A contact is already called bob; name the group otherwise.",
+		      "a group was made with a contact's name");
 		CHECK(v.create("gardeners") && strstr(asked, "add group gardeners") && v.step() == 2
 		              && v.title() == "gardeners",
 		      "the group was not made by its name, or the members not offered next");
