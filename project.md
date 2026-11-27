@@ -78867,3 +78867,24 @@ what a line does not offer refused; a right-click through the hook
 replying to the line under it; this user's recent line offering Unsend
 with the rest; a taken-back line offering nothing. Sabotage: two, each
 probed.
+
+## 1531. A sticker pack kept in binary read its reference out of scope
+
+fuzzypickles' sanitized end-to-end runs (inbox 20261127T1734Z): every
+KEEP of a sticker pack aborted a node built with AddressSanitizer --
+"stack-use-after-scope" in `node/stickers_binary.c` `pack_write`. The
+pack's whole reference was assembled in `raw[72]`, declared inside the
+`else if (keep)` block, and read through `bytes` after that block had
+ended, when the kept row was built. An unsanitized `-Os` build happened
+to keep the slot; any compiler may reuse it, and the kept row's root
+would then be whatever lay there. `raw` now lives beside `made`, for
+the whole function.
+
+`files_test` now keeps a pack by its whole reference in binary, which no
+test did. Under `SANITIZE=1` it showed the same report at line 151
+before the fix and passes after; the plain build passes either way, so
+no sabotage entry can stand for it, and the sanitized suite
+(`make sancheck`) is the guard. That suite had been stopping before it
+got there: the test's own settings fixture copied from a NULL value
+with length 0 for an unset setting, which UBSan refuses. The copy is
+now made only for a set value.

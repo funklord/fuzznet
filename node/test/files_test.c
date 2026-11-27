@@ -852,7 +852,10 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	memcpy(c->key, key, key_len);
 	c->key_len = key_len;
 	c->set = set;
-	memcpy(c->value, value, set ? value_len : 0u);
+	/* NOTHING COPIED FROM NULL: an unset value comes as NULL, and a copy of
+	 * none from it is still undefined (UBSan stopped the sanitized suite). */
+	if (set && value_len)
+		memcpy(c->value, value, value_len);
 	c->value_len = set ? value_len : 0u;
 	return FZN_NODE_SETTINGS_OK;
 }
@@ -1031,6 +1034,46 @@ static void test_a_pack_file_is_kept_by_its_bytes(fzn_node_files_t *files)
 		              && fzn_stickers_local_match_row_id_get(sb) == 3u
 		              && fzn_stickers_local_match_row_score_get(sb) > 0u,
 		      "the match row was not sticker 3 with a score");
+	}
+	/* A PACK KEPT BY ITS WHOLE REFERENCE, IN BINARY (sec 1531): the kept
+	 * row answered. Its root was read after the bytes holding it left
+	 * scope -- every KEEP aborted a sanitized node (fuzzypickles' inbox
+	 * 20261127T1734Z); a sanitized build of this test sees it. */
+	{
+		fzn_node_file_ref_t kept;
+		uint8_t whole[72], ask[96], req[112];
+		uint32_t ask_len = 0, req_len = 0;
+		uint64_t length = 0;
+
+		memset(&sbin, 0, sizeof(sbin));
+		CHECK(fzn_node_files_put(files, src_path, &kept) == FZN_NODE_FILES_OK, "fixture: the pack's reference");
+		fzn_node_file_ref_write(&kept, whole);
+		for (i = 0; i < 8u; i++)
+			length = length << 8 | whole[64 + i];
+		CHECK(fzn_stickers_local_keep_ask_build(ask, sizeof(ask), whole, whole + 32, length, &ask_len) == SITU_OK
+		              && fzn_stickers_local_message_build_keep(req, sizeof(req), 22u, ask, ask_len, &req_len)
+		                         == SITU_OK
+		              && fzn_node_stickers_binary(&st, req, req_len, sbin_put, NULL) && sbin.n >= 1u
+		              && sbin.m[sbin.n - 1u][0] == 0x13 && sbin.m[sbin.n - 1u][1] == 0,
+		      "a pack kept by its whole reference in binary was not answered ok");
+		/* LET GO AGAIN, so what follows holds what it did. */
+		{
+			char forget[80], gone[64];
+			fzn_request_t rf;
+			size_t n;
+
+			n = (size_t)snprintf(forget, sizeof(forget), "sticker ");
+			for (i = 0; i < 32u; i++)
+				n += (size_t)snprintf(forget + n, sizeof(forget) - n, "%02x", whole[i]);
+			memset(&rf, 0, sizeof(rf));
+			rf.parsed = FZN_VERB_REMOVE;
+			rf.arg = (const uint8_t *)forget;
+			rf.arg_len = n;
+			CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &rf, gone, sizeof(gone))
+			              && !strncmp(gone, "ok", 2u),
+			      "fixture: the pack kept in binary let go");
+		}
+		(void)fzn_node_files_remove(files, kept.root);
 	}
 	/* AN OLD PACK IS THE CONVERTER'S, sec 1278: by path or by reference,
 	 * refused, the program named. */

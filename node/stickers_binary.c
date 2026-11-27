@@ -77,7 +77,10 @@ static int pack_write(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_sti
 	fzn_request_t req;
 	situ_view_t b;
 	const uint8_t *bytes;
-	uint8_t made[32];
+	/* A KEPT PACK'S WHOLE REFERENCE, read at the end through `bytes` for
+	 * the kept row: held here, not in the block that fills it, which ended
+	 * before the read (sec 1531; every KEEP aborted a sanitized node). */
+	uint8_t made[32], raw[72];
 	size_t i, r, n = 0, want;
 	const int built = fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_PUT;
 	const int keep = built || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEEP;
@@ -100,8 +103,6 @@ static int pack_write(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_sti
 		req.parsed = FZN_VERB_PUT;
 		bytes = made;
 	} else if (keep) {
-		uint8_t raw[72];
-
 		if (fzn_stickers_local_message_body_keep_view(v, &b) != SITU_OK)
 			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a stickers request");
 		memcpy(raw, fzn_stickers_local_keep_ask_root_ptr(b), 32);
