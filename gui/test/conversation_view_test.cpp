@@ -9,6 +9,7 @@
  */
 
 #include "../conversation_view.h"
+#include "../staged_file.h"
 #include "../menu_exec.h"
 #include "../../local/rpc_types.h"
 #include "../notice_line.h"
@@ -693,9 +694,9 @@ int main(int argc, char **argv)
 		for (int r = 0; r < late.lines().size(); r++)
 			if (late.lines().value(r).contains("waving") || late.lines().value(r).contains("sticker"))
 				sticker_row = r;
-		const bool blank = sticker_row >= 0 && !late.drawn(sticker_row);
+		const bool blank = sticker_row >= 0 && !late.drawn(sticker_row) && late.waiting_for_packs() == 1;
 		art_away = 0;
-		CHECK(blank && late.redraw_waiting() == 1 && late.drawn(sticker_row),
+		CHECK(blank && late.redraw_waiting() == 1 && late.drawn(sticker_row) && late.waiting_for_packs() == 0,
 		      "a sticker whose pack landed later was not drawn");
 		const int asked = art_asked;
 		CHECK(late.redraw_waiting() == 0 && art_asked == asked, "a look with nothing waiting asked for art");
@@ -816,6 +817,18 @@ int main(int argc, char **argv)
 		      "a picked content:// file was not staged for the node and sent under its name");
 		put_path = QString::fromUtf8(last_file + 9);
 		CHECK(!put_path.isEmpty() && !QFile::exists(put_path), "a staged pick was left in the cache");
+		/* EVERY PATH STAGED, a suite's seam (sec 1537): a plain file goes
+		 * the phone's way. */
+		{
+			QFile plain(QStringLiteral("plain.txt"));
+			(void)plain.open(QIODevice::WriteOnly);
+			(void)plain.write("plain bytes");
+		}
+		fzn_stage_force(true);
+		staged_read[0] = '\0';
+		CHECK(d.send_file(QStringLiteral("plain.txt")) && !strcmp(staged_read, "plain bytes"),
+		      "a plain file was not staged with staging forced");
+		fzn_stage_force(false);
 		d.select_line(0);
 		(void)d.refresh();
 		for (int r = 0; r < d.lines().size(); r++)
@@ -998,7 +1011,8 @@ int main(int argc, char **argv)
 		/* ONE MENU FOR A LINE (sec 1530): this user's recent line offers a
 		 * reply and reactions as well as Unsend; hal's taken-back line
 		 * offers nothing. */
-		CHECK(e.line_actions(1).contains("Unsend") && e.line_actions(1).contains("Reply")
+		CHECK(e.can_unsend_row(1) && !e.can_unsend_row(0) && e.line_actions(1).contains("Unsend")
+		              && e.line_actions(1).contains("Reply")
 		              && e.line_actions(1).contains("Take back your reaction") && e.line_actions(0).isEmpty(),
 		      "a line's menu did not hold all it allows, or a taken-back line offered something");
 		e.select_line(0);

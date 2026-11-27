@@ -1662,6 +1662,20 @@ SABOTAGES = [
 		"a sticker's words written in the composer go with the sticker -- sec 1536",
 	),
 	(
+		"staged-file-force-ignored",
+		"gui/staged_file.h",
+		"\treturn fzn_stage_forced() || path.startsWith(QLatin1String(\"content:\"));\n",
+		"\treturn path.startsWith(QLatin1String(\"content:\"));\n",
+		"a suite that forces staging walks the phone's path -- sec 1537",
+	),
+	(
+		"conversation-view-waiting-packs-none",
+		"gui/conversation_view.cpp",
+		"\t\t\twaiting++;\n\t}\n\treturn waiting;\n",
+		"\t\t\twaiting++;\n\t}\n\treturn 0;\n",
+		"the stickers waiting for their pack are counted for a host's suite -- sec 1537",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

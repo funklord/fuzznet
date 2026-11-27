@@ -1998,6 +1998,22 @@ void fzn_conversation_view::ask_sticker_words(const QByteArray &pack, quint64 id
 
 bool fzn_conversation_view::sticker_waits_for_words() const { return !m_words_pack.isEmpty(); }
 
+bool fzn_conversation_view::can_unsend_row(int row) { return may_unsend(row >= 0 ? m_lines->item(row) : nullptr); }
+
+int fzn_conversation_view::waiting_for_packs() const
+{
+	int waiting = 0;
+
+	for (int i = 0; i < m_lines->count(); i++) {
+		const QListWidgetItem *item = m_lines->item(i);
+		const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+		const QByteArray key = sticker + '\n' + item->data(ROLE_STICKER_TEXT).toString().toUtf8();
+		if (sticker.size() > 145 && item->icon().isNull() && !m_art->drawn.contains(key))
+			waiting++;
+	}
+	return waiting;
+}
+
 /* THE COMPOSER A LINE AGAIN, the sticker let go. */
 void fzn_conversation_view::end_sticker_words()
 {

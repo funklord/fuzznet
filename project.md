@@ -79007,3 +79007,25 @@ Test: `sticker_picker_view_test` (a word-taking sticker handed to the
 host, nothing picked), `conversation_view_test` (words sent with the
 sticker, Cancel sending nothing). Sabotage: two new, one respelled,
 each probed.
+
+## 1537. The seams a host's suite asks of the conversation view
+
+fuzzypickles' comparison (inbox 20261127T0950Z, item 18): its window's
+suite drives its own view through a few seams, and swapping to ours
+needs them here:
+
+- `fzn_stage_force(true)` (`gui/staged_file.h`) stages every path as a
+  picked one, so a desktop suite walks a phone's `content://` path
+  (sec 1532) with plain files. Off by default, and nothing but a test
+  sets it.
+- `can_unsend_row(row)`: whether a row, this user's own, may still be
+  taken back -- the same check the offer and the menu use (sec 1530).
+- `waiting_for_packs()`: how many stickers still wait for their pack's
+  art (sec 1534).
+- `sticker_waits_for_words()` (sec 1536), and the row-based reply, react
+  and unsend, which `line_act` (sec 1530) already is.
+
+Test: `conversation_view_test` -- a plain file staged with staging
+forced; this user's recent line may be taken back and hal's may not;
+one sticker waiting while its art is away and none after. Sabotage:
+two, each probed.

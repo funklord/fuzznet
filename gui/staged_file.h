@@ -19,7 +19,21 @@
 #include <QString>
 #include <QTemporaryFile>
 
-inline bool fzn_picked_uri(const QString &path) { return path.startsWith(QLatin1String("content:")); }
+/* EVERY PATH STAGED AS A PICKED ONE, sec 1537: a test's seam, so a
+ * desktop suite walks the phone's path with plain files. Off by default,
+ * and nothing but a test sets it. */
+inline bool &fzn_stage_forced()
+{
+	static bool forced = false;
+	return forced;
+}
+
+inline void fzn_stage_force(bool on) { fzn_stage_forced() = on; }
+
+inline bool fzn_picked_uri(const QString &path)
+{
+	return fzn_stage_forced() || path.startsWith(QLatin1String("content:"));
+}
 
 /* A template for a staged file in this app's cache, the directory made. */
 inline QString fzn_staged_template(const char *what)

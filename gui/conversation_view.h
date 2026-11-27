@@ -199,6 +199,11 @@ public:
 	 * under way. Whether a sticker is waiting for its words. */
 	void ask_sticker_words(const QByteArray &pack, quint64 id, int limit, const QString &what);
 	bool sticker_waits_for_words() const;
+	/* SEAMS A HOST'S SUITE ASKS, sec 1537: whether row `row`, this user's
+	 * own, may still be taken back; and how many stickers are still
+	 * waiting for their pack's art. */
+	bool can_unsend_row(int row);
+	int waiting_for_packs() const;
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
