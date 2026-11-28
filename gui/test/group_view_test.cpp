@@ -10,6 +10,7 @@
 #include "../group_view.h"
 
 #include <QApplication>
+#include <QListWidget>
 #include <QCheckBox>
 #include <QPushButton>
 
@@ -105,6 +106,11 @@ int main(int argc, char **argv)
 	snprintf(members, sizeof members, "4 0 " SELF " *bob carol " STRANGER);
 	CHECK(v.refresh() && v.members() == QStringList({ "you", "bob (admin)", "carol", "(not a contact)" }),
 	      "the members were not shown with this user as you and the admins marked");
+	/* HOW MANY, sec 1548. */
+	{
+		QListWidget *list = v.findChild<QListWidget *>();
+		CHECK(list && list->accessibleName() == "Members (4)", "the roster did not say how many members");
+	}
 	CHECK(!v.may_change() && v.status() == "Only the group's admins change who is in it.",
 	      "a member who is no admin was not told who changes the group");
 	CHECK(!v.add_member("dan") && !v.remove_member(2) && !v.set_earlier(false) && !asked[0],

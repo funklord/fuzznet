@@ -667,6 +667,18 @@ int main(int argc, char **argv)
 			      "a sticker that takes words was not handed to the host as chosen");
 			v.on_pick_words(nullptr);
 		}
+		/* PICKED, TOLD (sec 1548): a host's sheet closes. */
+		{
+			int told = 0;
+			v.on_picked([&told]() { told++; });
+			v.on_words([](const QString &, int, QString *words) {
+				*words = QStringLiteral("hi there");
+				return true;
+			});
+			CHECK(v.pick_found(0) && told == 1, "the host was not told a sticker was picked");
+			v.on_words(nullptr);
+			v.on_picked(nullptr);
+		}
 		v.set_find(QStringLiteral("zebra"));
 		CHECK(v.found().isEmpty() && v.status() == "No sticker kept here fits that.", "finding none was not said");
 		v.set_find(QString());

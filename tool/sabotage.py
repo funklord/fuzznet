@@ -1760,6 +1760,20 @@ SABOTAGES = [
 		"a sticker's art is asked once, not at every look -- sec 1547",
 	),
 	(
+		"group-view-members-uncounted",
+		"gui/group_view.cpp",
+		"\tm_members->setAccessibleName(tr(\"Members (%1)\").arg(m_members->count()));\n",
+		"",
+		"the roster says how many members -- sec 1548",
+	),
+	(
+		"sticker-picker-pick-untold",
+		"gui/sticker_picker_view.cpp",
+		"\tif (m_picked)\n\t\tm_picked();\n",
+		"",
+		"a host is told a sticker was picked -- sec 1548",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

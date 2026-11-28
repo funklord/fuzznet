@@ -174,6 +174,8 @@ void fzn_sticker_picker_view::on_add_packs(std::function<void()> add) { m_add_pa
 
 void fzn_sticker_picker_view::set_click_sends(bool on) { m_click_sends = on; }
 
+void fzn_sticker_picker_view::on_picked(std::function<void()> picked) { m_picked = std::move(picked); }
+
 void fzn_sticker_picker_view::clicked(QListWidgetItem *item)
 {
 	play(item);
@@ -288,7 +290,10 @@ bool fzn_sticker_picker_view::refresh()
 		list->setProperty("pack", pack);
 		m_tabs->addTab(list, said(packs.entries[p].name, packs.entries[p].name_len));
 	}
-	m_status->setText(packs.count ? QString() : tr("No sticker packs kept yet."));
+	/* SAID HOW, sec 1548: an empty picker names the way to fill it. */
+	m_status->setText(packs.count ? QString()
+	                              : tr("No sticker packs kept yet. Add some with \"Add sticker packs\", or keep "
+	                                   "the pack of a sticker someone sent you."));
 	fzn_rpc_sticker_packs_release(&packs);
 	delete items;
 	show_recent();
@@ -619,6 +624,10 @@ bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
 		return false;
 	}
 	m_pick(QString::fromUtf8(ref, (int)ref_len));
+	/* PICKED, TOLD (sec 1548): a host showing the picker in a sheet of its
+	 * own closes it here. */
+	if (m_picked)
+		m_picked();
 	return true;
 }
 

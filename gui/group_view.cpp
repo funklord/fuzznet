@@ -158,6 +158,10 @@ bool fzn_group_view::refresh()
 		if (peers.entries[i].state == FZN_RPC_CONTACT_ACTIVE && !in.contains(name))
 			m_contacts->addItem(name);
 	}
+	/* HOW MANY, sec 1548: in the heading and to a screen reader, as
+	 * fuzzypickles' roster says "Members (n)". */
+	m_title->setText(tr("%1 -- %n member(s)", nullptr, m_members->count()).arg(m_group));
+	m_members->setAccessibleName(tr("Members (%1)").arg(m_members->count()));
 	m_admin = show.is_admin;
 	/* THE EARLIER-LINES SETTING ASKED APART (sec 1540): one that cannot be
 	 * read leaves the roster shown and the setting unoffered, said --

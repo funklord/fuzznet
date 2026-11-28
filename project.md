@@ -79206,3 +79206,34 @@ survived: the first tab added already fires the tab change, which
 draws it, so it was dropped rather than kept uncatchable.
 `sticker-picker-never-drawn` named a line this moved and was
 retargeted. Sabotage: one new, one retargeted, each probed.
+
+## 1548. Small gaps from the comparisons: a count, an empty picker, a pick told
+
+From fuzzypickles' remaining lists (inbox 20261127T0950Z and 0955Z):
+
+- **The group view says how many** -- "family -- 3 member(s)" in its
+  heading and "Members (3)" to a screen reader, as their roster's
+  "Members (n)".
+- **An empty picker says how to fill it**: "No sticker packs kept yet.
+  Add some with "Add sticker packs", or keep the pack of a sticker someone
+  sent you." The qtty render test reads its first sentence, unchanged.
+- **A pick is told the host** (`on_picked`), after the sticker is handed
+  on, so a host showing the picker in a sheet of its own closes it.
+- **An address checked before it is sent** (the hosts view): measured
+  first, and already so -- the client library refuses an empty address
+  or one with a space before the node is asked. A check added in the
+  view survived its sabotage and was taken out; the hosts test now holds
+  both cases against the library's refusal.
+
+Tests: `group_view_test`, `sticker_picker_view_test`, `hosts_view_test`.
+Sabotage: two, each probed.
+
+**Open, for the holder:** a file that came in a conversation shows in
+the traffic view by its root, because only the library's catalogue
+names files there and nothing lists attachments' names across
+conversations; reading every conversation at each refresh is the wrong
+cost. Two ways: received attachments enter the library catalogue (they
+then show in the library too, which changes what a person sees there),
+or the node keeps a root-to-name index of attachments apart from the
+library. Which one is a question of what the library is for, and
+waits on that answer.

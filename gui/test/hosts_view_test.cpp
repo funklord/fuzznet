@@ -117,6 +117,12 @@ int main(int argc, char **argv)
 	last[0] = '\0';
 	CHECK(!v.set_address() && !last[0] && v.status().contains("HOST:PORT"),
 	      "an address of the wrong shape was asked");
+	/* A SPACE INSIDE, OR NONE: refused before the node is asked -- by the
+	 * client library itself, which checks the shape (sec 1548). */
+	v.set_address_text("192.0.2.9 :4000");
+	CHECK(!v.set_address() && !last[0] && v.status().contains("HOST:PORT"), "an address with a space was asked");
+	v.set_address_text("   ");
+	CHECK(!v.set_address() && !last[0] && v.status().contains("HOST:PORT"), "no address was asked");
 
 	/* A BACKUP, sec 1133: where said, how much said; a refusal in the node's
 	 * words; no directory, nothing asked. */

@@ -67,6 +67,9 @@ public:
 	 * default -- a click is a person touching it, and choosing it to send
 	 * is activation (sec 1322). */
 	void set_click_sends(bool on);
+	/* TOLD AFTER A STICKER IS PICKED and handed on (sec 1548), so a host
+	 * that shows the picker in a sheet or popup closes it. */
+	void on_picked(std::function<void()> picked);
 	/* A STICKER THAT TAKES WORDS HANDED TO THE HOST AS CHOSEN, sec 1536:
 	 * its pack, id, word limit and what it is, so the host asks for the
 	 * words in its own time -- the conversation view in its composer --
@@ -127,6 +130,7 @@ private:
 	std::function<void(const QString &)> m_sound;
 	std::function<void()> m_add_packs;
 	bool m_click_sends = false;
+	std::function<void()> m_picked;
 	/* A CLICK: its sound and play, and the pick when the host asks. */
 	void clicked(QListWidgetItem *item);
 	std::function<void(const QByteArray &, quint64, int, const QString &)> m_pick_words;
