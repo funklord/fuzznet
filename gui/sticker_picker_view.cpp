@@ -50,6 +50,8 @@ extern "C" {
 /* WHAT MOVES, sec 1322: its art and format, kept to play when touched. */
 #define ROLE_MOVING (Qt::UserRole + 6)
 #define ROLE_MOVING_FORMAT (Qt::UserRole + 7)
+/* Whether its art was looked for (sec 1547). */
+#define ROLE_ART_TRIED (Qt::UserRole + 20)
 
 /* A LOOP AND HOW MANY, and a frame's time: as the log plays (sec 1300). */
 #define PLAY_LOOP_MS 2000
@@ -82,6 +84,7 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
 	m_tabs = new QTabWidget(this);
+	connect(m_tabs, &QTabWidget::currentChanged, [this](int) { (void)draw_shown(); });
 	m_tabs->setAccessibleName(tr("Sticker packs"));
 	/* FINDING A STICKER, sec 1298: by the words its pack gives it, every
 	 * kept pack at once, as the suggestion row matches a line being typed
@@ -192,6 +195,45 @@ void fzn_sticker_picker_view::on_words(std::function<bool(const QString &, int, 
 
 void fzn_sticker_picker_view::on_pick(std::function<void(const QString &)> pick) { m_pick = pick; }
 
+/* THE SHOWN TAB'S STICKERS DRAWN, each once (sec 1547): a picker with
+ * many packs fetched and rendered every pack's art at each refresh, and
+ * opened slowly (fuzzypickles' 0955Z item 4). */
+int fzn_sticker_picker_view::draw_shown()
+{
+	auto *list = qobject_cast<QListWidget *>(m_tabs->currentWidget());
+	int drawn_now = 0;
+
+	for (int i = 0; list && i < list->count(); i++) {
+		QListWidgetItem *item = list->item(i);
+		const QByteArray pack = item->data(ROLE_PACK).toByteArray();
+		uint8_t *art = nullptr;
+		size_t art_len = 0;
+		uint8_t format = 0;
+
+		if (pack.size() != 64 || item->data(ROLE_ART_TRIED).toBool() || !item->icon().isNull())
+			continue;
+		item->setData(ROLE_ART_TRIED, true);
+		/* DRAWN BY THE RENDERER, Lottie included where thorvg is built in
+		 * (sec 1151), named otherwise. */
+		if (fzn_rpc_sticker_art(&m_rpc->c, pack.constData(), 64, (uint64_t)item->data(ROLE_ID).toULongLong(),
+		                        FZN_STICKER_THUMB, ART_MAX, &art, &art_len, &format)
+		    == FZN_RPC_OK) {
+			const fzn_sticker_render_result r = fzn_sticker_render_art(art, art_len, format, QSize(64, 64));
+			if (!r.pixmap.isNull()) {
+				item->setIcon(QIcon(r.pixmap));
+				item->setData(ROLE_DRAWN, true);
+				drawn_now++;
+				if (fzn_sticker_render_frames(art, art_len, format) > 1) {
+					item->setData(ROLE_MOVING, QByteArray((const char *)art, (int)art_len));
+					item->setData(ROLE_MOVING_FORMAT, (int)format);
+				}
+			}
+		}
+		free(art);
+	}
+	return drawn_now;
+}
+
 bool fzn_sticker_picker_view::refresh()
 {
 	fzn_rpc_sticker_packs_t packs;
@@ -225,30 +267,10 @@ bool fzn_sticker_picker_view::refresh()
 			for (i = 0; i < items->count; i++) {
 				const fzn_rpc_node_sticker_item_t *s = &items->entries[i];
 				auto *item = new QListWidgetItem(said(s->description, s->description_len), list);
-				uint8_t *art = nullptr;
-				size_t art_len = 0;
-				uint8_t format = 0;
-				bool drawn = false;
-				/* DRAWN BY THE RENDERER, Lottie included where thorvg is
-				 * built in (sec 1151), named otherwise. */
-				if (fzn_rpc_sticker_art(&m_rpc->c, pack.constData(), 64, s->id, FZN_STICKER_THUMB,
-				                        ART_MAX, &art, &art_len, &format)
-				    == FZN_RPC_OK) {
-					const fzn_sticker_render_result r =
-					        fzn_sticker_render_art(art, art_len, format, QSize(64, 64));
-					if (!r.pixmap.isNull()) {
-						item->setIcon(QIcon(r.pixmap));
-						drawn = true;
-						if (fzn_sticker_render_frames(art, art_len, format) > 1) {
-							item->setData(ROLE_MOVING, QByteArray((const char *)art, (int)art_len));
-							item->setData(ROLE_MOVING_FORMAT, (int)format);
-						}
-					}
-				}
-				free(art);
+				/* ITS ART DRAWN WHEN ITS TAB IS SHOWN (sec 1547). */
 				item->setData(ROLE_PACK, pack);
 				item->setData(ROLE_ID, (qulonglong)s->id);
-				item->setData(ROLE_DRAWN, drawn);
+				item->setData(ROLE_DRAWN, false);
 				item->setData(ROLE_LIMIT, (int)s->text_limit);
 				item->setData(ROLE_DESCRIPTION, said(s->description, s->description_len));
 				item->setData(ROLE_FLAGS, (int)s->flags);
@@ -270,6 +292,7 @@ bool fzn_sticker_picker_view::refresh()
 	fzn_rpc_sticker_packs_release(&packs);
 	delete items;
 	show_recent();
+	(void)draw_shown();
 	return true;
 }
 

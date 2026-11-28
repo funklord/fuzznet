@@ -79188,3 +79188,21 @@ told apart. Said when the choice changes, not at every poll (sec 1515).
 `contacts-view-name-refilled` named a line this reshaped and was
 retargeted. Test: `contacts_view_test`. Sabotage: one new, one
 retargeted, each probed.
+
+## 1547. The picker draws the pack shown, not every pack
+
+fuzzypickles' picker comparison (inbox 20261127T0955Z, item 4): its
+picker opens fast with many packs because it draws only the pack open;
+ours fetched and rendered every pack's art at each refresh. The refresh
+now lists every pack's stickers, which is cheap, and draws a pack's art
+when its tab is shown (`draw_shown`, on the tab changing and at the end
+of a refresh). Each sticker is looked for once, so showing a tab again
+asks for nothing, and a sticker already drawn (the Recent tab's) is left.
+
+The test's fixture holds one pack, which is the tab shown, so it shows
+the drawing at the refresh and nothing asked again -- not a second pack
+staying undrawn. An entry removing the draw at the refresh's end
+survived: the first tab added already fires the tab change, which
+draws it, so it was dropped rather than kept uncatchable.
+`sticker-picker-never-drawn` named a line this moved and was
+retargeted. Sabotage: one new, one retargeted, each probed.

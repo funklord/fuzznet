@@ -454,7 +454,19 @@ int main(int argc, char **argv)
 #else
 	const char *dancing = "  dancing";
 #endif
-	CHECK(v.refresh() && v.shown() == QStringList({ "waves", "  waving [drawn]", "  thumbs up", dancing }),
+	/* DRAWN WHEN ITS TAB IS SHOWN (sec 1547): the one pack is the tab
+	 * shown, so drawn at the refresh; looked at again, or shown again, its
+	 * art is asked no more. (One pack here: a second staying undrawn
+	 * while not shown is not this fixture's to show.) */
+	CHECK(v.refresh(), "fixture: the picker refreshed");
+	{
+		const int asked = art_asked;
+		QTabWidget *tabs = v.findChild<QTabWidget *>();
+		if (tabs)
+			tabs->setCurrentIndex(tabs->currentIndex());
+		CHECK(v.draw_shown() == 0 && art_asked == asked, "a pack's art was asked again once drawn");
+	}
+	CHECK(v.shown() == QStringList({ "waves", "  waving [drawn]", "  thumbs up", dancing }),
 	      "the pack was not a tab with its stickers, the drawn ones drawn and the other named");
 	CHECK(v.pick(0, 0) && picked == REF, "choosing a sticker did not hand over its reference");
 	CHECK(!v.pick(0, 5), "a sticker that is not there was chosen");

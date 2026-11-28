@@ -72,6 +72,9 @@ public:
 	 * words in its own time -- the conversation view in its composer --
 	 * where `on_words` must answer before the pick returns. Set, it wins
 	 * over `on_words` and the picker's own row. */
+	/* A PACK'S ART DRAWN WHEN ITS TAB IS SHOWN (sec 1547), not every
+	 * pack's at each refresh. How many stickers were drawn by this look. */
+	int draw_shown();
 	void on_pick_words(std::function<void(const QByteArray &pack, quint64 id, int limit, const QString &what)> pick);
 
 	/* WHAT A PERSON DOES, public because a headless test cannot click:

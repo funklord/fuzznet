@@ -1753,6 +1753,13 @@ SABOTAGES = [
 		"a request chosen says its age, address and whole key -- sec 1546",
 	),
 	(
+		"sticker-picker-art-asked-again",
+		"gui/sticker_picker_view.cpp",
+		"\t\tif (pack.size() != 64 || item->data(ROLE_ART_TRIED).toBool() || !item->icon().isNull())\n",
+		"\t\tif (pack.size() != 64)\n",
+		"a sticker's art is asked once, not at every look -- sec 1547",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -16027,8 +16034,8 @@ SABOTAGES = [
 	(
 		"sticker-picker-never-drawn",
 		"gui/sticker_picker_view.cpp",
-		"\t\t\t\t\tif (!r.pixmap.isNull()) {\n",
-		"\t\t\t\t\tif (0 && !r.pixmap.isNull()) {\n",
+		"\t\t\tif (!r.pixmap.isNull()) {\n\t\t\t\titem->setIcon(QIcon(r.pixmap));\n",
+		"\t\t\tif (0 && !r.pixmap.isNull()) {\n\t\t\t\titem->setIcon(QIcon(r.pixmap));\n",
 		"a sticker the node renders is shown as words only -- secs 1141, 1151",
 	),
 	(
