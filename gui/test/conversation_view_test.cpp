@@ -15,6 +15,7 @@
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QMouseEvent>
 #include <QDir>
 #include <QTemporaryDir>
 #include <QElapsedTimer>
@@ -1000,6 +1001,48 @@ int main(int argc, char **argv)
 			fzn_menu_set_exec(nullptr);
 			CHECK(e.replying() == QByteArray::fromHex(ID1), "a right-click's menu did not reply to the line under it");
 			e.reply_to(QByteArray());
+			/* A PRESS HELD (sec 1541): a phone's long press opens the same
+			 * menu; a tap does not. */
+			fzn_menu_set_exec([](QMenu *menu, QWidget *, const QPoint &) -> QAction * {
+				for (QAction *a : menu->actions())
+					if (a->text() == "Reply")
+						return a;
+				return nullptr;
+			});
+			if (list && list->item(0)) {
+				const QPoint at = list->visualItemRect(list->item(0)).center();
+				QElapsedTimer held;
+				QMouseEvent down(QEvent::MouseButtonPress, at, list->viewport()->mapToGlobal(at), Qt::LeftButton,
+				                 Qt::LeftButton, Qt::NoModifier);
+				QMouseEvent up(QEvent::MouseButtonRelease, at, list->viewport()->mapToGlobal(at), Qt::LeftButton,
+				               Qt::NoButton, Qt::NoModifier);
+				QApplication::sendEvent(list->viewport(), &down);
+				QApplication::sendEvent(list->viewport(), &up);
+				held.start();
+				while (held.elapsed() < 900)
+					app.processEvents(QEventLoop::AllEvents, 50);
+				CHECK(e.replying().isEmpty(), "a tap opened a line's menu");
+				QApplication::sendEvent(list->viewport(), &down);
+				held.restart();
+				while (held.elapsed() < 900 && e.replying().isEmpty())
+					app.processEvents(QEventLoop::AllEvents, 50);
+				QApplication::sendEvent(list->viewport(), &up);
+				CHECK(e.replying() == QByteArray::fromHex(ID1), "a held press did not open the line's menu");
+			}
+			fzn_menu_set_exec(nullptr);
+			e.reply_to(QByteArray());
+			/* THE PICKER'S ADD THROUGH THE VIEW (sec 1541), and a list that
+			 * asks no more than two lines' room. */
+			{
+				int asked = 0;
+				e.on_add_packs([&asked]() { asked++; });
+				for (QPushButton *b : e.findChildren<QPushButton *>())
+					if (b->text() == "Add sticker packs")
+						b->click();
+				e.on_add_packs(nullptr);
+				CHECK(asked == 1 && list && list->minimumHeight() > 0 && list->minimumHeight() < 70,
+				      "the picker's add was not reachable through the view, or the list asked a list's own room");
+			}
 		}
 		/* TAKEN BACK, sec 1284: hal's line said so, with nothing after; this
 		 * user's own line, under an hour old and unsend on, offers Unsend. */

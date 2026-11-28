@@ -79082,3 +79082,30 @@ unknown, and the refresh says so -- after the person's kept answer is
 put back, since it is this refresh's own news.
 
 Test: `group_view_test`. Sabotage: one, probed.
+
+## 1541. A long press opens a line's menu; a phone window's room
+
+fuzzypickles hosting the conversation view at 3d637d1e (inbox
+20261127T2324Z), two gaps that blocked the swap and one smaller:
+
+- **No line menu on a phone.** Sec 1530 opened it on a context-menu
+  request, which a phone's long press never sends -- this tree met that
+  for the conversations list first. A press held 600 ms on the lines
+  without moving past the drag distance now opens the same menu where
+  it began; a release, a move or the pointer leaving lets it go. Right
+  click and hold share `open_line_menu`.
+- **The window's room.** fuzzypickles' phone window, its insets spent,
+  needs the view smaller. Measured with touch on and the notice hidden,
+  the view's minimum was 223 px: the lines' 70 of it Qt's own list
+  minimum. The lines now ask room for two lines of text (about 35 px
+  less). The notice is already hidden while it is empty; the 68 px frame
+  measured there is the notice showing something, with finger-sized
+  buttons, which stays.
+- **The picker's add hook** (sec 1533) passes through: the view's
+  `on_add_packs` sets its picker's.
+
+`conversation-view-menu-choice-dropped` named a line the shared
+function moved and was retargeted. Test: `conversation_view_test` -- a
+tap opens nothing, a held press opens the menu and replies through the
+hook, the add hook reaches the picker, the list asks less than 70 px.
+Sabotage: three new, one retargeted, each probed.

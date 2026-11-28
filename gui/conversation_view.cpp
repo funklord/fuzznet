@@ -33,6 +33,8 @@ extern "C" {
 #include <QHBoxLayout>
 #include <QHash>
 #include <QMenu>
+#include <QApplication>
+#include <QMouseEvent>
 #include <QMap>
 #include <QVector>
 #include <QIcon>
@@ -243,6 +245,8 @@ static uint64_t file_size(const QByteArray &ref)
 /* Looks for a sticker's art before it is left as its words: a minute of
  * the watch's two-second ticks (sec 1534). */
 #define FZN_ART_TRIES 30
+/* How long a press is held for a line's menu: a phone's long press. */
+#define FZN_HOLD_MS 600
 
 /* The most lines shown: the newest, as many as a conversation's screen
  * holds and a few pages more. */
@@ -432,6 +436,9 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_popup->setAttribute(Qt::WA_TransparentForMouseEvents);
 	m_popup->hide();
 	m_lines->viewport()->installEventFilter(this);
+	/* ROOM FOR TWO LINES AT LEAST, sec 1541, not a list's own 70 px: a
+	 * phone window with its insets spent has little to spare. */
+	m_lines->setMinimumHeight(2 * m_lines->fontMetrics().height() + 2 * m_lines->frameWidth());
 	m_pop = new QTimer(this);
 	m_pop->setInterval(PLAY_FRAME_MS);
 	connect(m_pop, &QTimer::timeout, [this]() { pop_frame(); });
@@ -575,18 +582,15 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	 * platform makes one a context-menu request, as the conversations
 	 * list does; through the host's hook, never a second window. */
 	m_lines->setContextMenuPolicy(Qt::CustomContextMenu);
-	connect(m_lines, &QListWidget::customContextMenuRequested, [this](const QPoint &at) {
-		const int row = m_lines->row(m_lines->itemAt(at));
-		const QStringList actions = line_actions(row);
-		if (actions.isEmpty())
-			return;
-		QMenu menu(m_lines);
-		for (const QString &a : actions)
-			menu.addAction(a)->setData(a);
-		QAction *chosen = fzn_menu_exec(&menu, m_lines, m_lines->viewport()->mapToGlobal(at));
-		if (chosen)
-			(void)line_act(row, chosen->data().toString());
-	});
+	connect(m_lines, &QListWidget::customContextMenuRequested, [this](const QPoint &at) { (void)open_line_menu(at); });
+	/* A PRESS HELD, sec 1541: a phone's long press sends no context-menu
+	 * request (fuzzypickles' 20261127T2324Z; the conversations list met it
+	 * first, its sec 235), so a press held FZN_HOLD_MS without moving
+	 * opens the menu where it began. */
+	m_hold = new QTimer(this);
+	m_hold->setSingleShot(true);
+	m_hold->setInterval(FZN_HOLD_MS);
+	connect(m_hold, &QTimer::timeout, [this]() { (void)open_line_menu(m_hold_at); });
 	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
@@ -1797,8 +1801,43 @@ void fzn_conversation_view::unpop()
 /* THE EFFECT'S FRAME, under the lines: the viewport's background is filled
  * before its paint event reaches this filter, and the lines are painted
  * after it, so the frame lies between the two. */
+bool fzn_conversation_view::open_line_menu(const QPoint &at)
+{
+	const int row = m_lines->row(m_lines->itemAt(at));
+	const QStringList actions = line_actions(row);
+	if (actions.isEmpty())
+		return false;
+	QMenu menu(m_lines);
+	for (const QString &a : actions)
+		menu.addAction(a)->setData(a);
+	QAction *chosen = fzn_menu_exec(&menu, m_lines, m_lines->viewport()->mapToGlobal(at));
+	if (chosen)
+		(void)line_act(row, chosen->data().toString());
+	return true;
+}
+
+void fzn_conversation_view::on_add_packs(std::function<void()> add) { m_picker->on_add_packs(std::move(add)); }
+
 bool fzn_conversation_view::eventFilter(QObject *watched, QEvent *event)
 {
+	/* THE HELD PRESS: begun by a left press, let go by a release, a move
+	 * past the drag distance or the pointer leaving. */
+	if (watched == m_lines->viewport() && m_hold) {
+		const QEvent::Type t = event->type();
+		if (t == QEvent::MouseButtonPress) {
+			const auto *press = static_cast<QMouseEvent *>(event);
+			if (press->button() == Qt::LeftButton) {
+				m_hold_at = press->pos();
+				m_hold->start();
+			}
+		} else if (t == QEvent::MouseMove) {
+			const auto *move = static_cast<QMouseEvent *>(event);
+			if ((move->pos() - m_hold_at).manhattanLength() > QApplication::startDragDistance())
+				m_hold->stop();
+		} else if (t == QEvent::MouseButtonRelease || t == QEvent::Leave) {
+			m_hold->stop();
+		}
+	}
 	if (event->type() == QEvent::Paint && watched == m_lines->viewport() && m_art->behind
 	    && !m_art->behind_frame.isNull()) {
 		QPainter p(m_lines->viewport());

@@ -1587,8 +1587,8 @@ SABOTAGES = [
 	(
 		"conversation-view-menu-choice-dropped",
 		"gui/conversation_view.cpp",
-		"\t\t\t(void)line_act(row, chosen->data().toString());\n",
-		"\t\t\t(void)row;\n",
+		"\t\t(void)line_act(row, chosen->data().toString());\n",
+		"\t\t(void)row;\n",
 		"a choice from a line's menu is done for the line under the press -- sec 1530",
 	),
 	(
@@ -1688,6 +1688,27 @@ SABOTAGES = [
 		"\tif (!unread.isEmpty())\n\t\tm_status->setText(unread);\n",
 		"",
 		"an unreadable earlier-lines setting is said, the roster shown -- sec 1540",
+	),
+	(
+		"conversation-view-hold-never-starts",
+		"gui/conversation_view.cpp",
+		"\t\t\t\tm_hold->start();\n",
+		"",
+		"a press held on a line opens its menu -- sec 1541",
+	),
+	(
+		"conversation-view-tap-opens-menu",
+		"gui/conversation_view.cpp",
+		"\t\t} else if (t == QEvent::MouseButtonRelease || t == QEvent::Leave) {\n",
+		"\t\t} else if (t == QEvent::Leave) {\n",
+		"a tap, released, opens no menu -- sec 1541",
+	),
+	(
+		"conversation-view-list-own-room",
+		"gui/conversation_view.cpp",
+		"\tm_lines->setMinimumHeight(2 * m_lines->fontMetrics().height() + 2 * m_lines->frameWidth());\n",
+		"",
+		"the lines ask two lines' room, not a list's own -- sec 1541",
 	),
 	(
 		"clock-words-no-hours",

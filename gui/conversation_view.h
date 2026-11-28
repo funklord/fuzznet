@@ -192,6 +192,12 @@ public:
 	 * conversations list's set_layout. A tablet a host knows is touched
 	 * is wide, and a desktop window narrow is clicked. */
 	void set_touch(int on);
+	/* THE PICKER'S "ADD STICKER PACKS" HANDED TO THE HOST, through this
+	 * view (sec 1541): its picker is its own. */
+	void on_add_packs(std::function<void()> add);
+	/* A LINE'S MENU, opened at `at` in the lines' viewport -- a right-click
+	 * or a held press (sec 1541). Whether one opened. */
+	bool open_line_menu(const QPoint &at);
 	/* A STICKER'S WORDS WRITTEN IN THE COMPOSER, sec 1536: what the
 	 * picker hands over for a sticker that takes words. The line being
 	 * written becomes its words, held to `limit`, with a bar saying so and
@@ -274,6 +280,9 @@ private:
 	/* Looks for each undrawn sticker's art, by sticker and words. */
 	QHash<QByteArray, int> m_art_tries;
 	int m_touch_pin = -1;
+	/* A PRESS HELD ON A LINE, sec 1541: its timer and where it began. */
+	QTimer *m_hold = nullptr;
+	QPoint m_hold_at;
 	/* The sticker waiting for its words, empty pack for none. */
 	QByteArray m_words_pack;
 	quint64 m_words_id = 0;
