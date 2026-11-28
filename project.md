@@ -79153,3 +79153,14 @@ before the last (a call, with no menu), and expects the reply to be to
 that line; with the point kept instead, it fails.
 
 Test: `conversation_view_test`. Sabotage: one, probed.
+
+## 1544. One click sends a sticker, by the host's word
+
+fuzzypickles' picker comparison (inbox 20261127T0955Z, item 1): in
+theirs one click sends; in ours a click plays the sticker and sending is
+activation, a double click on a desktop. That split is a decision (sec
+1322: a click is a person touching it), so it stays the default. A host
+whose people expect one click sets `set_click_sends(true)`: the click
+still plays and sounds, and then sends. Test: `sticker_picker_view_test`
+-- a click picks nothing with the switch off, and picks with it on.
+Sabotage: one, probed.

@@ -132,10 +132,7 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	/* A SCREEN READER PICKS TOO, sec 1423: its double tap only selects, and
 	 * is the one gesture it has, so it sends as activation does. */
 	fzn_choose_on_accessible_select(m_found, [this](const QModelIndex &at) { pick_item(m_found->item(at.row())); });
-	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
-		play(item);
-		sound(item);
-	});
+	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) { clicked(item); });
 	connect(m_forget, &QPushButton::clicked, [this]() {
 		const int at = pack_of_tab(m_tabs->currentIndex());
 
@@ -171,6 +168,16 @@ fzn_sticker_picker_view::~fzn_sticker_picker_view()
 void fzn_sticker_picker_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
 
 void fzn_sticker_picker_view::on_add_packs(std::function<void()> add) { m_add_packs = std::move(add); }
+
+void fzn_sticker_picker_view::set_click_sends(bool on) { m_click_sends = on; }
+
+void fzn_sticker_picker_view::clicked(QListWidgetItem *item)
+{
+	play(item);
+	sound(item);
+	if (m_click_sends)
+		(void)pick_item(item);
+}
 
 void fzn_sticker_picker_view::on_pick_words(
         std::function<void(const QByteArray &pack, quint64 id, int limit, const QString &what)> pick)
@@ -255,10 +262,7 @@ bool fzn_sticker_picker_view::refresh()
 		fzn_choose_on_accessible_select(list, [this, list](const QModelIndex &at) { pick_item(list->item(at.row())); });
 		/* A CLICK is a person touching it: its sound, where it has one;
 		 * choosing it to send stays activation. */
-		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
-			play(item);
-			sound(item);
-		});
+		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { clicked(item); });
 		list->setProperty("pack", pack);
 		m_tabs->addTab(list, said(packs.entries[p].name, packs.entries[p].name_len));
 	}
@@ -308,10 +312,7 @@ void fzn_sticker_picker_view::show_recent()
 	list->setProperty("recent", true);
 	connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
 	fzn_choose_on_accessible_select(list, [this, list](const QModelIndex &at) { pick_item(list->item(at.row())); });
-	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
-		play(item);
-		sound(item);
-	});
+	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { clicked(item); });
 	m_tabs->insertTab(0, list, tr("Recent"));
 	m_tabs->setCurrentIndex(0);
 }

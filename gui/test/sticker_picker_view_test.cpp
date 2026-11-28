@@ -539,6 +539,28 @@ int main(int argc, char **argv)
 	CHECK(!v.playing(), "a sticker played on after its tab was built again");
 #endif
 
+	/* ONE CLICK SENDS, by the host's word (sec 1544): off, a click picks
+	 * nothing; on, a click picks the sticker. */
+	{
+		QTabWidget *tabs = v.findChild<QTabWidget *>();
+		const int at = tabs && tabs->tabText(0) == "Recent" ? 1 : 0;
+		QListWidget *pack = tabs ? qobject_cast<QListWidget *>(tabs->widget(at)) : nullptr;
+		v.on_words([](const QString &, int, QString *words) {
+			*words = QStringLiteral("hi there");
+			return true;
+		});
+		picked.clear();
+		if (pack && pack->item(0))
+			pack->itemClicked(pack->item(0));
+		const bool quiet = picked.isEmpty();
+		v.set_click_sends(true);
+		if (pack && pack->item(0))
+			pack->itemClicked(pack->item(0));
+		v.set_click_sends(false);
+		v.on_words(nullptr);
+		CHECK(pack && pack->item(0) && quiet && !picked.isEmpty(),
+		      "a click picked with the switch off, or did not with it on");
+	}
 	/* "ADD STICKER PACKS" HANDED TO THE HOST (sec 1533): its hook called,
 	 * and no dialog of the picker's own. */
 	{

@@ -1732,6 +1732,13 @@ SABOTAGES = [
 		"a held press opens the menu of the line pressed, where it is now -- sec 1543",
 	),
 	(
+		"sticker-picker-click-never-sends",
+		"gui/sticker_picker_view.cpp",
+		"\tif (m_click_sends)\n\t\t(void)pick_item(item);\n",
+		"",
+		"a click sends where the host asks for one click -- sec 1544",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

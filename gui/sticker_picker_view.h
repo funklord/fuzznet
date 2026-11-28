@@ -62,6 +62,11 @@ public:
 	 * on a phone the platform's picker -- in place of the picker's file
 	 * dialog. Unset, the dialog as before. */
 	void on_add_packs(std::function<void()> add);
+	/* ONE CLICK SENDS, by the host's word (sec 1544): a click plays a
+	 * sticker and sends it at once, as fuzzypickles' picker does. Off by
+	 * default -- a click is a person touching it, and choosing it to send
+	 * is activation (sec 1322). */
+	void set_click_sends(bool on);
 	/* A STICKER THAT TAKES WORDS HANDED TO THE HOST AS CHOSEN, sec 1536:
 	 * its pack, id, word limit and what it is, so the host asks for the
 	 * words in its own time -- the conversation view in its composer --
@@ -118,6 +123,9 @@ private:
 
 	std::function<void(const QString &)> m_sound;
 	std::function<void()> m_add_packs;
+	bool m_click_sends = false;
+	/* A CLICK: its sound and play, and the pick when the host asks. */
+	void clicked(QListWidgetItem *item);
 	std::function<void(const QByteArray &, quint64, int, const QString &)> m_pick_words;
 	/* EACH STICKER'S SOUND, written once into a directory the view owns
 	 * and removes with it. */
