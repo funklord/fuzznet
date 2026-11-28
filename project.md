@@ -79164,3 +79164,12 @@ whose people expect one click sets `set_click_sends(true)`: the click
 still plays and sounds, and then sends. Test: `sticker_picker_view_test`
 -- a click picks nothing with the switch off, and picks with it on.
 Sabotage: one, probed.
+
+## 1545. The group view tells its host what changed
+
+fuzzypickles' group comparison (inbox 20261127T0950Z): with the changes
+now starting in our view, the host that lists the groups or names their
+members needs to hear of them. `on_left(group)` is told after a group is
+left; `on_members_changed(group)` after a member is added or removed or
+made or unmade an admin. Test: `group_view_test` -- three changes and a
+leave told once each. Sabotage: one, probed.

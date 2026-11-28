@@ -110,6 +110,10 @@ int main(int argc, char **argv)
 	CHECK(!v.add_member("dan") && !v.remove_member(2) && !v.set_earlier(false) && !asked[0],
 	      "a member who is no admin asked the node to change the group");
 
+	/* WHAT CHANGED, TOLD THE HOST (sec 1545). */
+	QStringList told;
+	v.on_members_changed([&told](const QString &g) { told << "members " + g; });
+	v.on_left([&told](const QString &g) { told << "left " + g; });
 	/* AN ADMIN. */
 	snprintf(members, sizeof members, "3 0 *" SELF " *bob carol");
 	CHECK(v.refresh() && v.may_change() && v.members() == QStringList({ "you (admin)", "bob (admin)", "carol" }),
@@ -142,6 +146,8 @@ int main(int argc, char **argv)
 	CHECK(v.leave() && v.members().isEmpty() && v.status() == "You left family; it is forgotten here.",
 	      "leaving was not said");
 	CHECK(strstr(asked, "remove group family\n") != nullptr, "leaving did not ask the node");
+	CHECK(told == QStringList({ "members family", "members family", "members family", "left family" }),
+	      "the host was not told of the members changed and the group left, once each");
 
 	v.set_group("family");
 	/* THE ROSTER SAYS WHAT EACH HOLDS of this host's lines (sec 1510). */

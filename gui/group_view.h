@@ -24,6 +24,8 @@
 #include <QStringList>
 #include <QWidget>
 
+#include <functional>
+
 class QCheckBox;
 class QComboBox;
 class QLabel;
@@ -33,6 +35,12 @@ struct fzn_gui_rpc;
 
 class fzn_group_view : public QWidget {
 public:
+	/* WHAT CHANGED, TOLD THE HOST (sec 1545): the changes start in this
+	 * view now, so a host that lists the groups or names their members is
+	 * told -- the group left, and its members added, removed or made or
+	 * unmade admins. */
+	void on_left(std::function<void(const QString &group)> left);
+	void on_members_changed(std::function<void(const QString &group)> changed);
 	fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
 	~fzn_group_view() override;
 
@@ -64,6 +72,7 @@ private:
 	void enable();
 
 	struct fzn_gui_rpc *m_rpc;
+	std::function<void(const QString &)> m_left, m_members_changed;
 	QString m_group;
 	bool m_admin;
 	/* Whether the earlier-lines setting was read (sec 1540). */

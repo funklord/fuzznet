@@ -1739,6 +1739,13 @@ SABOTAGES = [
 		"a click sends where the host asks for one click -- sec 1544",
 	),
 	(
+		"group-view-left-untold",
+		"gui/group_view.cpp",
+		"\tif (m_left)\n\t\tm_left(m_group);\n",
+		"",
+		"the host is told a group was left -- sec 1545",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

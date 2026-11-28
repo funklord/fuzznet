@@ -218,6 +218,8 @@ bool fzn_group_view::add_member(const QString &contact)
 	}
 	refresh();
 	m_status->setText(tr("Added %1.").arg(contact));
+	if (m_members_changed)
+		m_members_changed(m_group);
 	return true;
 }
 
@@ -235,6 +237,8 @@ bool fzn_group_view::remove_member(int row)
 	}
 	refresh();
 	m_status->setText(tr("Removed %1.").arg(name));
+	if (m_members_changed)
+		m_members_changed(m_group);
 	return true;
 }
 
@@ -256,6 +260,8 @@ bool fzn_group_view::set_admin(int row, bool make)
 	m_status->setText(needed ? tr("Asked: %1 of the %2 admins needed have asked so far.").arg(approvals).arg(needed)
 	                  : make ? tr("%1 is an admin.").arg(name)
 	                         : tr("%1 is no longer an admin.").arg(name));
+	if (m_members_changed)
+		m_members_changed(m_group);
 	return true;
 }
 
@@ -287,6 +293,8 @@ bool fzn_group_view::leave()
 		return false;
 	}
 	m_status->setText(tr("You left %1; it is forgotten here.").arg(m_group));
+	if (m_left)
+		m_left(m_group);
 	m_group.clear();
 	m_admin = false;
 	m_members->clear();
@@ -312,6 +320,13 @@ QStringList fzn_group_view::addable() const
 }
 
 bool fzn_group_view::may_change() const { return m_admin; }
+
+void fzn_group_view::on_left(std::function<void(const QString &group)> left) { m_left = std::move(left); }
+
+void fzn_group_view::on_members_changed(std::function<void(const QString &group)> changed)
+{
+	m_members_changed = std::move(changed);
+}
 
 bool fzn_group_view::earlier() const { return m_earlier->isChecked(); }
 
