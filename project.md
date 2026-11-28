@@ -79134,3 +79134,22 @@ Measured with it: the node names four grant types (`admin`, `member`,
 retargeted. Test: `hosts_view_test` -- the admin grants in the new words,
 a lapsed share grant with its date, a failed read said. Sabotage: two
 new, one retargeted, each probed.
+
+## 1543. A held press opens the menu of the line pressed
+
+fuzzypickles at 1e079377 (inbox 20261128T0031Z): the held press of sec
+1541 still opened nothing on its phone. The press chooses the line; the
+line's offer shows the notice; the notice shrinks the lines' viewport
+(755 to 681 px there); and with the list at its end the lines move up,
+so when the timer fired the point it kept lay on another row -- or none
+-- and the menu was that row's or nothing. It hit the newest lines, the
+ones most often answered.
+
+The press now keeps the line it began on, by its text, and the timer
+opens that line's menu where the line is when it fires. sec 1541's test
+did not see it: its view was never shown, so nothing shrank. The new
+check shows a view 300 px high on bob's conversation, holds the line
+before the last (a call, with no menu), and expects the reply to be to
+that line; with the point kept instead, it fails.
+
+Test: `conversation_view_test`. Sabotage: one, probed.

@@ -1029,6 +1029,35 @@ int main(int argc, char **argv)
 				QApplication::sendEvent(list->viewport(), &up);
 				CHECK(e.replying() == QByteArray::fromHex(ID1), "a held press did not open the line's menu");
 			}
+			/* THE LINE AT THE BOTTOM, shown (sec 1543): the press chooses it,
+			 * its notice shrinks the list, and the hold still opens that
+			 * line's menu -- the point alone lay on no line by then. */
+			{
+				fzn_conversation_view shown(node, nullptr);
+				shown.resize(320, 300);
+				shown.show();
+				(void)shown.open("bob");
+				app.processEvents();
+				QListWidget *lines = shown.findChild<QListWidget *>();
+				/* THE LINE BEFORE THE LAST, the last being a call with no
+				 * menu: after the shrink the point lies on the call. */
+				const int last = lines ? lines->count() - 2 : -1;
+				if (last >= 0) {
+					const QPoint at = lines->visualItemRect(lines->item(last)).center();
+					QElapsedTimer held;
+					QMouseEvent down(QEvent::MouseButtonPress, at, lines->viewport()->mapToGlobal(at), Qt::LeftButton,
+					                 Qt::LeftButton, Qt::NoModifier);
+					QMouseEvent up(QEvent::MouseButtonRelease, at, lines->viewport()->mapToGlobal(at),
+					               Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+					QApplication::sendEvent(lines->viewport(), &down);
+					held.start();
+					while (held.elapsed() < 900 && shown.replying().isEmpty())
+						app.processEvents(QEventLoop::AllEvents, 50);
+					QApplication::sendEvent(lines->viewport(), &up);
+				}
+				CHECK(last >= 0 && shown.replying() == QByteArray::fromHex(ID4),
+				      "a held press on the newest line opened no menu once its notice had shrunk the list");
+			}
 			fzn_menu_set_exec(nullptr);
 			e.reply_to(QByteArray());
 			/* THE PICKER'S ADD THROUGH THE VIEW (sec 1541), and a list that

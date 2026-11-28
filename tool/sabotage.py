@@ -1725,6 +1725,13 @@ SABOTAGES = [
 		"a failed read of the grants is said, not shown as none -- sec 1542",
 	),
 	(
+		"conversation-view-hold-by-point",
+		"gui/conversation_view.cpp",
+		"\t\t\t\t(void)open_line_menu(m_lines->visualItemRect(m_lines->item(i)).center());\n",
+		"\t\t\t\t(void)open_line_menu(m_hold_at);\n",
+		"a held press opens the menu of the line pressed, where it is now -- sec 1543",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",

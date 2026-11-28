@@ -590,7 +590,14 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_hold = new QTimer(this);
 	m_hold->setSingleShot(true);
 	m_hold->setInterval(FZN_HOLD_MS);
-	connect(m_hold, &QTimer::timeout, [this]() { (void)open_line_menu(m_hold_at); });
+	connect(m_hold, &QTimer::timeout, [this]() {
+		/* THE LINE PRESSED, WHERE IT IS NOW (sec 1543). */
+		for (int i = 0; i < m_lines->count(); i++)
+			if (m_lines->item(i)->text() == m_hold_line) {
+				(void)open_line_menu(m_lines->visualItemRect(m_lines->item(i)).center());
+				return;
+			}
+	});
 	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
@@ -1827,8 +1834,11 @@ bool fzn_conversation_view::eventFilter(QObject *watched, QEvent *event)
 		if (t == QEvent::MouseButtonPress) {
 			const auto *press = static_cast<QMouseEvent *>(event);
 			if (press->button() == Qt::LeftButton) {
+				const QListWidgetItem *pressed = m_lines->itemAt(press->pos());
 				m_hold_at = press->pos();
-				m_hold->start();
+				m_hold_line = pressed ? pressed->text() : QString();
+				if (pressed)
+					m_hold->start();
 			}
 		} else if (t == QEvent::MouseMove) {
 			const auto *move = static_cast<QMouseEvent *>(event);

@@ -283,6 +283,10 @@ private:
 	/* A PRESS HELD ON A LINE, sec 1541: its timer and where it began. */
 	QTimer *m_hold = nullptr;
 	QPoint m_hold_at;
+	/* The line pressed, by its text: the press chooses it, the notice it
+	 * offers shrinks the list, and the point no longer lies on it (sec
+	 * 1543, fuzzypickles' 20261128T0031Z). */
+	QString m_hold_line;
 	/* The sticker waiting for its words, empty pack for none. */
 	QByteArray m_words_pack;
 	quint64 m_words_id = 0;
