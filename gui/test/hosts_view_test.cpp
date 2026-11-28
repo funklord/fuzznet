@@ -10,6 +10,7 @@
 #include "../hosts_view.h"
 
 #include <QApplication>
+#include <QLabel>
 #include <QPushButton>
 
 #include <stdio.h>
@@ -45,6 +46,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		granted = 1;
 		return (size_t)snprintf(reply, cap, "ok h1 aaaa bbbb cccc\n");
 	}
+	/* A SHARE GRANT THAT LAPSED, and a read that fails (sec 1542). */
+	if (!strcmp(line, "list grant 0") && granted == 2)
+		return (size_t)snprintf(reply, cap, "ok 1 0 " PHONE ",share,1700000000,1\n");
+	if (!strcmp(line, "list grant 0") && granted == 3)
+		return (size_t)snprintf(reply, cap, "error the store refused\n");
 	if (!strcmp(line, "list grant 0"))
 		return granted ? (size_t)snprintf(reply, cap, "ok 2 0 " PHONE ",admin,0,1 %064d,admin,0,0\n", 5)
 		               : (size_t)snprintf(reply, cap, "ok 0 0\n");
@@ -129,8 +135,24 @@ int main(int argc, char **argv)
 	CHECK(v.refresh() && v.granted().isEmpty(), "a host that granted nothing listed a grant");
 	v.select(0);
 	CHECK(v.make_admin() && v.granted_chain() == "h1 aaaa bbbb cccc" && v.status().contains("phone is granted admin")
-	              && v.granted() == QStringList({ "phone", "0000000000000000 (revoked)" }),
+	              && v.granted() == QStringList({ "admin to phone, never lapsing",
+	                                              "admin to 0000000000000000, never lapsing, revoked as far as this "
+	                                              "host has heard" }),
 	      "a host made an admin did not show its chain, or the grants were not named");
+	/* EVERY AUTHORITY ISSUED (sec 1542): a share grant, lapsed, said with
+	 * its date; a read that fails said so, not as none. */
+	granted = 2;
+	CHECK(v.refresh() && v.granted().size() == 1 && v.granted().value(0).startsWith("share to phone, lapsed 20"),
+	      "a grant of another capability, lapsed, was not listed with its date");
+	granted = 3;
+	CHECK(v.refresh() && v.granted().isEmpty(), "fixture: the grants unread");
+	{
+		bool said = false;
+		for (QLabel *l : v.findChildren<QLabel *>())
+			said = said || l->text().startsWith("What this host has granted could not be read");
+		CHECK(said, "a failed read of the grants was shown as none");
+	}
+	granted = 1;
 	v.set_chain_text("h1 dddd eeee");
 	CHECK(v.apply_chain() && v.status().startsWith("Applied"), "a chain given to this host was not applied");
 	v.set_chain_text("h1 ffff");

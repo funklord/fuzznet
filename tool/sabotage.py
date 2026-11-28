@@ -1711,6 +1711,20 @@ SABOTAGES = [
 		"the lines ask two lines' room, not a list's own -- sec 1541",
 	),
 	(
+		"hosts-view-lapsed-as-current",
+		"gui/hosts_view.cpp",
+		"\t\t\t\t\tline += ((qint64)e->expires_at <= now ? tr(\", lapsed %1\") : tr(\", until %1\"))\n",
+		"\t\t\t\t\tline += (tr(\", until %1\"))\n",
+		"a grant that lapsed is said lapsed -- sec 1542",
+	),
+	(
+		"hosts-view-grants-unread-as-none",
+		"gui/hosts_view.cpp",
+		"\t\t\tm_granted->setText(tr(\"What this host has granted could not be read: %1\").arg(failed_words(m_rpc)));\n",
+		"",
+		"a failed read of the grants is said, not shown as none -- sec 1542",
+	),
+	(
 		"clock-words-no-hours",
 		"gui/clock_words.h",
 		"return s >= 3600u ?",
@@ -17977,8 +17991,8 @@ SABOTAGES = [
 	(
 		"hosts-view-revoked-grant-standing",
 		"gui/hosts_view.cpp",
-		"\t\t\t\tm_granted_said << (e->revoked ? tr(\"%1 (revoked)\").arg(who) : who);\n",
-		"\t\t\t\tm_granted_said << who;\n",
+		"\t\t\t\tif (e->revoked)\n\t\t\t\t\tline += tr(\", revoked as far as this host has heard\");\n",
+		"",
 		"a revoked admin grant is listed as standing -- sec 1157",
 	),
 	(

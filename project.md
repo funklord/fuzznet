@@ -79109,3 +79109,28 @@ function moved and was retargeted. Test: `conversation_view_test` -- a
 tap opens nothing, a held press opens the menu and replies through the
 hook, the add hook reaches the picker, the list asks less than 70 px.
 Sabotage: three new, one retargeted, each probed.
+
+## 1542. Every authority this host issued, with when and whether it stands
+
+fuzzypickles' hosts comparison (inbox 20261127T0950Z): its audit of the
+authority a host issued lists every capability type, the grantee, the
+expiry, and "revoked as far as you have heard", and keeps a failed read
+apart from none issued. Ours listed admin grants alone, with no expiry,
+and a failed read showed as "no host made an admin".
+
+Now each grant this host signed is a line: "TYPE to WHO, never lapsing"
+-- or "lapsed DATE" / "until DATE" -- with ", revoked as far as this host
+has heard" where the revocation store says so. WHO is the grantee's
+name where it is one of this user's hosts, its key's first eight bytes
+otherwise. A read that fails says so, and none issued says that.
+
+Not done: fuzzypickles also acts on a grantee that is not a registered
+host from its grant row; that wants a row to act on, which this label
+is not, and waits for the hosts view's next change.
+
+Measured with it: the node names four grant types (`admin`, `member`,
+`share`, `retention`); a grant of another name is skipped by the client.
+`hosts-view-revoked-grant-standing` named a line this replaced and was
+retargeted. Test: `hosts_view_test` -- the admin grants in the new words,
+a lapsed share grant with its date, a failed read said. Sabotage: two
+new, one retargeted, each probed.

@@ -227,27 +227,43 @@ bool fzn_hosts_view::refresh()
 		m_table->setItem((int)i, 3, new QTableWidgetItem(h->valid ? tr("yes") : tr("no")));
 	}
 	m_status->setText(hosts->count ? QString() : tr("This user has no other host yet."));
-	/* WHOM THIS HOST HAS GRANTED ADMIN, named as its hosts. */
+	/* EVERY AUTHORITY THIS HOST HAS ISSUED, sec 1542: each capability, to
+	 * whom -- named as one of this user's hosts where it is one -- until
+	 * when, and revoked as far as this host has heard. Admin alone, and a
+	 * read that failed shown as none issued, was what fuzzypickles' audit
+	 * had over ours (inbox 20261127T0950Z). */
 	{
 		auto *issued = new fzn_rpc_cap_granted_resp_t;
+		const qint64 now = QDateTime::currentSecsSinceEpoch();
 		size_t g, k;
 
 		m_granted_said.clear();
-		if (fzn_rpc_cap_granted(&m_rpc->c, issued) == FZN_RPC_OK)
+		if (fzn_rpc_cap_granted(&m_rpc->c, issued) != FZN_RPC_OK) {
+			m_granted->setText(tr("What this host has granted could not be read: %1").arg(failed_words(m_rpc)));
+		} else {
 			for (g = 0; g < issued->count; g++) {
 				const fzn_rpc_cap_granted_entry_t *e = &issued->entries[g];
 				QString who = QString::fromLatin1(QByteArray((const char *)e->grantee_pubkey, 8).toHex());
+				QString line;
 
-				if (e->type != FZN_RPC_CAP_ADMIN)
-					continue;
 				for (k = 0; k < hosts->count; k++)
 					if (!memcmp(hosts->entries[k].host_pubkey, e->grantee_pubkey, 32))
 						who = QString::fromUtf8(hosts->entries[k].name, (int)hosts->entries[k].name_len);
-				m_granted_said << (e->revoked ? tr("%1 (revoked)").arg(who) : who);
+				line = tr("%1 to %2").arg(QString::fromUtf8(fzn_rpc_capability_type_name((uint8_t)e->type)), who);
+				if (e->expires_at == FZN_RPC_CAP_NO_EXPIRY)
+					line += tr(", never lapsing");
+				else
+					line += ((qint64)e->expires_at <= now ? tr(", lapsed %1") : tr(", until %1"))
+					                .arg(QDateTime::fromSecsSinceEpoch((qint64)e->expires_at)
+					                             .toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+				if (e->revoked)
+					line += tr(", revoked as far as this host has heard");
+				m_granted_said << line;
 			}
+			m_granted->setText(m_granted_said.isEmpty() ? tr("This host has granted no authority.")
+			                                            : tr("Granted: %1.").arg(m_granted_said.join(QStringLiteral("; "))));
+		}
 		delete issued;
-		m_granted->setText(m_granted_said.isEmpty() ? tr("This host has made no host an admin.")
-		                                            : tr("Admin granted to: %1.").arg(m_granted_said.join(QStringLiteral(", "))));
 	}
 	delete hosts;
 	read_self();
