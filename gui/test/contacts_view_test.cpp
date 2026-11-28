@@ -114,6 +114,12 @@ int main(int argc, char **argv)
 	/* A REQUEST: its proposed name offered, approved under the person's. */
 	v.select_request(0);
 	CHECK(v.name() == "eve", "the proposed name was not offered as the local name");
+	/* BEFORE APPROVING (sec 1546): how long ago, from where, and the whole
+	 * key in groups of four. */
+	CHECK(v.request_detail(0).startsWith("Asked ") && v.request_detail(0).contains("day(s) ago from 10.0.0.9:48080")
+	              && v.request_detail(0).contains(". Their key: ")
+	              && v.request_detail(0).count(QLatin1Char(' ')) >= 16 && v.status() == v.request_detail(0),
+	      "a request chosen did not say its age, address and whole key");
 	/* WHAT IS BEING TYPED SURVIVES A POLL (sec 1515). */
 	v.set_name("eve_fr");
 	CHECK(v.refresh() && v.name() == "eve_fr", "a refresh wiped the name being typed");

@@ -79173,3 +79173,18 @@ members needs to hear of them. `on_left(group)` is told after a group is
 left; `on_members_changed(group)` after a member is added or removed or
 made or unmade an admin. Test: `group_view_test` -- three changes and a
 leave told once each. Sabotage: one, probed.
+
+## 1546. A contact request says its age, origin and whole key
+
+fuzzypickles' contacts comparison (inbox 20261127T0955Z, item 5): before
+approving, its window shows how long a request has waited and the
+requester's whole key, grouped. Ours showed a proposed name, a key's
+first bytes and an address. Choosing a request now says "Asked N
+day(s)/hour(s)/minute(s) ago from ADDRESS. Their key: 1234 5678 ...":
+the whole key in groups of four, to read against the card the person
+was given, which is how a request from a stranger using a known name is
+told apart. Said when the choice changes, not at every poll (sec 1515).
+
+`contacts-view-name-refilled` named a line this reshaped and was
+retargeted. Test: `contacts_view_test`. Sabotage: one new, one
+retargeted, each probed.

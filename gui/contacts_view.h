@@ -68,6 +68,9 @@ public:
 	 * offered, and the one at `row` written as this host's address -- the
 	 * card shown after. */
 	QStringList card_addresses() const;
+	/* WHAT A REQUEST'S CHOICE SAYS (sec 1546): how long ago it was asked,
+	 * from where, and the requester's whole key in groups of four. */
+	QString request_detail(int row) const;
 	bool use_card_address(int row);
 	bool add_contact(const QString &card, const QString &name);
 

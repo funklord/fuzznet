@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QClipboard>
+#include <QDateTime>
 #include <QComboBox>
 #include <QGuiApplication>
 #include <QLabel>
@@ -246,6 +247,31 @@ bool fzn_contacts_view::offer_card_addresses(const QString &refused)
 	return true;
 }
 
+QString fzn_contacts_view::request_detail(int row) const
+{
+	if (row < 0 || row >= m_keys->request.size() || !m_requests->item(row, 0))
+		return QString();
+	const qint64 at = (qint64)m_requests->item(row, 0)->data(Qt::UserRole).toULongLong();
+	const qint64 waited = at ? QDateTime::currentSecsSinceEpoch() - at : -1;
+	const QString hex = QString::fromLatin1(m_keys->request.at(row).toHex());
+	QStringList groups;
+	QString when;
+
+	for (int i = 0; i < hex.size(); i += 4)
+		groups << hex.mid(i, 4);
+	if (waited < 0)
+		when = tr("Asked at a time not known");
+	else if (waited < 3600)
+		when = tr("Asked %n minute(s) ago", nullptr, (int)(waited / 60));
+	else if (waited < 86400)
+		when = tr("Asked %n hour(s) ago", nullptr, (int)(waited / 3600));
+	else
+		when = tr("Asked %n day(s) ago", nullptr, (int)(waited / 86400));
+	const QString from = m_requests->item(row, 2) ? m_requests->item(row, 2)->text() : QString();
+	return tr("%1%2. Their key: %3").arg(when, from.isEmpty() ? QString() : tr(" from %1").arg(from),
+	                                      groups.join(QLatin1Char(' ')));
+}
+
 QStringList fzn_contacts_view::card_addresses() const
 {
 	QStringList out;
@@ -345,6 +371,8 @@ bool fzn_contacts_view::refresh()
 		                                               (int)r->proposed_display_name_len)
 		                           : tr("(no name given)");
 		m_requests->setItem((int)i, 0, new QTableWidgetItem(proposed));
+		/* WHEN IT CAME, for what a request's choice says (sec 1546). */
+		m_requests->item((int)i, 0)->setData(Qt::UserRole, (qulonglong)r->received_at);
 		m_requests->setItem((int)i, 1, new QTableWidgetItem(short_key(r->requester_host_pubkey)));
 		m_requests->setItem((int)i, 2,
 		                    new QTableWidgetItem(QString::fromUtf8(r->address, (int)r->address_len)));
@@ -414,8 +442,13 @@ void fzn_contacts_view::select_request(int row)
 		/* FILLED WHEN THE CHOICE CHANGES (sec 1515), not at every poll's
 		 * restore, which wiped a half-typed name. */
 		const QString key = QStringLiteral("r") + m_keys->request.at(row).toHex();
-		if (key != m_name_for)
+		if (key != m_name_for) {
 			m_name->setText(proposed == tr("(no name given)") ? QString() : proposed);
+			/* BEFORE APPROVING, sec 1546: how long it has waited, where it
+			 * came from, and the whole key, in groups to read against
+			 * the card they were given -- fuzzypickles' 0955Z item 5. */
+			m_status->setText(request_detail(row));
+		}
 		m_name_for = key;
 	}
 	m_approve->setEnabled(chosen);

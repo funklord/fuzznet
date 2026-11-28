@@ -1363,8 +1363,8 @@ SABOTAGES = [
 	(
 		"contacts-view-name-refilled",
 		"gui/contacts_view.cpp",
-		"\t\tif (key != m_name_for)\n\t\t\tm_name->setText(proposed",
-		"\t\tif (1)\n\t\t\tm_name->setText(proposed",
+		"\t\tif (key != m_name_for) {\n\t\t\tm_name->setText(proposed",
+		"\t\tif (1) {\n\t\t\tm_name->setText(proposed",
 		"a refresh does not wipe the name being typed -- sec 1515",
 	),
 	(
@@ -1744,6 +1744,13 @@ SABOTAGES = [
 		"\tif (m_left)\n\t\tm_left(m_group);\n",
 		"",
 		"the host is told a group was left -- sec 1545",
+	),
+	(
+		"contacts-view-request-unexplained",
+		"gui/contacts_view.cpp",
+		"\t\t\tm_status->setText(request_detail(row));\n",
+		"",
+		"a request chosen says its age, address and whole key -- sec 1546",
 	),
 	(
 		"clock-words-no-hours",
